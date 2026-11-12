@@ -1,4 +1,5 @@
 import AppKit
+import SwiftTreeSitter
 import SwiftUI
 
 /// SwiftUI wrapper around a TextKit 2 `NSTextView`. TextKit 2 lays out only the
@@ -76,8 +77,8 @@ final class EditorController: NSObject {
             guard let self else { return }
             textView.window?.makeFirstResponder(textView)
             self.restoreViewState()
-            self.refreshHighlights(force: true)
             self.document.editor = self
+            self.document.highlighter?.client = self
         }
         return containerView
     }
@@ -191,39 +192,13 @@ final class EditorController: NSObject {
         gutterView.needsDisplay = true
     }
 
-    /// Applies syntax colors to the visible lines plus one screen of overscan above and below.
-    /// Uses TextKit 2 rendering attributes: they only affect drawing, so the text storage
-    /// isn't edited and no layout is invalidated.
+    /// Asks for syntax colors when the viewport moved outside the highlighted range (or always,
+    /// with `force`). Highlights are computed in the background and arrive in `applyHighlights`.
     func refreshHighlights(force: Bool) {
-        guard let highlighter = document.highlighter,
-              let layoutManager = textView.textLayoutManager,
-              let contentManager = layoutManager.textContentManager,
-              let visible = visibleCharacterRange() else { return }
-
-        if !force, let highlightedRange,
+        guard let highlighter = document.highlighter else { return }
+        if !force, let highlightedRange, let visible = visibleCharacterRange(),
            NSIntersectionRange(highlightedRange, visible) == visible { return }
-
-        let lineIndex = document.lineIndex
-        let firstLine = lineIndex.line(containing: visible.location)
-        let lastLine = lineIndex.line(containing: NSMaxRange(visible))
-        let overscan = max(lastLine - firstLine, 20)
-        let startLine = max(0, firstLine - overscan)
-        let endLine = lastLine + overscan + 1
-        let length = document.textStorage.length
-        let start = lineIndex.lineStarts[startLine]
-        let end = endLine < lineIndex.lineCount ? lineIndex.lineStarts[endLine] : length
-        let range = NSRange(location: start, length: end - start)
-
-        guard let fullTextRange = textRange(for: range, in: contentManager) else { return }
-        layoutManager.removeRenderingAttribute(.foregroundColor, for: fullTextRange)
-        for highlight in highlighter.highlights(in: range) {
-            let clipped = NSIntersectionRange(highlight.range, range)
-            guard clipped.length > 0,
-                  let color = EditorTheme.color(forCapture: highlight.name),
-                  let textRange = textRange(for: clipped, in: contentManager) else { continue }
-            layoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
-        }
-        highlightedRange = range
+        highlighter.requestHighlights()
     }
 
     /// The range the text view's viewport pass laid out (visible area plus TextKit's overdraw).
@@ -251,9 +226,9 @@ extension EditorController: NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
+        // Highlighting is rescheduled by the document's edit observer.
         gutterView.updateWidth()
         gutterView.needsDisplay = true
-        refreshHighlights(force: true)
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -270,5 +245,39 @@ final class CodeTextView: NSTextView {
     override func layout() {
         super.layout()
         onLayout?()
+    }
+}
+
+extension EditorController: SyntaxHighlighterClient {
+    /// Visible lines plus one screen of overscan above and below.
+    var highlightRange: NSRange? {
+        guard textView != nil, let visible = visibleCharacterRange() else { return nil }
+        let lineIndex = document.lineIndex
+        let firstLine = lineIndex.line(containing: visible.location)
+        let lastLine = lineIndex.line(containing: NSMaxRange(visible))
+        let overscan = max(lastLine - firstLine, 20)
+        let startLine = max(0, firstLine - overscan)
+        let endLine = lastLine + overscan + 1
+        let start = lineIndex.lineStarts[startLine]
+        let end = endLine < lineIndex.lineCount ? lineIndex.lineStarts[endLine] : document.textStorage.length
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// Applied as TextKit 2 rendering attributes: they only affect drawing, so the text storage
+    /// isn't edited and no layout is invalidated.
+    func applyHighlights(_ highlights: [NamedRange], in range: NSRange) {
+        guard let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager,
+              NSMaxRange(range) <= document.textStorage.length,
+              let fullTextRange = textRange(for: range, in: contentManager) else { return }
+        layoutManager.removeRenderingAttribute(.foregroundColor, for: fullTextRange)
+        for highlight in highlights {
+            let clipped = NSIntersectionRange(highlight.range, range)
+            guard clipped.length > 0,
+                  let color = EditorTheme.color(forCapture: highlight.name),
+                  let textRange = textRange(for: clipped, in: contentManager) else { continue }
+            layoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
+        }
+        highlightedRange = range
     }
 }

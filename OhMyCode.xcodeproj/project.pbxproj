@@ -41,6 +41,7 @@
 		E2972D4DDC0AF619518EA175 /* TreeSitterGo in Frameworks */ = {isa = PBXBuildFile; productRef = 249C0FB551E41D055CAFFC10 /* TreeSitterGo */; };
 		E72CA92B347F45B1F4297AED /* OhMyCodeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECE0378D95499508CFB1DBD0 /* OhMyCodeApp.swift */; };
 		EA3D8BD5DFA35B0EE66666F4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0904DB3A510F9C7C5F22D8FE /* SettingsView.swift */; };
+		EA717E0291A16C24559EA32B /* SyntaxEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61A794578540942D2357BE54 /* SyntaxEngine.swift */; };
 		EF0AF94F1D1E95FC69096C48 /* PaletteModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93015393E54CC5284AD91618 /* PaletteModel.swift */; };
 		F0CE384F222A160A7BAEB5AF /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6163A12092027D9DED0CC99 /* Workspace.swift */; };
 		F91C6A39A5D20B2F37F385DF /* FileWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCCA5F034FB1A1D75C15F673 /* FileWatcher.swift */; };
@@ -66,6 +67,7 @@
 		3CDE3A5D42C75E7127F24122 /* EditorDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorDocument.swift; sourceTree = "<group>"; };
 		4F973E946D73AF21BFAE0D75 /* LineIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineIndex.swift; sourceTree = "<group>"; };
 		56E3DC7C8474D02E52D8006C /* GrammarRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrammarRegistry.swift; sourceTree = "<group>"; };
+		61A794578540942D2357BE54 /* SyntaxEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxEngine.swift; sourceTree = "<group>"; };
 		63C0BDA667585BA6CF3CCCE0 /* FileWatchingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatchingTests.swift; sourceTree = "<group>"; };
 		6C6DC7EAB94EABAD4CADAAA5 /* OhMyCodeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OhMyCodeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6FB8339443B219FB68634B94 /* OhMyCode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OhMyCode.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -214,6 +216,7 @@
 			isa = PBXGroup;
 			children = (
 				56E3DC7C8474D02E52D8006C /* GrammarRegistry.swift */,
+				61A794578540942D2357BE54 /* SyntaxEngine.swift */,
 				2E9560FF32AB8A6EEED5F92B /* SyntaxHighlighter.swift */,
 			);
 			path = Syntax;
@@ -366,6 +369,7 @@
 				EA3D8BD5DFA35B0EE66666F4 /* SettingsView.swift in Sources */,
 				044DA0A3099C7DFA46352B52 /* SourceLanguage.swift in Sources */,
 				530DE8347F8920C0C4DB8772 /* StatusBarView.swift in Sources */,
+				EA717E0291A16C24559EA32B /* SyntaxEngine.swift in Sources */,
 				5E1ACBA53D005D216ADBACA8 /* SyntaxHighlighter.swift in Sources */,
 				D86FB78730A855286043A1FF /* TabBarView.swift in Sources */,
 				C6CBA1171534B6D1B3BF508F /* WelcomeView.swift in Sources */,

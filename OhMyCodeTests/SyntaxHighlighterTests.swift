@@ -25,11 +25,11 @@ struct SyntaxHighlighterTests {
         #expect(GrammarRegistry.grammar(for: language) != nil)
     }
 
-    @Test func highlightsSwift() throws {
+    @Test func highlightsSwift() async throws {
         let text = "let greeting = \"hi\" // note\nfunc run() {}\n"
         let document = try makeDocument(text)
         let highlighter = try #require(document.highlighter)
-        let found = names(highlighter.highlights(in: NSRange(location: 0, length: (text as NSString).length)), in: text)
+        let found = names(await highlighter.highlights(in: NSRange(location: 0, length: (text as NSString).length)), in: text)
 
         #expect(found["let"]?.contains { $0.hasPrefix("keyword") } == true)
         #expect(found["\"hi\""]?.contains { $0.hasPrefix("string") } == true
@@ -39,7 +39,7 @@ struct SyntaxHighlighterTests {
     }
 
     /// Incremental reparsing must give the same highlights as parsing the final text from scratch.
-    @Test func incrementalParseMatchesFreshParse() throws {
+    @Test func incrementalParseMatchesFreshParse() async throws {
         let document = try makeDocument("struct A {\n    var x = 1\n}\n")
         let pieces = ["let ", "\"", "//", "\n", "func f() {}", "}", "{", " 42", "/* c */", "x"]
         for _ in 0..<300 {
@@ -51,8 +51,8 @@ struct SyntaxHighlighterTests {
         }
         let text = document.textStorage.string
         let full = NSRange(location: 0, length: (text as NSString).length)
-        let incremental = try #require(document.highlighter).highlights(in: full)
-        let fresh = try #require(try makeDocument(text).highlighter).highlights(in: full)
+        let incremental = await (try #require(document.highlighter)).highlights(in: full)
+        let fresh = await (try #require(try makeDocument(text).highlighter)).highlights(in: full)
         #expect(incremental == fresh)
     }
 
@@ -61,7 +61,7 @@ struct SyntaxHighlighterTests {
     }
 
     /// Renders the editor into a bitmap and checks syntax colors are actually drawn.
-    @Test func colorsAreRendered() throws {
+    @Test func colorsAreRendered() async throws {
         let text = (1...200).map { "let value\($0) = \"text\" // comment" }.joined(separator: "\n")
         let document = try makeDocument(text)
         let controller = EditorController(document: document)
@@ -72,7 +72,8 @@ struct SyntaxHighlighterTests {
         window.contentView = editorView
         window.layoutIfNeeded()
         controller.textView.layoutSubtreeIfNeeded()
-        controller.refreshHighlights(force: true)
+        document.highlighter?.client = controller
+        await document.highlighter?.waitUntilIdle()
         controller.textView.layoutSubtreeIfNeeded()
 
         // Capture the whole editor (gutter + scroll view), not just the text view: a gutter
@@ -129,7 +130,24 @@ struct SyntaxHighlighterTests {
         #expect(textPixels > 500, "no text drawn right of the gutter")
     }
 
-    @Test func performanceOnLargeFile() throws {
+    /// Edits made while a parse is in flight are batched into the next job and the final tree
+    /// matches the final text.
+    @Test func editsDuringBackgroundParseAreNotLost() async throws {
+        let document = try makeDocument(String(repeating: "let a = 1\n", count: 20_000))
+        let highlighter = try #require(document.highlighter)
+        for i in 0..<50 {
+            // Don't await between edits: they land while earlier jobs are still running.
+            document.textStorage.replaceCharacters(in: NSRange(location: i * 3, length: 0), with: "\"//")
+        }
+        let length = document.textStorage.length
+        let full = NSRange(location: 0, length: length)
+        let incremental = await highlighter.highlights(in: full)
+        let fresh = await (try #require(try makeDocument(document.textStorage.string).highlighter)).highlights(in: full)
+        #expect(incremental == fresh)
+    }
+
+    /// Typing must stay off the parser: the main thread only records edits.
+    @Test func performanceOnLargeFile() async throws {
         let unit = """
         struct Item\u{24}N: Codable {
             let id: Int
@@ -139,27 +157,34 @@ struct SyntaxHighlighterTests {
 
         """
         let text = (0..<10_000).map { unit.replacingOccurrences(of: "\u{24}N", with: String($0)) }.joined()
-
         let clock = ContinuousClock()
+
         var document: EditorDocument!
         let openTime = try clock.measure { document = try makeDocument(text) }
         let highlighter = try #require(document.highlighter)
+        let initialParse = await clock.measure { await highlighter.waitUntilIdle() }
 
         let middle = document.textStorage.length / 2
-        let editTime = clock.measure {
-            for i in 0..<100 {
+        var worstEdit = Duration.zero
+        var totalEdit = Duration.zero
+        for i in 0..<100 {
+            let edit = clock.measure {
                 document.textStorage.replaceCharacters(in: NSRange(location: middle + i, length: 0), with: "x")
             }
+            totalEdit += edit
+            worstEdit = max(worstEdit, edit)
+            if i % 10 == 0 { await Task.yield() } // let some background jobs interleave
         }
-        let queryTime = clock.measure {
-            _ = highlighter.highlights(in: NSRange(location: middle, length: 8_000))
-        }
+        let catchUp = await clock.measure { await highlighter.waitUntilIdle() }
+        let query = await clock.measure { _ = await highlighter.highlights(in: NSRange(location: middle, length: 8_000)) }
 
-        print("PERF lines=\(document.lineCount) open=\(openTime) per edit=\(editTime / 100) viewport query=\(queryTime)")
+        print("PERF lines=\(document.lineCount) open(main)=\(openTime) initialParse(bg)=\(initialParse) "
+              + "edit(main) avg=\(totalEdit / 100) worst=\(worstEdit) catchUp(bg)=\(catchUp) viewportQuery(bg)=\(query)")
         #if !DEBUG // Timing budgets only mean something with optimizations on (tree-sitter is C, -O0 in Debug).
-        #expect(openTime < .seconds(1))
-        #expect(editTime / 100 < .milliseconds(16), "each keystroke must fit in one frame")
-        #expect(queryTime < .milliseconds(16))
+        #expect(openTime < .milliseconds(100), "opening must not wait for the parser")
+        #expect(totalEdit / 100 < .milliseconds(1), "a keystroke must cost the main thread well under 1ms")
+        #expect(worstEdit < .milliseconds(8), "no keystroke may miss a 120Hz frame")
+        #expect(initialParse < .seconds(1))
         #endif
     }
 }

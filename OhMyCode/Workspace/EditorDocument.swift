@@ -72,7 +72,7 @@ final class EditorDocument: Identifiable {
         self.url = url
         self.language = SourceLanguage(fileExtension: url.pathExtension)
         self.textStorage = NSTextStorage(string: text, attributes: EditorTheme.baseAttributes)
-        self.lineIndex = LineIndex(string: textStorage.string as NSString)
+        self.lineIndex = LineIndex(string: textStorage.mutableString)
         self.lineCount = lineIndex.lineCount
         self.highlighter = SyntaxHighlighter(language: language, textStorage: textStorage)
 
@@ -102,7 +102,7 @@ final class EditorDocument: Identifiable {
         guard let data = try? Data(contentsOf: url), !data.prefix(8192).contains(0),
               let text = String(data: data, encoding: .utf8) else { return }
         diskModificationDate = date
-        guard text != textStorage.string else { return }
+        guard text != textStorage.mutableString as String else { return }
 
         let selection = editor?.textView.selectedRange()
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length),
@@ -142,9 +142,10 @@ final class EditorDocument: Identifiable {
         let startPoint = point(at: start)
         let oldEndPoint = point(at: oldEnd)
 
-        lineIndex.apply(editedRange: range, changeInLength: delta, in: textStorage.string as NSString)
+        // `mutableString`, not `string`: bridging `string` to Swift copies the whole text.
+        lineIndex.apply(editedRange: range, changeInLength: delta, in: textStorage.mutableString)
 
-        highlighter?.applyEdit(InputEdit(
+        highlighter?.didEdit(InputEdit(
             startByte: start * 2, oldEndByte: oldEnd * 2, newEndByte: newEnd * 2,
             startPoint: startPoint, oldEndPoint: oldEndPoint, newEndPoint: point(at: newEnd)
         ))
