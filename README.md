@@ -18,3 +18,10 @@ open OhMyCode.xcodeproj
 xcodebuild -scheme OhMyCode -destination 'platform=macOS' build
 xcodebuild -scheme OhMyCode -destination 'platform=macOS' test
 ```
+
+## Third-party libraries
+- [libghostty-vt](https://github.com/ghostty-org/ghostty) 1.0.1 (MIT): terminal emulation for
+  the integrated terminal. Prebuilt XCFramework from `release.files.ghostty.org`, pinned by
+  checksum in `Packages/GhosttyVt/Package.swift`.
+- [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter) and tree-sitter grammars
+  (MIT): syntax highlighting.

@@ -14,6 +14,10 @@ final class Workspace {
     /// Most recently opened first.
     private(set) var recentFiles: [URL] = []
     private(set) var palette: PaletteModel?
+    private(set) var terminal: TerminalSession?
+    private(set) var isTerminalVisible = false
+    /// Bumped to move keyboard focus into the terminal.
+    private(set) var terminalFocusRequest = 0
     @ObservationIgnored private var indexTask: Task<Void, Never>?
     @ObservationIgnored private var watcher: FileWatcher?
     /// Root as FSEvents reports paths (symlinks resolved).
@@ -47,6 +51,9 @@ final class Workspace {
         recentFiles.removeAll()
         fileIndex = nil
         rebuildFileIndex()
+        terminal?.terminate()
+        terminal = nil
+        isTerminalVisible = false
 
         canonicalRootPath = FileWatcher.canonicalPath(url)
         watcher = FileWatcher(path: canonicalRootPath) { [weak self] events in
@@ -111,6 +118,40 @@ final class Workspace {
         }
         for document in documents where changedPaths.contains(FileWatcher.canonicalPath(document.url)) {
             document.reloadFromDiskIfChanged()
+        }
+    }
+
+    // MARK: Terminal
+
+    func toggleTerminal() {
+        if isTerminalVisible {
+            isTerminalVisible = false
+            activeDocument?.editor?.focus()
+        } else {
+            showTerminal()
+        }
+    }
+
+    func showTerminal() {
+        if terminal == nil { terminal = makeTerminal() }
+        guard terminal != nil else { return }
+        isTerminalVisible = true
+        terminalFocusRequest += 1
+    }
+
+    func restartTerminal() {
+        terminal?.terminate()
+        terminal = makeTerminal()
+        isTerminalVisible = terminal != nil
+        terminalFocusRequest += 1
+    }
+
+    private func makeTerminal() -> TerminalSession? {
+        do {
+            return try TerminalSession(directory: rootURL ?? FileManager.default.homeDirectoryForCurrentUser)
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
         }
     }
 

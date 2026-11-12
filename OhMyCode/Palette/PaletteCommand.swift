@@ -35,6 +35,10 @@ struct PaletteCommand: Identifiable {
         PaletteCommand(id: "view.previousEditor", title: "View: Previous Editor", icon: "chevron.left",
                        shortcut: "⌥⌘←",
                        isAvailable: { $0.documents.count > 1 }, perform: { $0.selectAdjacentDocument(offset: -1) }),
+        PaletteCommand(id: "view.toggleTerminal", title: "View: Toggle Terminal", icon: "terminal", shortcut: "⌃`",
+                       isAvailable: { $0.rootNode != nil }, perform: { $0.toggleTerminal() }),
+        PaletteCommand(id: "terminal.restart", title: "Terminal: Restart", icon: "arrow.clockwise", shortcut: nil,
+                       isAvailable: { $0.terminal != nil }, perform: { $0.restartTerminal() }),
         PaletteCommand(id: "view.toggleSidebar", title: "View: Toggle Sidebar", icon: "sidebar.left", shortcut: "⌃⌘S",
                        isAvailable: { $0.rootNode != nil },
                        perform: { _ in

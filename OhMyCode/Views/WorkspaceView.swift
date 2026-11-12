@@ -11,19 +11,13 @@ struct WorkspaceView: View {
             }
         } detail: {
             VStack(spacing: 0) {
-                if !workspace.documents.isEmpty {
-                    TabBarView(workspace: workspace)
-                    Divider()
-                }
-                if let document = workspace.activeDocument {
-                    CodeEditorView(document: document)
-                        .id(document.id)
-                } else {
-                    ContentUnavailableView(
-                        "No Open Editors",
-                        systemImage: "doc.text",
-                        description: Text("Select a file in the sidebar to open it.")
-                    )
+                VSplitView {
+                    editorArea
+                        .frame(minHeight: 120)
+                    if workspace.isTerminalVisible, let terminal = workspace.terminal {
+                        TerminalPanel(workspace: workspace, session: terminal)
+                            .frame(minHeight: 90, idealHeight: 260)
+                    }
                 }
                 Divider()
                 StatusBarView(document: workspace.activeDocument)
@@ -31,5 +25,24 @@ struct WorkspaceView: View {
         }
         .navigationTitle(workspace.displayName)
         .navigationSubtitle(workspace.activeDocument?.fileName ?? "")
+    }
+
+    private var editorArea: some View {
+        VStack(spacing: 0) {
+            if !workspace.documents.isEmpty {
+                TabBarView(workspace: workspace)
+                Divider()
+            }
+            if let document = workspace.activeDocument {
+                CodeEditorView(document: document)
+                    .id(document.id)
+            } else {
+                ContentUnavailableView(
+                    "No Open Editors",
+                    systemImage: "doc.text",
+                    description: Text("Select a file in the sidebar to open it.")
+                )
+            }
+        }
     }
 }

@@ -37,6 +37,17 @@ struct WorkspaceCommands: Commands {
         // ⌘P belongs to Quick Open, as in other code editors.
         CommandGroup(replacing: .printItem) {}
 
+        CommandMenu("Terminal") {
+            Button(workspace?.isTerminalVisible == true ? "Hide Terminal" : "Show Terminal") {
+                workspace?.toggleTerminal()
+            }
+            .keyboardShortcut("`", modifiers: .control)
+            .disabled(workspace?.rootNode == nil)
+
+            Button("Restart Terminal") { workspace?.restartTerminal() }
+                .disabled(workspace?.terminal == nil)
+        }
+
         CommandMenu("Go") {
             Button("Go to File…") { workspace?.showPalette(.files) }
                 .keyboardShortcut("p")
