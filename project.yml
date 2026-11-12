@@ -1,0 +1,57 @@
+name: OhMyCode
+options:
+  bundleIdPrefix: dev.zerovoid99
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+targets:
+  OhMyCode:
+    type: application
+    platform: macOS
+    sources:
+      - OhMyCode
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.zerovoid99.ohmycode
+        PRODUCT_NAME: Oh My Code
+        INFOPLIST_KEY_CFBundleDisplayName: Oh My Code
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: OhMyCode/OhMyCode.entitlements
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        COMBINE_HIDPI_IMAGES: YES
+  OhMyCodeTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - OhMyCodeTests
+    dependencies:
+      - target: OhMyCode
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.zerovoid99.ohmycode.tests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Oh My Code.app/Contents/MacOS/Oh My Code"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+schemes:
+  OhMyCode:
+    build:
+      targets:
+        OhMyCode: all
+        OhMyCodeTests: [test]
+    test:
+      targets:
+        - OhMyCodeTests

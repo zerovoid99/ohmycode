@@ -1,0 +1,463 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0396A1DA3E5381309FFCE4C4 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5437E516D83096B722DC1B6D /* ContentView.swift */; };
+		6105FE260A7E5F1D19248F68 /* OhMyCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95DB07857625F52A05770C90 /* OhMyCodeTests.swift */; };
+		8DE8BE5D6654BDB6C1BF6D03 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A7C9D84FAB6E84ED23CE13AC /* Assets.xcassets */; };
+		E72CA92B347F45B1F4297AED /* OhMyCodeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECE0378D95499508CFB1DBD0 /* OhMyCodeApp.swift */; };
+		EA3D8BD5DFA35B0EE66666F4 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0904DB3A510F9C7C5F22D8FE /* SettingsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1F28D1D255D3826609C796A3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 6123663D037E9F9311DBD1CA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = ADB1C7FACF3DCBE52493B4F1;
+			remoteInfo = OhMyCode;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		0904DB3A510F9C7C5F22D8FE /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		5437E516D83096B722DC1B6D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		6C6DC7EAB94EABAD4CADAAA5 /* OhMyCodeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OhMyCodeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		6FB8339443B219FB68634B94 /* OhMyCode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OhMyCode.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		859EF35AC76909181C5071A2 /* OhMyCode.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OhMyCode.entitlements; sourceTree = "<group>"; };
+		95DB07857625F52A05770C90 /* OhMyCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OhMyCodeTests.swift; sourceTree = "<group>"; };
+		A7C9D84FAB6E84ED23CE13AC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		ECE0378D95499508CFB1DBD0 /* OhMyCodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OhMyCodeApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		32D68F98018ECF3507813DFE /* App */ = {
+			isa = PBXGroup;
+			children = (
+				ECE0378D95499508CFB1DBD0 /* OhMyCodeApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		4B65CF83DAB3EAD06F85F2A2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6FB8339443B219FB68634B94 /* OhMyCode.app */,
+				6C6DC7EAB94EABAD4CADAAA5 /* OhMyCodeTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		61EE32452D48C8EBCC38D724 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				5437E516D83096B722DC1B6D /* ContentView.swift */,
+				0904DB3A510F9C7C5F22D8FE /* SettingsView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		62E936D0F14C621F151D072E /* OhMyCodeTests */ = {
+			isa = PBXGroup;
+			children = (
+				95DB07857625F52A05770C90 /* OhMyCodeTests.swift */,
+			);
+			path = OhMyCodeTests;
+			sourceTree = "<group>";
+		};
+		7FCCF6589EF07CA1B2FD72E9 /* OhMyCode */ = {
+			isa = PBXGroup;
+			children = (
+				859EF35AC76909181C5071A2 /* OhMyCode.entitlements */,
+				32D68F98018ECF3507813DFE /* App */,
+				DF056175890E468DEFF2253B /* Resources */,
+				61EE32452D48C8EBCC38D724 /* Views */,
+			);
+			path = OhMyCode;
+			sourceTree = "<group>";
+		};
+		DF056175890E468DEFF2253B /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A7C9D84FAB6E84ED23CE13AC /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		FB980F88BABEF891A007B8A8 = {
+			isa = PBXGroup;
+			children = (
+				7FCCF6589EF07CA1B2FD72E9 /* OhMyCode */,
+				62E936D0F14C621F151D072E /* OhMyCodeTests */,
+				4B65CF83DAB3EAD06F85F2A2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		11688942ABDA8D17CD261FCF /* OhMyCodeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 655573B2E12F38AB32F496E9 /* Build configuration list for PBXNativeTarget "OhMyCodeTests" */;
+			buildPhases = (
+				8883111248D5D1CE2F99156C /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A148FCACE5719E327B07467C /* PBXTargetDependency */,
+			);
+			name = OhMyCodeTests;
+			packageProductDependencies = (
+			);
+			productName = OhMyCodeTests;
+			productReference = 6C6DC7EAB94EABAD4CADAAA5 /* OhMyCodeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		ADB1C7FACF3DCBE52493B4F1 /* OhMyCode */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 03B0ED6942EB23FA918A11BA /* Build configuration list for PBXNativeTarget "OhMyCode" */;
+			buildPhases = (
+				04632932F9E747FC8501529C /* Sources */,
+				4AF9E81F78EFA853C94681C0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OhMyCode;
+			packageProductDependencies = (
+			);
+			productName = OhMyCode;
+			productReference = 6FB8339443B219FB68634B94 /* OhMyCode.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		6123663D037E9F9311DBD1CA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					11688942ABDA8D17CD261FCF = {
+						DevelopmentTeam = "";
+					};
+					ADB1C7FACF3DCBE52493B4F1 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = A2707F22ACD0228A520CD6FC /* Build configuration list for PBXProject "OhMyCode" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = FB980F88BABEF891A007B8A8;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 4B65CF83DAB3EAD06F85F2A2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				ADB1C7FACF3DCBE52493B4F1 /* OhMyCode */,
+				11688942ABDA8D17CD261FCF /* OhMyCodeTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		4AF9E81F78EFA853C94681C0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8DE8BE5D6654BDB6C1BF6D03 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		04632932F9E747FC8501529C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0396A1DA3E5381309FFCE4C4 /* ContentView.swift in Sources */,
+				E72CA92B347F45B1F4297AED /* OhMyCodeApp.swift in Sources */,
+				EA3D8BD5DFA35B0EE66666F4 /* SettingsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8883111248D5D1CE2F99156C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6105FE260A7E5F1D19248F68 /* OhMyCodeTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A148FCACE5719E327B07467C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = ADB1C7FACF3DCBE52493B4F1 /* OhMyCode */;
+			targetProxy = 1F28D1D255D3826609C796A3 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2856074ECC4505F44E7D03EF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		53A9BB6FC60EE464342EAA99 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = OhMyCode/OhMyCode.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Oh My Code";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.zerovoid99.ohmycode;
+				PRODUCT_NAME = "Oh My Code";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		CA1C3D4A5DD4B2378BF2FB09 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = OhMyCode/OhMyCode.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Oh My Code";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.zerovoid99.ohmycode;
+				PRODUCT_NAME = "Oh My Code";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		D542389F5C41FC914F499DA0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.zerovoid99.ohmycode.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Oh My Code.app/Contents/MacOS/Oh My Code";
+			};
+			name = Debug;
+		};
+		D99304384B1DD033C158C66D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.zerovoid99.ohmycode.tests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Oh My Code.app/Contents/MacOS/Oh My Code";
+			};
+			name = Release;
+		};
+		DDBE9A8E829FF4BFCC19398A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		03B0ED6942EB23FA918A11BA /* Build configuration list for PBXNativeTarget "OhMyCode" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CA1C3D4A5DD4B2378BF2FB09 /* Debug */,
+				53A9BB6FC60EE464342EAA99 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		655573B2E12F38AB32F496E9 /* Build configuration list for PBXNativeTarget "OhMyCodeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D542389F5C41FC914F499DA0 /* Debug */,
+				D99304384B1DD033C158C66D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A2707F22ACD0228A520CD6FC /* Build configuration list for PBXProject "OhMyCode" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DDBE9A8E829FF4BFCC19398A /* Debug */,
+				2856074ECC4505F44E7D03EF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 6123663D037E9F9311DBD1CA /* Project object */;
+}
