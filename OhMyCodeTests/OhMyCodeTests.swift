@@ -81,18 +81,17 @@ struct EditorDocumentTests {
         let text = (1...5_000).map { "line \($0)" }.joined(separator: "\n")
         let document = try EditorDocument(url: try makeFile(text))
         let controller = EditorController(document: document)
-        let scrollView = controller.makeScrollView()
+        let editorView = controller.makeView()
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
                               styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = scrollView
-        scrollView.frame = window.contentView!.bounds
+        window.contentView = editorView
         window.layoutIfNeeded()
-        controller.rulerView.display()
+        controller.gutterView.display()
 
         controller.textView.setSelectedRange(NSRange(location: 0, length: 0))
         controller.textView.insertText("// hi\n", replacementRange: NSRange(location: 0, length: 0))
-        controller.rulerView.display()
+        controller.gutterView.display()
 
         #expect(!didFallBack)
         #expect(controller.textView.textLayoutManager != nil)

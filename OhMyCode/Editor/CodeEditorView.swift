@@ -10,18 +10,18 @@ struct CodeEditorView: NSViewRepresentable {
         EditorController(document: document)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        context.coordinator.makeScrollView()
+    func makeNSView(context: Context) -> EditorContainerView {
+        context.coordinator.makeView()
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {}
+    func updateNSView(_ view: EditorContainerView, context: Context) {}
 }
 
 @MainActor
 final class EditorController: NSObject {
     let document: EditorDocument
-    private(set) var textView: NSTextView!
-    private(set) var rulerView: LineNumberRulerView!
+    private(set) var textView: CodeTextView!
+    private(set) var gutterView: GutterView!
     // NSTextLayoutManager only holds its content manager weakly.
     private let textContentStorage = NSTextContentStorage()
     /// Range that currently has highlight colors applied; scrolling inside it is free.
@@ -31,7 +31,7 @@ final class EditorController: NSObject {
         self.document = document
     }
 
-    func makeScrollView() -> NSScrollView {
+    func makeView() -> EditorContainerView {
         let textLayoutManager = NSTextLayoutManager()
         textContentStorage.addTextLayoutManager(textLayoutManager)
         textContentStorage.textStorage = document.textStorage
@@ -48,17 +48,19 @@ final class EditorController: NSObject {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
 
-        let textView = NSTextView(frame: NSRect(origin: .zero, size: scrollView.contentSize),
-                                  textContainer: container)
+        let textView = CodeTextView(frame: NSRect(origin: .zero, size: scrollView.contentSize),
+                                    textContainer: container)
         configure(textView)
         scrollView.documentView = textView
         self.textView = textView
 
-        let ruler = LineNumberRulerView(textView: textView, document: document)
-        scrollView.verticalRulerView = ruler
-        scrollView.hasVerticalRuler = true
-        scrollView.rulersVisible = true
-        self.rulerView = ruler
+        let gutter = GutterView(textView: textView, document: document)
+        self.gutterView = gutter
+        textView.onLayout = { [weak self, weak gutter] in
+            gutter?.needsDisplay = true
+            self?.refreshHighlights(force: false)
+        }
+        let containerView = EditorContainerView(gutterView: gutter, scrollView: scrollView)
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
@@ -66,18 +68,12 @@ final class EditorController: NSObject {
             name: NSView.boundsDidChangeNotification, object: scrollView.contentView
         )
 
-        scrollView.postsFrameChangedNotifications = true
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(viewportDidScroll),
-            name: NSView.frameDidChangeNotification, object: scrollView
-        )
-
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             textView.window?.makeFirstResponder(textView)
             self.refreshHighlights(force: true)
         }
-        return scrollView
+        return containerView
     }
 
     private func configure(_ textView: NSTextView) {
@@ -109,8 +105,7 @@ final class EditorController: NSObject {
     }
 
     @objc private func viewportDidScroll() {
-        rulerView.needsDisplay = true
-        refreshHighlights(force: false)
+        gutterView.needsDisplay = true
     }
 
     /// Applies syntax colors to the visible lines plus one screen of overscan above and below.
@@ -148,18 +143,14 @@ final class EditorController: NSObject {
         highlightedRange = range
     }
 
+    /// The range the text view's viewport pass laid out (visible area plus TextKit's overdraw).
     private func visibleCharacterRange() -> NSRange? {
         guard let layoutManager = textView.textLayoutManager,
-              let contentManager = layoutManager.textContentManager else { return nil }
-        let visible = textView.visibleRect
-        let origin = textView.textContainerOrigin
-        let documentRange = contentManager.documentRange
-        let top = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, visible.minY - origin.y)))
-        let bottom = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, visible.maxY - origin.y)))
-        let startLocation = top?.rangeInElement.location ?? documentRange.location
-        let endLocation = bottom?.rangeInElement.endLocation ?? documentRange.endLocation
-        let start = contentManager.offset(from: documentRange.location, to: startLocation)
-        let end = contentManager.offset(from: documentRange.location, to: endLocation)
+              let contentManager = layoutManager.textContentManager,
+              let viewportRange = layoutManager.textViewportLayoutController.viewportRange else { return nil }
+        let documentStart = contentManager.documentRange.location
+        let start = contentManager.offset(from: documentStart, to: viewportRange.location)
+        let end = contentManager.offset(from: documentStart, to: viewportRange.endLocation)
         return NSRange(location: start, length: max(0, end - start))
     }
 
@@ -177,13 +168,24 @@ extension EditorController: NSTextViewDelegate {
     }
 
     func textDidChange(_ notification: Notification) {
-        rulerView.updateThickness()
-        rulerView.needsDisplay = true
+        gutterView.updateWidth()
+        gutterView.needsDisplay = true
         refreshHighlights(force: true)
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
         document.updateCursor(forSelectionAt: textView.selectedRange().location)
-        rulerView.needsDisplay = true
+        gutterView.needsDisplay = true
+    }
+}
+
+/// `NSTextView` that reports each layout pass (TextKit 2 lays out its viewport in `layout()`),
+/// so the gutter and syntax colors can follow the freshly laid-out viewport.
+final class CodeTextView: NSTextView {
+    var onLayout: (() -> Void)?
+
+    override func layout() {
+        super.layout()
+        onLayout?()
     }
 }

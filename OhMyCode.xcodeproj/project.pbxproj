@@ -19,13 +19,13 @@
 		5E1ACBA53D005D216ADBACA8 /* SyntaxHighlighter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E9560FF32AB8A6EEED5F92B /* SyntaxHighlighter.swift */; };
 		6105FE260A7E5F1D19248F68 /* OhMyCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95DB07857625F52A05770C90 /* OhMyCodeTests.swift */; };
 		6F155EAA252E5ED13E320E60 /* TreeSitterJSON in Frameworks */ = {isa = PBXBuildFile; productRef = DFFC9B802FF091C8BB16D5AE /* TreeSitterJSON */; };
+		6F6580D30998138BE1E1BAC2 /* GutterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F488C05B906F0EDF3B72B9D /* GutterView.swift */; };
 		7C38F08A05F05728C4005924 /* SwiftTreeSitter in Frameworks */ = {isa = PBXBuildFile; productRef = F1CE83A05017EBD7031E980D /* SwiftTreeSitter */; };
 		811E4E5D449959BFF694A5A8 /* SyntaxHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283BBF8CB8D107A54E380B0E /* SyntaxHighlighterTests.swift */; };
 		8C1C0AAC96AD09D8A39F1550 /* FileTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEDEE1E43EDF21D7D2A5757E /* FileTreeView.swift */; };
 		8DE8BE5D6654BDB6C1BF6D03 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A7C9D84FAB6E84ED23CE13AC /* Assets.xcassets */; };
 		9267627B8BA1FD9BF76D5390 /* GrammarRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56E3DC7C8474D02E52D8006C /* GrammarRegistry.swift */; };
 		9A6FA3A23E349E3154CA0FDD /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 796D31D35763D8DDD9A8020B /* WorkspaceView.swift */; };
-		A1D816FF028D3DD73A042D0E /* LineNumberRulerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64DF515B2F2BFEA070796BBC /* LineNumberRulerView.swift */; };
 		A5EEA136CE98C28D3146A78F /* WorkspaceCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 995D20D57A5D6B2463BCB67A /* WorkspaceCommands.swift */; };
 		BFA05A2DD5E8FFD90C170C74 /* TreeSitterRust in Frameworks */ = {isa = PBXBuildFile; productRef = D5A7A48DD9EF096A24313AE4 /* TreeSitterRust */; };
 		C071EC4F829C75825451FE4E /* EditorTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2206FF6013AF555A1FBEA43 /* EditorTheme.swift */; };
@@ -56,12 +56,12 @@
 		3CDE3A5D42C75E7127F24122 /* EditorDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorDocument.swift; sourceTree = "<group>"; };
 		4F973E946D73AF21BFAE0D75 /* LineIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineIndex.swift; sourceTree = "<group>"; };
 		56E3DC7C8474D02E52D8006C /* GrammarRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrammarRegistry.swift; sourceTree = "<group>"; };
-		64DF515B2F2BFEA070796BBC /* LineNumberRulerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberRulerView.swift; sourceTree = "<group>"; };
 		6C6DC7EAB94EABAD4CADAAA5 /* OhMyCodeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OhMyCodeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6FB8339443B219FB68634B94 /* OhMyCode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OhMyCode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		796D31D35763D8DDD9A8020B /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
 		859EF35AC76909181C5071A2 /* OhMyCode.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OhMyCode.entitlements; sourceTree = "<group>"; };
 		8902C7C1FC02562C44039229 /* SourceLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceLanguage.swift; sourceTree = "<group>"; };
+		8F488C05B906F0EDF3B72B9D /* GutterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GutterView.swift; sourceTree = "<group>"; };
 		95DB07857625F52A05770C90 /* OhMyCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OhMyCodeTests.swift; sourceTree = "<group>"; };
 		95ED4C401864D6BBB7980F5B /* CodeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeEditorView.swift; sourceTree = "<group>"; };
 		995D20D57A5D6B2463BCB67A /* WorkspaceCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCommands.swift; sourceTree = "<group>"; };
@@ -165,7 +165,7 @@
 			children = (
 				95ED4C401864D6BBB7980F5B /* CodeEditorView.swift */,
 				E2206FF6013AF555A1FBEA43 /* EditorTheme.swift */,
-				64DF515B2F2BFEA070796BBC /* LineNumberRulerView.swift */,
+				8F488C05B906F0EDF3B72B9D /* GutterView.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -314,8 +314,8 @@
 				53BE3B6C48E1CC420B46A3E5 /* FileNode.swift in Sources */,
 				8C1C0AAC96AD09D8A39F1550 /* FileTreeView.swift in Sources */,
 				9267627B8BA1FD9BF76D5390 /* GrammarRegistry.swift in Sources */,
+				6F6580D30998138BE1E1BAC2 /* GutterView.swift in Sources */,
 				DD013878FE76ABAEDEE70D5E /* LineIndex.swift in Sources */,
-				A1D816FF028D3DD73A042D0E /* LineNumberRulerView.swift in Sources */,
 				E72CA92B347F45B1F4297AED /* OhMyCodeApp.swift in Sources */,
 				EA3D8BD5DFA35B0EE66666F4 /* SettingsView.swift in Sources */,
 				044DA0A3099C7DFA46352B52 /* SourceLanguage.swift in Sources */,

@@ -65,19 +65,21 @@ struct SyntaxHighlighterTests {
         let text = (1...200).map { "let value\($0) = \"text\" // comment" }.joined(separator: "\n")
         let document = try makeDocument(text)
         let controller = EditorController(document: document)
-        let scrollView = controller.makeScrollView()
+        let editorView = controller.makeView()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .aqua)
-        window.contentView = scrollView
+        window.contentView = editorView
         window.layoutIfNeeded()
         controller.textView.layoutSubtreeIfNeeded()
         controller.refreshHighlights(force: true)
         controller.textView.layoutSubtreeIfNeeded()
 
-        let view = controller.textView!
-        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.visibleRect))
-        view.cacheDisplay(in: view.visibleRect, to: bitmap)
+        // Capture the whole editor (gutter + scroll view), not just the text view: a gutter
+        // implemented as NSRulerView once hid all text while the text view alone looked fine.
+        let view: NSView = editorView
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
 
         // Glyph edges are antialiased, so compare hue of saturated pixels rather than exact RGB.
         func hue(_ hex: UInt32) -> CGFloat {
@@ -98,6 +100,33 @@ struct SyntaxHighlighterTests {
         }
         #expect(drawn(0xAD3DA4), "keyword color not drawn")
         #expect(drawn(0xC41A16), "string color not drawn")
+    }
+
+    /// Regression: the gutter filled its unclipped `dirtyRect` and painted over all the text.
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func plainTextIsVisibleNextToGutter(appearance: NSAppearance.Name) throws {
+        let document = try makeDocument(String(repeating: "Hello world, plain text here\n", count: 20), ext: "md")
+        let controller = EditorController(document: document)
+        let editorView = controller.makeView()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: appearance)
+        window.contentView = editorView
+        window.layoutIfNeeded()
+        controller.textView.layoutSubtreeIfNeeded()
+
+        let bitmap = try #require(editorView.bitmapImageRepForCachingDisplay(in: editorView.bounds))
+        editorView.cacheDisplay(in: editorView.bounds, to: bitmap)
+        let background = try #require(bitmap.colorAt(x: bitmap.pixelsWide - 2, y: bitmap.pixelsHigh - 2))
+        let gutterEnd = Int(controller.gutterView.width) + 10
+        var textPixels = 0
+        for x in gutterEnd..<bitmap.pixelsWide {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let c = bitmap.colorAt(x: x, y: y) else { continue }
+                if abs(c.brightnessComponent - background.brightnessComponent) > 0.3 { textPixels += 1 }
+            }
+        }
+        #expect(textPixels > 500, "no text drawn right of the gutter")
     }
 
     @Test func performanceOnLargeFile() throws {
