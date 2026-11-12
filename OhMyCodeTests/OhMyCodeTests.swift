@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Foundation
 import Testing
 @testable import Oh_My_Code
@@ -98,5 +99,38 @@ struct EditorDocumentTests {
         #expect(document.lineCount == 5_001)
         #expect(document.cursorLine == 2)
         #expect(document.undoManager.canUndo)
+    }
+}
+
+@MainActor
+struct WorkspaceLayoutTests {
+    /// Regression: with no file open, VSplitView collapsed the empty editor area, leaving large
+    /// undrawn (transparent) regions and the status bar floating mid-window.
+    @Test func emptyEditorAreaFillsTheWindow() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-layout-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "hello".write(to: root.appending(path: "a.txt"), atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        let host = NSHostingView(rootView: WorkspaceView(workspace: workspace).frame(width: 700, height: 360))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 360), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = host
+        try await Task.sleep(for: .milliseconds(600))
+        window.layoutIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+
+        var undrawn = 0, total = 0
+        for x in stride(from: 300, to: bitmap.pixelsWide, by: 4) { // editor side of the window
+            for y in stride(from: 0, to: bitmap.pixelsHigh, by: 4) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                total += 1
+                if color.alphaComponent < 0.5 { undrawn += 1 }
+            }
+        }
+        #expect(Double(undrawn) / Double(total) < 0.05, "\(undrawn) of \(total) sampled pixels are undrawn")
+        withExtendedLifetime(workspace) {}
     }
 }

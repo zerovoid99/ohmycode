@@ -33,7 +33,9 @@ struct WorkspaceView: View {
             VStack(spacing: 0) {
                 VSplitView {
                     editorArea
-                        .frame(minHeight: 120)
+                        // Fill the split's height: without a max, an empty editor area (no
+                        // ideal height) let VSplitView collapse it and misplace the status bar.
+                        .frame(minHeight: 120, maxHeight: .infinity)
                     if workspace.isTerminalVisible, let terminal = workspace.terminal {
                         TerminalPanel(workspace: workspace, session: terminal)
                             .frame(minHeight: 90, idealHeight: 260)
@@ -67,6 +69,8 @@ struct WorkspaceView: View {
                     systemImage: "doc.text",
                     description: Text("Select a file in the sidebar to open it.")
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(nsColor: .textBackgroundColor))
             }
         }
     }
