@@ -24,6 +24,8 @@ final class EditorController: NSObject {
     private(set) var rulerView: LineNumberRulerView!
     // NSTextLayoutManager only holds its content manager weakly.
     private let textContentStorage = NSTextContentStorage()
+    /// Range that currently has highlight colors applied; scrolling inside it is free.
+    private var highlightedRange: NSRange?
 
     init(document: EditorDocument) {
         self.document = document
@@ -64,8 +66,16 @@ final class EditorController: NSObject {
             name: NSView.boundsDidChangeNotification, object: scrollView.contentView
         )
 
-        DispatchQueue.main.async { [weak textView] in
-            textView?.window?.makeFirstResponder(textView)
+        scrollView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(viewportDidScroll),
+            name: NSView.frameDidChangeNotification, object: scrollView
+        )
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            textView.window?.makeFirstResponder(textView)
+            self.refreshHighlights(force: true)
         }
         return scrollView
     }
@@ -100,6 +110,64 @@ final class EditorController: NSObject {
 
     @objc private func viewportDidScroll() {
         rulerView.needsDisplay = true
+        refreshHighlights(force: false)
+    }
+
+    /// Applies syntax colors to the visible lines plus one screen of overscan above and below.
+    /// Uses TextKit 2 rendering attributes: they only affect drawing, so the text storage
+    /// isn't edited and no layout is invalidated.
+    func refreshHighlights(force: Bool) {
+        guard let highlighter = document.highlighter,
+              let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager,
+              let visible = visibleCharacterRange() else { return }
+
+        if !force, let highlightedRange,
+           NSIntersectionRange(highlightedRange, visible) == visible { return }
+
+        let lineIndex = document.lineIndex
+        let firstLine = lineIndex.line(containing: visible.location)
+        let lastLine = lineIndex.line(containing: NSMaxRange(visible))
+        let overscan = max(lastLine - firstLine, 20)
+        let startLine = max(0, firstLine - overscan)
+        let endLine = lastLine + overscan + 1
+        let length = document.textStorage.length
+        let start = lineIndex.lineStarts[startLine]
+        let end = endLine < lineIndex.lineCount ? lineIndex.lineStarts[endLine] : length
+        let range = NSRange(location: start, length: end - start)
+
+        guard let fullTextRange = textRange(for: range, in: contentManager) else { return }
+        layoutManager.removeRenderingAttribute(.foregroundColor, for: fullTextRange)
+        for highlight in highlighter.highlights(in: range) {
+            let clipped = NSIntersectionRange(highlight.range, range)
+            guard clipped.length > 0,
+                  let color = EditorTheme.color(forCapture: highlight.name),
+                  let textRange = textRange(for: clipped, in: contentManager) else { continue }
+            layoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
+        }
+        highlightedRange = range
+    }
+
+    private func visibleCharacterRange() -> NSRange? {
+        guard let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager else { return nil }
+        let visible = textView.visibleRect
+        let origin = textView.textContainerOrigin
+        let documentRange = contentManager.documentRange
+        let top = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, visible.minY - origin.y)))
+        let bottom = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, visible.maxY - origin.y)))
+        let startLocation = top?.rangeInElement.location ?? documentRange.location
+        let endLocation = bottom?.rangeInElement.endLocation ?? documentRange.endLocation
+        let start = contentManager.offset(from: documentRange.location, to: startLocation)
+        let end = contentManager.offset(from: documentRange.location, to: endLocation)
+        return NSRange(location: start, length: max(0, end - start))
+    }
+
+    private func textRange(for range: NSRange, in contentManager: NSTextContentManager) -> NSTextRange? {
+        let documentStart = contentManager.documentRange.location
+        guard let start = contentManager.location(documentStart, offsetBy: range.location),
+              let end = contentManager.location(start, offsetBy: range.length) else { return nil }
+        return NSTextRange(location: start, end: end)
     }
 }
 
@@ -111,6 +179,7 @@ extension EditorController: NSTextViewDelegate {
     func textDidChange(_ notification: Notification) {
         rulerView.updateThickness()
         rulerView.needsDisplay = true
+        refreshHighlights(force: true)
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {

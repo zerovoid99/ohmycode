@@ -26,8 +26,10 @@ struct LineIndex: Equatable {
         let removeLower = upperBound(location)
         let removeUpper = upperBound(oldEnd)
 
-        if delta != 0 {
-            for i in removeUpper..<lineStarts.count { lineStarts[i] += delta }
+        if delta != 0 && removeUpper < lineStarts.count {
+            lineStarts.withUnsafeMutableBufferPointer { starts in
+                for i in removeUpper..<starts.count { starts[i] &+= delta }
+            }
         }
         lineStarts.replaceSubrange(removeLower..<removeUpper,
                                    with: Self.newlineStarts(in: string, range: editedRange))
@@ -45,19 +47,19 @@ struct LineIndex: Equatable {
 
     private static func newlineStarts(in string: NSString, range: NSRange) -> [Int] {
         var result: [Int] = []
-        let chunkSize = 16 * 1024
-        var buffer = [unichar](repeating: 0, count: chunkSize)
-        var position = range.location
-        let end = NSMaxRange(range)
-        while position < end {
-            let length = min(chunkSize, end - position)
-            buffer.withUnsafeMutableBufferPointer { ptr in
-                string.getCharacters(ptr.baseAddress!, range: NSRange(location: position, length: length))
-                for i in 0..<length where ptr[i] == 0x0A {
+        guard range.length > 0 else { return result }
+        let chunkSize = min(16 * 1024, range.length)
+        withUnsafeTemporaryAllocation(of: unichar.self, capacity: chunkSize) { buffer in
+            var position = range.location
+            let end = NSMaxRange(range)
+            while position < end {
+                let length = min(chunkSize, end - position)
+                string.getCharacters(buffer.baseAddress!, range: NSRange(location: position, length: length))
+                for i in 0..<length where buffer[i] == 0x0A {
                     result.append(position + i + 1)
                 }
+                position += length
             }
-            position += length
         }
         return result
     }

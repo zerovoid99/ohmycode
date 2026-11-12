@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import SwiftTreeSitter
 
 enum EditorDocumentError: LocalizedError {
     case binaryFile(URL)
@@ -21,7 +22,7 @@ enum EditorDocumentError: LocalizedError {
 final class EditorDocument: Identifiable {
     let id = UUID()
     let url: URL
-    let language: Language
+    let language: SourceLanguage
     let textStorage: NSTextStorage
     let undoManager = UndoManager()
 
@@ -31,6 +32,7 @@ final class EditorDocument: Identifiable {
     var cursorColumn = 1
 
     @ObservationIgnored private(set) var lineIndex: LineIndex
+    @ObservationIgnored private(set) var highlighter: SyntaxHighlighter?
     @ObservationIgnored private var storageObserver: TextStorageObserver?
 
     var fileName: String { url.lastPathComponent }
@@ -42,10 +44,11 @@ final class EditorDocument: Identifiable {
             throw EditorDocumentError.unsupportedEncoding(url)
         }
         self.url = url
-        self.language = Language(fileExtension: url.pathExtension)
+        self.language = SourceLanguage(fileExtension: url.pathExtension)
         self.textStorage = NSTextStorage(string: text, attributes: EditorTheme.baseAttributes)
         self.lineIndex = LineIndex(string: textStorage.string as NSString)
         self.lineCount = lineIndex.lineCount
+        self.highlighter = SyntaxHighlighter(language: language, textStorage: textStorage)
 
         let observer = TextStorageObserver { [weak self] range, delta in
             self?.textDidEdit(range: range, changeInLength: delta)
@@ -66,9 +69,27 @@ final class EditorDocument: Identifiable {
     }
 
     private func textDidEdit(range: NSRange, changeInLength delta: Int) {
+        let start = range.location
+        let oldEnd = start + range.length - delta
+        let newEnd = NSMaxRange(range)
+        // Points before/at the old end must be computed from the pre-edit index.
+        let startPoint = point(at: start)
+        let oldEndPoint = point(at: oldEnd)
+
         lineIndex.apply(editedRange: range, changeInLength: delta, in: textStorage.string as NSString)
+
+        highlighter?.applyEdit(InputEdit(
+            startByte: start * 2, oldEndByte: oldEnd * 2, newEndByte: newEnd * 2,
+            startPoint: startPoint, oldEndPoint: oldEndPoint, newEndPoint: point(at: newEnd)
+        ))
         if lineCount != lineIndex.lineCount { lineCount = lineIndex.lineCount }
         if !isDirty { isDirty = true }
+    }
+
+    /// tree-sitter point for a UTF-16 offset (columns are in UTF-16LE bytes).
+    private func point(at offset: Int) -> Point {
+        let row = lineIndex.line(containing: offset)
+        return Point(row: row, column: (offset - lineIndex.lineStarts[row]) * 2)
     }
 }
 

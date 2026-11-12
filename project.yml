@@ -13,12 +13,47 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_STRICT_CONCURRENCY: complete
     ARCHS: arm64
+packages:
+  SwiftTreeSitter:
+    url: https://github.com/ChimeHQ/SwiftTreeSitter
+    exactVersion: 0.25.0
+  TreeSitterSwift:
+    url: https://github.com/alex-pinkus/tree-sitter-swift
+    exactVersion: 0.7.4-with-generated-files
+  TreeSitterJavaScript:
+    url: https://github.com/tree-sitter/tree-sitter-javascript
+    exactVersion: 0.23.1
+  TreeSitterTypeScript:
+    url: https://github.com/tree-sitter/tree-sitter-typescript
+    exactVersion: 0.23.2
+  TreeSitterPython:
+    url: https://github.com/tree-sitter/tree-sitter-python
+    exactVersion: 0.23.6
+  TreeSitterJSON:
+    url: https://github.com/tree-sitter/tree-sitter-json
+    exactVersion: 0.24.8
+  TreeSitterRust:
+    url: https://github.com/tree-sitter/tree-sitter-rust
+    exactVersion: 0.24.2
+  TreeSitterGo:
+    url: https://github.com/tree-sitter/tree-sitter-go
+    exactVersion: 0.23.4
 targets:
   OhMyCode:
     type: application
     platform: macOS
     sources:
       - OhMyCode
+    dependencies:
+      - package: SwiftTreeSitter
+      - package: TreeSitterSwift
+      - package: TreeSitterJavaScript
+      - package: TreeSitterTypeScript
+        product: TreeSitterTypeScript
+      - package: TreeSitterPython
+      - package: TreeSitterJSON
+      - package: TreeSitterRust
+      - package: TreeSitterGo
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.zerovoid99.ohmycode

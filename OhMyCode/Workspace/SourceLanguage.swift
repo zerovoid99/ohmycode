@@ -1,14 +1,15 @@
 import Foundation
 
-enum Language: String {
-    case swift, javascript, typescript, json, markdown, python, rust, go, c, cpp, objc
+enum SourceLanguage: String {
+    case swift, javascript, typescript, tsx, json, markdown, python, rust, go, c, cpp, objc
     case html, css, yaml, toml, shell, plaintext
 
     init(fileExtension ext: String) {
         switch ext.lowercased() {
         case "swift": self = .swift
         case "js", "mjs", "cjs", "jsx": self = .javascript
-        case "ts", "tsx", "mts", "cts": self = .typescript
+        case "ts", "mts", "cts": self = .typescript
+        case "tsx": self = .tsx
         case "json": self = .json
         case "md", "markdown": self = .markdown
         case "py": self = .python
@@ -31,6 +32,7 @@ enum Language: String {
         case .swift: "Swift"
         case .javascript: "JavaScript"
         case .typescript: "TypeScript"
+        case .tsx: "TypeScript JSX"
         case .json: "JSON"
         case .markdown: "Markdown"
         case .python: "Python"
