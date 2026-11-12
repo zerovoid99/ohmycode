@@ -58,6 +58,11 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored var viewState: EditorViewState?
     /// Modification date of the version on disk that the buffer reflects.
     @ObservationIgnored private var diskModificationDate: Date?
+    /// Gutter change markers against the git index, keyed by zero-based line.
+    @ObservationIgnored private(set) var diffMarkers: [Int: DiffMarker] = [:]
+    @ObservationIgnored private var diffBase: String?
+    @ObservationIgnored private var diffBaseLines: [Substring]?
+    @ObservationIgnored private var diffTask: Task<Void, Never>?
     /// Set when the file changed on disk while there were unsaved edits.
     private(set) var hasExternalChanges = false
 
@@ -151,6 +156,44 @@ final class EditorDocument: Identifiable {
         ))
         if lineCount != lineIndex.lineCount { lineCount = lineIndex.lineCount }
         if !isDirty { isDirty = true }
+        scheduleDiff(after: .milliseconds(200))
+    }
+
+    // MARK: Git diff markers
+
+    /// The file as staged in git (nil if untracked or not in a repository).
+    func setDiffBase(_ text: String?) {
+        guard text != diffBase || (text == nil && !diffMarkers.isEmpty) else { return }
+        diffBase = text
+        diffBaseLines = text.map(LineDiff.lines)
+        scheduleDiff(after: .zero)
+    }
+
+    /// Diffs off the main thread, debounced while typing; the main thread only copies the text.
+    private func scheduleDiff(after delay: Duration) {
+        diffTask?.cancel()
+        guard let base = diffBaseLines else {
+            if !diffMarkers.isEmpty { diffMarkers = [:]; editor?.gutterView.needsDisplay = true }
+            return
+        }
+        diffTask = Task {
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
+            let text = textStorage.mutableString as String
+            let markers = await Task.detached(priority: .utility) {
+                LineDiff.markers(base: base, current: LineDiff.lines(text))
+            }.value
+            guard !Task.isCancelled else { return }
+            diffMarkers = markers
+            editor?.gutterView.needsDisplay = true
+        }
+    }
+
+    /// Waits for a pending diff (tests).
+    func waitForDiff() async {
+        await diffTask?.value
     }
 
     /// tree-sitter point for a UTF-16 offset (columns are in UTF-16LE bytes).

@@ -82,6 +82,10 @@ final class GutterView: NSView {
                 let yInTextView = fragmentFrame.minY + containerOrigin.y + bounds.minY
                 let y = self.convert(NSPoint(x: 0, y: yInTextView), from: textView).y
 
+                if let marker = self.document.diffMarkers[line] {
+                    self.drawDiffMarker(marker, y: y, height: bounds.height)
+                }
+
                 let label = String(line + 1) as NSString
                 let attributes = line == currentLine ? currentAttributes : normalAttributes
                 let size = label.size(withAttributes: attributes)
@@ -89,6 +93,28 @@ final class GutterView: NSView {
                            withAttributes: attributes)
             }
             return true
+        }
+    }
+}
+
+extension GutterView {
+    /// VS Code-style change bar at the gutter's left edge.
+    fileprivate func drawDiffMarker(_ marker: DiffMarker, y: CGFloat, height: CGFloat) {
+        switch marker {
+        case .added:
+            NSColor.systemGreen.setFill()
+            NSRect(x: 2, y: y, width: 3, height: height).fill()
+        case .modified:
+            NSColor.systemBlue.setFill()
+            NSRect(x: 2, y: y, width: 3, height: height).fill()
+        case .deletedAbove:
+            NSColor.systemRed.setFill()
+            let triangle = NSBezierPath()
+            triangle.move(to: NSPoint(x: 1, y: y - 4))
+            triangle.line(to: NSPoint(x: 7, y: y))
+            triangle.line(to: NSPoint(x: 1, y: y + 4))
+            triangle.close()
+            triangle.fill()
         }
     }
 }

@@ -20,7 +20,7 @@ struct WorkspaceView: View {
                     }
                 }
                 Divider()
-                StatusBarView(document: workspace.activeDocument)
+                StatusBarView(document: workspace.activeDocument, gitStatus: workspace.gitStatus)
             }
         }
         .navigationTitle(workspace.displayName)

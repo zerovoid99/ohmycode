@@ -14,6 +14,9 @@ final class Workspace {
     /// Most recently opened first.
     private(set) var recentFiles: [URL] = []
     private(set) var palette: PaletteModel?
+    private(set) var gitStatus: GitStatus?
+    @ObservationIgnored private(set) var gitRepository: Git.Repository?
+    @ObservationIgnored private var gitTask: Task<Void, Never>?
     private(set) var terminals: [TerminalSession] = []
     var activeTerminalID: TerminalSession.ID?
     private(set) var isTerminalVisible = false
@@ -57,6 +60,10 @@ final class Workspace {
         activeTerminalID = nil
         isTerminalVisible = false
 
+        gitStatus = nil
+        gitRepository = nil
+        refreshGit()
+
         canonicalRootPath = FileWatcher.canonicalPath(url)
         watcher = FileWatcher(path: canonicalRootPath) { [weak self] events in
             self?.handleFileEvents(events)
@@ -90,6 +97,7 @@ final class Workspace {
         var directoriesToReload = Set<String>()
         var changedPaths = Set<String>()
         var needsIndexRebuild = false
+        var needsGitRefresh = false
 
         for event in events {
             if event.requiresRescan || event.path == canonicalRootPath {
@@ -101,8 +109,13 @@ final class Workspace {
             guard event.path.hasPrefix(prefix) else { continue }
             let relative = String(event.path.dropFirst(prefix.count))
             let components = relative.split(separator: "/").map(String.init)
-            // Git rewrites .git/index, locks etc. constantly; none of it changes the file list.
-            if components.first == ".git" { continue }
+            // Git rewrites .git/index, locks etc. constantly; none of it changes the file list,
+            // but it does change status (commits, staging, checkouts).
+            if components.first == ".git" {
+                needsGitRefresh = true
+                continue
+            }
+            needsGitRefresh = true
 
             changedPaths.insert(event.path)
             if event.isStructural {
@@ -118,8 +131,62 @@ final class Workspace {
         if needsIndexRebuild {
             rebuildFileIndex(after: .milliseconds(300))
         }
+        if needsGitRefresh {
+            refreshGit(after: .milliseconds(300))
+        }
         for document in documents where changedPaths.contains(FileWatcher.canonicalPath(document.url)) {
             document.reloadFromDiskIfChanged()
+        }
+    }
+
+    // MARK: Git
+
+    /// Re-reads `git status` (debounced by `delay`), then refreshes open documents' diff bases,
+    /// since staging or committing changes what their gutter markers compare against.
+    func refreshGit(after delay: Duration = .zero) {
+        guard let rootURL else { return }
+        gitTask?.cancel()
+        let knownRepository = gitRepository
+        gitTask = Task {
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
+            let result = await Task.detached(priority: .utility) { () -> (Git.Repository, GitStatus)? in
+                guard let repository = knownRepository ?? Git.repository(at: rootURL),
+                      let status = Git.status(of: repository) else { return nil }
+                return (repository, status)
+            }.value
+            guard !Task.isCancelled, self.rootURL == rootURL else { return }
+            self.gitRepository = result?.0
+            if self.gitStatus != result?.1 { self.gitStatus = result?.1 }
+            for document in self.documents { self.loadDiffBase(for: document) }
+        }
+    }
+
+    func gitStatus(for url: URL, isDirectory: Bool) -> GitFileStatus? {
+        guard let gitStatus, let path = relativePath(of: url) else { return nil }
+        return gitStatus.status(forRelativePath: path, isDirectory: isDirectory)
+    }
+
+    func relativePath(of url: URL) -> String? {
+        guard let rootURL else { return nil }
+        let root = rootURL.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(root + "/") else { return nil }
+        return String(path.dropFirst(root.count + 1))
+    }
+
+    private func loadDiffBase(for document: EditorDocument) {
+        guard let repository = gitRepository, let path = relativePath(of: document.url) else {
+            document.setDiffBase(nil)
+            return
+        }
+        Task {
+            let base = await Task.detached(priority: .utility) {
+                Git.indexContent(ofRelativePath: path, in: repository)
+            }.value
+            document.setDiffBase(base)
         }
     }
 
@@ -222,6 +289,7 @@ final class Workspace {
             let document = try EditorDocument(url: url)
             documents.append(document)
             activeDocumentID = document.id
+            loadDiffBase(for: document)
         } catch {
             errorMessage = error.localizedDescription
         }
