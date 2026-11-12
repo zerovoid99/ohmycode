@@ -182,3 +182,145 @@ struct TerminalPerformanceTests {
         #endif
     }
 }
+
+/// Drives a real TerminalView with synthesized AppKit events; `cat -v` echoes what reached the
+/// program, making escape sequences visible as text (ESC shows as ^[).
+@MainActor
+struct TerminalInputTests {
+    private func makeView(_ command: [String] = ["/bin/cat", "-v"]) throws -> (TerminalView, TerminalSession, NSWindow) {
+        let session = try TerminalSession(directory: FileManager.default.temporaryDirectory, command: command)
+        let view = TerminalView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view
+        view.session = session
+        window.makeFirstResponder(view)
+        return (view, session, window)
+    }
+
+    private func screen(_ session: TerminalSession) -> String { session.text(selectionOnly: false) ?? "" }
+
+    private func eventually(_ condition: @MainActor () -> Bool) async throws -> Bool {
+        for _ in 0..<150 where !condition() { try await Task.sleep(for: .milliseconds(20)) }
+        return condition()
+    }
+
+    /// `xFraction` is where in the cell the pointer is: a drag includes the end cell only past
+    /// its midpoint, as with macOS text selection.
+    private func mouse(_ type: NSEvent.EventType, in view: TerminalView, column: Int, row: Int, xFraction: CGFloat = 0.5,
+                       clickCount: Int = 1, time: TimeInterval = 0, flags: NSEvent.ModifierFlags = []) -> NSEvent {
+        let point = NSPoint(x: TerminalView.padding + (CGFloat(column) + xFraction) * view.cellWidth,
+                            y: TerminalView.padding + (CGFloat(row) + 0.5) * view.cellHeight)
+        return NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: flags,
+                                  timestamp: time, windowNumber: view.window!.windowNumber, context: nil,
+                                  eventNumber: 0, clickCount: clickCount, pressure: 1)!
+    }
+
+    private func key(_ characters: String, code: UInt16, flags: NSEvent.ModifierFlags = [], in window: NSWindow) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                         windowNumber: window.windowNumber, context: nil, characters: characters,
+                         charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+    }
+
+    @Test func typingGoesThroughTheInputMethod() async throws {
+        let (view, session, window) = try makeView()
+        defer { session.terminate() }
+        view.keyDown(with: key("a", code: 0, in: window))
+        view.keyDown(with: key("b", code: 11, in: window))
+        view.keyDown(with: key("\r", code: 36, in: window))
+        #expect(try await eventually { screen(session).contains("ab\nab") })
+    }
+
+    @Test func composedTextIsHeldUntilCommitted() async throws {
+        let (view, session, _) = try makeView()
+        defer { session.terminate() }
+        view.setMarkedText("かん", selectedRange: NSRange(location: 2, length: 0),
+                           replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(view.hasMarkedText())
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(!screen(session).contains("かん"), "uncommitted text must not reach the program")
+
+        view.insertText("漢字", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(!view.hasMarkedText())
+        #expect(try await eventually { screen(session).contains("漢字") })
+    }
+
+    @Test func clicksAreReportedWhenTheProgramTracksTheMouse() async throws {
+        let (view, session, _) = try makeView()
+        defer { session.terminate() }
+        session.feed(Data("\u{1b}[?1000h\u{1b}[?1006h".utf8)) // normal tracking, SGR format
+        view.mouseDown(with: mouse(.leftMouseDown, in: view, column: 2, row: 1))
+        view.mouseUp(with: mouse(.leftMouseUp, in: view, column: 2, row: 1))
+        // SGR is 1-based: column 3, row 2; M = press, m = release.
+        #expect(try await eventually { screen(session).contains("^[[<0;3;2M^[[<0;3;2m") })
+    }
+
+    @Test func shiftClickSelectsLocallyEvenWithTracking() async throws {
+        let (view, session, _) = try makeView()
+        defer { session.terminate() }
+        session.feed(Data("\u{1b}[?1000h\u{1b}[?1006hhello world".utf8))
+        view.mouseDown(with: mouse(.leftMouseDown, in: view, column: 0, row: 0, xFraction: 0.1, flags: .shift))
+        view.mouseDragged(with: mouse(.leftMouseDragged, in: view, column: 4, row: 0, xFraction: 0.9, flags: .shift))
+        view.mouseUp(with: mouse(.leftMouseUp, in: view, column: 4, row: 0, xFraction: 0.9, flags: .shift))
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(!screen(session).contains("^[[<"))
+        #expect(session.text(selectionOnly: true) == "hello")
+    }
+
+    @Test func doubleClickSelectsWordTripleClickSelectsLine() throws {
+        let (view, session, _) = try makeView()
+        defer { session.terminate() }
+        session.feed(Data("hello world foo".utf8))
+        for clicks in 1...2 {
+            let time = Double(clicks) * 0.05
+            view.mouseDown(with: mouse(.leftMouseDown, in: view, column: 7, row: 0, clickCount: clicks, time: time))
+            view.mouseUp(with: mouse(.leftMouseUp, in: view, column: 7, row: 0, clickCount: clicks, time: time))
+        }
+        #expect(session.text(selectionOnly: true) == "world")
+
+        view.mouseDown(with: mouse(.leftMouseDown, in: view, column: 7, row: 0, clickCount: 3, time: 0.15))
+        view.mouseUp(with: mouse(.leftMouseUp, in: view, column: 7, row: 0, clickCount: 3, time: 0.15))
+        #expect(session.text(selectionOnly: true) == "hello world foo")
+
+        // A later single click clears it.
+        view.mouseDown(with: mouse(.leftMouseDown, in: view, column: 1, row: 0, time: 5))
+        view.mouseUp(with: mouse(.leftMouseUp, in: view, column: 1, row: 0, time: 5))
+        #expect(!session.hasSelection)
+    }
+
+    @Test func wheelSendsArrowsInFullScreenPrograms() async throws {
+        let (view, session, _) = try makeView()
+        defer { session.terminate() }
+        let geometry = TerminalSession.Geometry(width: 600, height: 300, cellWidth: view.cellWidth,
+                                                cellHeight: view.cellHeight, padding: TerminalView.padding)
+        session.feed(Data("\u{1b}[?1049h".utf8)) // alternate screen, as less/man use
+        session.scrollWheel(rows: 2, x: 10, y: 10, geometry: geometry, mods: 0)
+        #expect(try await eventually { screen(session).contains("^[[A^[[A") })
+    }
+}
+
+@MainActor
+struct TerminalTabsTests {
+    @Test func newSelectCloseAndRestartTabs() throws {
+        let workspace = Workspace()
+        workspace.openFolder(FileManager.default.temporaryDirectory)
+        workspace.newTerminal()
+        workspace.newTerminal()
+        #expect(workspace.terminals.count == 2)
+        let first = workspace.terminals[0], second = workspace.terminals[1]
+        #expect(workspace.terminal === second)
+
+        workspace.selectTerminal(first)
+        #expect(workspace.terminal === first)
+
+        workspace.restartTerminal()
+        #expect(workspace.terminals.count == 2)
+        #expect(workspace.terminals[0] !== first) // replaced in place
+        #expect(workspace.terminal === workspace.terminals[0])
+
+        workspace.closeTerminal(workspace.terminals[0])
+        #expect(workspace.terminal === second)
+        workspace.closeTerminal(second)
+        #expect(workspace.terminals.isEmpty)
+        #expect(!workspace.isTerminalVisible)
+    }
+}

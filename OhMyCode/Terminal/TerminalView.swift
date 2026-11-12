@@ -54,8 +54,15 @@ final class TerminalView: NSView {
     private var colors = GhosttyRenderStateColors()
     private var colorCache: [UInt32: CGColor] = [:]
     private var scrollAccumulator: CGFloat = 0
-    private var selectionAnchor: (x: UInt16, y: UInt16)?
-    private var didDrag = false
+    /// A button press went to the program (mouse tracking), so drags/release follow it there.
+    private var mouseCapturedByProgram = false
+    private var trackingArea: NSTrackingArea?
+
+    // Input method state (NSTextInputClient).
+    private(set) var markedText = ""
+    /// Text committed by the input method while handling the current keyDown.
+    private var keyTextAccumulator: [String]?
+    private var cursorRect: CGRect = .zero
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -200,6 +207,24 @@ final class TerminalView: NSView {
         }
 
         drawCursor(cursor, in: context)
+        drawMarkedText(in: context)
+    }
+
+    /// Text being composed by an input method (e.g. Japanese, dead keys), drawn over the cursor.
+    private func drawMarkedText(in context: CGContext) {
+        guard !markedText.isEmpty else { return }
+        let attributed = NSAttributedString(string: markedText, attributes: [
+            .font: font, .foregroundColor: NSColor(cgColor: cgColor(colors.foreground)) ?? .textColor,
+        ])
+        let line = CTLineCreateWithAttributedString(attributed)
+        let width = max(cellWidth, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+        let rect = CGRect(x: cursorRect.minX, y: cursorRect.minY, width: width, height: cellHeight)
+        context.setFillColor(cgColor(colors.background))
+        context.fill(rect)
+        context.textPosition = CGPoint(x: rect.minX, y: rect.minY + baseline)
+        CTLineDraw(line, context)
+        context.setFillColor(cgColor(colors.foreground))
+        context.fill(CGRect(x: rect.minX, y: rect.minY + baseline + 2, width: width, height: 1))
     }
 
     /// Pulls the latest state from the terminal and rebuilds cached rows Ghostty marks dirty.
@@ -376,6 +401,8 @@ final class TerminalView: NSView {
         let rect = CGRect(x: Self.padding + CGFloat(cursor.viewport_x) * cellWidth,
                           y: Self.padding + CGFloat(cursor.viewport_y) * cellHeight,
                           width: cellWidth, height: cellHeight)
+        cursorRect = rect
+        if !markedText.isEmpty { return } // the composition is drawn there instead
         let focused = window?.firstResponder === self && window?.isKeyWindow == true
         context.setFillColor(color)
         context.setStrokeColor(color)
@@ -416,7 +443,26 @@ final class TerminalView: NSView {
         }
         session.clearSelectionIfAny()
         let action = event.isARepeat ? GHOSTTY_KEY_ACTION_REPEAT : GHOSTTY_KEY_ACTION_PRESS
-        session.send(TerminalKeyMap.input(for: event, action: action))
+
+        // Let the input method see the key first: it may compose (dead keys, CJK input) or
+        // commit text. Keys it doesn't turn into text (arrows, ctrl-c, enter) are encoded as keys.
+        let wasComposing = !markedText.isEmpty
+        keyTextAccumulator = []
+        interpretKeyEvents([event])
+        let committed = keyTextAccumulator ?? []
+        keyTextAccumulator = nil
+
+        if !committed.isEmpty {
+            for text in committed {
+                var input = TerminalKeyMap.input(for: event, action: action)
+                input.text = text
+                input.consumedMods = input.mods & GhosttyMods(GHOSTTY_MODS_SHIFT | GHOSTTY_MODS_ALT)
+                session.send(input)
+            }
+        } else if markedText.isEmpty && !wasComposing {
+            session.send(TerminalKeyMap.input(for: event, action: action))
+        }
+        needsDisplay = true
     }
 
     override func keyUp(with event: NSEvent) {
@@ -441,21 +487,87 @@ final class TerminalView: NSView {
 
     // MARK: Mouse
 
+    private var geometry: TerminalSession.Geometry {
+        TerminalSession.Geometry(width: bounds.width, height: bounds.height, cellWidth: cellWidth,
+                                 cellHeight: cellHeight, padding: Self.padding)
+    }
+
+    /// Programs that track the mouse (vim, htop, tmux) get the events, unless Shift is held,
+    /// which keeps local selection available, as in other terminals.
+    private func reportsToProgram(_ event: NSEvent) -> Bool {
+        session?.isMouseTrackingEnabled == true && !event.modifierFlags.contains(.shift)
+    }
+
+    private func report(_ event: NSEvent, action: GhosttyMouseAction, button: GhosttyMouseButton?, pressed: Bool) {
+        let point = convert(event.locationInWindow, from: nil)
+        session?.sendMouse(action: action, button: button, mods: TerminalKeyMap.ghosttyMods(event.modifierFlags),
+                           x: point.x, y: point.y, geometry: geometry, anyButtonPressed: pressed)
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        selectionAnchor = cell(at: convert(event.locationInWindow, from: nil))
-        didDrag = false
+        guard let session else { return }
+        if reportsToProgram(event) {
+            mouseCapturedByProgram = true
+            report(event, action: GHOSTTY_MOUSE_ACTION_PRESS, button: GHOSTTY_MOUSE_BUTTON_LEFT, pressed: true)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        session.selectionPress(cell: cell(at: point), x: point.x, y: point.y,
+                               timestampNs: UInt64(event.timestamp * 1_000_000_000))
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let anchor = selectionAnchor else { return }
-        didDrag = true
-        session?.select(from: anchor, to: cell(at: convert(event.locationInWindow, from: nil)))
+        if mouseCapturedByProgram {
+            report(event, action: GHOSTTY_MOUSE_ACTION_MOTION, button: GHOSTTY_MOUSE_BUTTON_LEFT, pressed: true)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        session?.selectionDrag(cell: cell(at: point), x: point.x, y: point.y, geometry: geometry)
     }
 
     override func mouseUp(with event: NSEvent) {
-        if !didDrag { session?.clearSelectionIfAny() }
-        selectionAnchor = nil
+        if mouseCapturedByProgram {
+            mouseCapturedByProgram = false
+            report(event, action: GHOSTTY_MOUSE_ACTION_RELEASE, button: GHOSTTY_MOUSE_BUTTON_LEFT, pressed: false)
+            return
+        }
+        session?.selectionRelease(cell: cell(at: convert(event.locationInWindow, from: nil)))
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard reportsToProgram(event) else { return super.rightMouseDown(with: event) }
+        report(event, action: GHOSTTY_MOUSE_ACTION_PRESS, button: GHOSTTY_MOUSE_BUTTON_RIGHT, pressed: true)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        guard reportsToProgram(event) else { return super.rightMouseUp(with: event) }
+        report(event, action: GHOSTTY_MOUSE_ACTION_RELEASE, button: GHOSTTY_MOUSE_BUTTON_RIGHT, pressed: false)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard reportsToProgram(event), event.buttonNumber == 2 else { return }
+        report(event, action: GHOSTTY_MOUSE_ACTION_PRESS, button: GHOSTTY_MOUSE_BUTTON_MIDDLE, pressed: true)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard reportsToProgram(event), event.buttonNumber == 2 else { return }
+        report(event, action: GHOSTTY_MOUSE_ACTION_RELEASE, button: GHOSTTY_MOUSE_BUTTON_MIDDLE, pressed: false)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        // Only "any event" tracking (mode 1003) reports plain motion; the encoder drops the rest.
+        guard reportsToProgram(event) else { return }
+        report(event, action: GHOSTTY_MOUSE_ACTION_MOTION, button: nil, pressed: false)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
     }
 
     override func scrollWheel(with event: NSEvent) {
@@ -465,12 +577,61 @@ final class TerminalView: NSView {
         let rows = Int(scrollAccumulator / cellHeight)
         guard rows != 0 else { return }
         scrollAccumulator -= CGFloat(rows) * cellHeight
-        session.scrollViewport(byRows: -rows)
+        let point = convert(event.locationInWindow, from: nil)
+        session.scrollWheel(rows: rows, x: point.x, y: point.y, geometry: geometry,
+                            mods: TerminalKeyMap.ghosttyMods(event.modifierFlags))
     }
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .iBeam)
     }
+}
+
+extension TerminalView: @preconcurrency NSTextInputClient {
+    func insertText(_ string: Any, replacementRange: NSRange) {
+        let text = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
+        markedText = ""
+        if keyTextAccumulator != nil {
+            keyTextAccumulator?.append(text) // committed while handling a key: encoded in keyDown
+        } else if !text.isEmpty {
+            session?.sendText(text) // e.g. from the character viewer, outside any key event
+        }
+        needsDisplay = true
+    }
+
+    func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        markedText = (string as? NSAttributedString)?.string ?? (string as? String) ?? ""
+        needsDisplay = true
+    }
+
+    func unmarkText() {
+        markedText = ""
+        needsDisplay = true
+    }
+
+    func hasMarkedText() -> Bool { !markedText.isEmpty }
+
+    func markedRange() -> NSRange {
+        markedText.isEmpty ? NSRange(location: NSNotFound, length: 0)
+            : NSRange(location: 0, length: (markedText as NSString).length)
+    }
+
+    func selectedRange() -> NSRange { NSRange(location: NSNotFound, length: 0) }
+
+    func validAttributesForMarkedText() -> [NSAttributedString.Key] { [] }
+
+    func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? { nil }
+
+    func characterIndex(for point: NSPoint) -> Int { NSNotFound }
+
+    /// Where the input method should place its candidate window: at the cursor.
+    func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
+        guard let window else { return .zero }
+        return window.convertToScreen(convert(cursorRect, to: nil))
+    }
+
+    /// Keys like arrows or Enter reach here as commands; keyDown encodes them itself.
+    override func doCommand(by selector: Selector) {}
 }
 
 extension TerminalView: NSMenuItemValidation {

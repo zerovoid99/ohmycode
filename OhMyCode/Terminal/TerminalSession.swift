@@ -6,7 +6,9 @@ import Observation
 /// Ghostty terminal isn't thread-safe, and VT parsing is fast enough to run where it's drawn.
 @MainActor
 @Observable
-final class TerminalSession {
+final class TerminalSession: Identifiable {
+    let id = UUID()
+
     struct KeyInput {
         var key: GhosttyKey
         var mods: GhosttyMods
@@ -26,6 +28,12 @@ final class TerminalSession {
     @ObservationIgnored let renderState: GhosttyRenderState
     @ObservationIgnored private let keyEncoder: GhosttyKeyEncoder
     @ObservationIgnored private let keyEvent: GhosttyKeyEvent
+    @ObservationIgnored private let mouseEncoder: GhosttyMouseEncoder
+    @ObservationIgnored private let mouseEvent: GhosttyMouseEvent
+    @ObservationIgnored private let selectionGesture: GhosttySelectionGesture
+    @ObservationIgnored private let gesturePress: GhosttySelectionGestureEvent
+    @ObservationIgnored private let gestureDrag: GhosttySelectionGestureEvent
+    @ObservationIgnored private let gestureRelease: GhosttySelectionGestureEvent
     @ObservationIgnored private var process: PTYProcess?
     @ObservationIgnored private var cellSize = (width: UInt16(0), height: UInt16(0))
     /// Called after new output was parsed; the view schedules a redraw.
@@ -47,15 +55,32 @@ final class TerminalSession {
         var renderState: GhosttyRenderState?
         var keyEncoder: GhosttyKeyEncoder?
         var keyEvent: GhosttyKeyEvent?
+        var mouseEncoder: GhosttyMouseEncoder?
+        var mouseEvent: GhosttyMouseEvent?
+        var gesture: GhosttySelectionGesture?
+        var press: GhosttySelectionGestureEvent?, drag: GhosttySelectionGestureEvent?
+        var release: GhosttySelectionGestureEvent?
         guard ghostty_terminal_new(nil, &terminal, columns, rows) == GHOSTTY_SUCCESS, let terminal,
               ghostty_render_state_new(nil, &renderState) == GHOSTTY_SUCCESS, let renderState,
               ghostty_key_encoder_new(nil, &keyEncoder) == GHOSTTY_SUCCESS, let keyEncoder,
-              ghostty_key_event_new(nil, &keyEvent) == GHOSTTY_SUCCESS, let keyEvent
+              ghostty_key_event_new(nil, &keyEvent) == GHOSTTY_SUCCESS, let keyEvent,
+              ghostty_mouse_encoder_new(nil, &mouseEncoder) == GHOSTTY_SUCCESS, let mouseEncoder,
+              ghostty_mouse_event_new(nil, &mouseEvent) == GHOSTTY_SUCCESS, let mouseEvent,
+              ghostty_selection_gesture_new(nil, &gesture) == GHOSTTY_SUCCESS, let gesture,
+              ghostty_selection_gesture_event_new(nil, &press, GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_PRESS) == GHOSTTY_SUCCESS, let press,
+              ghostty_selection_gesture_event_new(nil, &drag, GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_DRAG) == GHOSTTY_SUCCESS, let drag,
+              ghostty_selection_gesture_event_new(nil, &release, GHOSTTY_SELECTION_GESTURE_EVENT_TYPE_RELEASE) == GHOSTTY_SUCCESS, let release
         else { throw SessionError.ghostty("could not create terminal") }
         self.terminal = terminal
         self.renderState = renderState
         self.keyEncoder = keyEncoder
         self.keyEvent = keyEvent
+        self.mouseEncoder = mouseEncoder
+        self.mouseEvent = mouseEvent
+        self.selectionGesture = gesture
+        self.gesturePress = press
+        self.gestureDrag = drag
+        self.gestureRelease = release
 
         let shell = Self.loginShell()
         let arguments = command ?? ["-" + (shell as NSString).lastPathComponent] // leading "-": login shell
@@ -77,6 +102,12 @@ final class TerminalSession {
 
     isolated deinit {
         process?.terminate()
+        ghostty_selection_gesture_event_free(gestureRelease)
+        ghostty_selection_gesture_event_free(gestureDrag)
+        ghostty_selection_gesture_event_free(gesturePress)
+        ghostty_selection_gesture_free(selectionGesture, terminal)
+        ghostty_mouse_event_free(mouseEvent)
+        ghostty_mouse_encoder_free(mouseEncoder)
         ghostty_key_event_free(keyEvent)
         ghostty_key_encoder_free(keyEncoder)
         ghostty_render_state_free(renderState)
@@ -199,6 +230,130 @@ final class TerminalSession {
         onContentChange?()
     }
 
+    // MARK: Mouse
+
+    /// Pixel geometry of the view, needed to map positions to cells.
+    struct Geometry {
+        var width: Double
+        var height: Double
+        var cellWidth: Double
+        var cellHeight: Double
+        var padding: Double
+    }
+
+    var isAlternateScreen: Bool {
+        var screen = GHOSTTY_TERMINAL_SCREEN_PRIMARY
+        ghostty_terminal_get(terminal, GHOSTTY_TERMINAL_DATA_ACTIVE_SCREEN, &screen)
+        return screen == GHOSTTY_TERMINAL_SCREEN_ALTERNATE
+    }
+
+    /// Reports a mouse event to the program (when it enabled tracking). `button` nil means
+    /// motion with no button held. Returns whether anything was sent.
+    @discardableResult
+    func sendMouse(action: GhosttyMouseAction, button: GhosttyMouseButton?, mods: GhosttyMods,
+                   x: Double, y: Double, geometry: Geometry, anyButtonPressed: Bool) -> Bool {
+        ghostty_mouse_encoder_set_from_terminal(mouseEncoder, terminal)
+        var size = GhosttyMouseEncoderSize()
+        size.size = MemoryLayout<GhosttyMouseEncoderSize>.size
+        size.screen_width = UInt32(geometry.width)
+        size.screen_height = UInt32(geometry.height)
+        size.cell_width = UInt32(max(1, geometry.cellWidth))
+        size.cell_height = UInt32(max(1, geometry.cellHeight))
+        size.padding_left = UInt32(geometry.padding)
+        size.padding_top = UInt32(geometry.padding)
+        size.padding_right = UInt32(geometry.padding)
+        size.padding_bottom = UInt32(geometry.padding)
+        ghostty_mouse_encoder_set(mouseEncoder, GHOSTTY_MOUSE_ENCODER_OPT_SIZE, &size)
+        var pressed = anyButtonPressed
+        ghostty_mouse_encoder_set(mouseEncoder, GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED, &pressed)
+
+        ghostty_mouse_event_set_action(mouseEvent, action)
+        if let button { ghostty_mouse_event_set_button(mouseEvent, button) } else { ghostty_mouse_event_clear_button(mouseEvent) }
+        ghostty_mouse_event_set_mods(mouseEvent, mods)
+        ghostty_mouse_event_set_position(mouseEvent, GhosttyMousePosition(x: Float(x), y: Float(y)))
+
+        var buffer = [UInt8](repeating: 0, count: 64)
+        var written = 0
+        guard ghostty_mouse_encoder_encode(mouseEncoder, mouseEvent, &buffer, buffer.count, &written) == GHOSTTY_SUCCESS,
+              written > 0 else { return false }
+        process?.write(Data(buffer.prefix(written)))
+        return true
+    }
+
+    /// Wheel scrolling by whole rows (positive = towards older output). The program gets wheel
+    /// events if it tracks the mouse; full-screen programs without tracking (less, man) get
+    /// arrow keys, as alternate scroll mode 1007 specifies; otherwise scrollback moves.
+    func scrollWheel(rows: Int, x: Double, y: Double, geometry: Geometry, mods: GhosttyMods) {
+        guard rows != 0 else { return }
+        if isMouseTrackingEnabled {
+            let button = rows > 0 ? GHOSTTY_MOUSE_BUTTON_FOUR : GHOSTTY_MOUSE_BUTTON_FIVE
+            for _ in 0..<abs(rows) {
+                sendMouse(action: GHOSTTY_MOUSE_ACTION_PRESS, button: button, mods: mods,
+                          x: x, y: y, geometry: geometry, anyButtonPressed: false)
+            }
+        } else if isAlternateScreen && isModeEnabled(Self.alternateScrollMode, default: true) {
+            let key = rows > 0 ? GHOSTTY_KEY_ARROW_UP : GHOSTTY_KEY_ARROW_DOWN
+            for _ in 0..<abs(rows) { send(KeyInput(key: key, mods: 0)) }
+        } else {
+            scrollViewport(byRows: -rows)
+        }
+    }
+
+    private func isModeEnabled(_ mode: GhosttyMode, default fallback: Bool) -> Bool {
+        var config = GhosttyTerminalModeConfig(mode: mode, value: false)
+        guard ghostty_terminal_get(terminal, GHOSTTY_TERMINAL_DATA_MODE, &config) == GHOSTTY_SUCCESS else { return fallback }
+        return config.value
+    }
+
+    // MARK: Selection gestures (click, double-click word, triple-click line, drag)
+
+    func selectionPress(cell: (x: UInt16, y: UInt16), x: Double, y: Double, timestampNs: UInt64) {
+        var ref = GhosttyGridRef()
+        guard gridRef(cell, &ref) else { return }
+        ghostty_selection_gesture_event_set(gesturePress, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF, &ref)
+        var position = GhosttySurfacePosition(x: x, y: y)
+        ghostty_selection_gesture_event_set(gesturePress, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_POSITION, &position)
+        var time = timestampNs
+        ghostty_selection_gesture_event_set(gesturePress, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_TIME_NS, &time)
+        var interval = UInt64(NSEvent.doubleClickInterval * 1_000_000_000)
+        ghostty_selection_gesture_event_set(gesturePress, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REPEAT_INTERVAL_NS, &interval)
+        applyGesture(gesturePress, clearIfNone: true)
+    }
+
+    func selectionDrag(cell: (x: UInt16, y: UInt16), x: Double, y: Double, geometry: Geometry) {
+        var ref = GhosttyGridRef()
+        guard gridRef(cell, &ref) else { return }
+        ghostty_selection_gesture_event_set(gestureDrag, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF, &ref)
+        var position = GhosttySurfacePosition(x: x, y: y)
+        ghostty_selection_gesture_event_set(gestureDrag, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_POSITION, &position)
+        var shape = GhosttySelectionGestureGeometry(
+            columns: UInt32(columns), cell_width: UInt32(max(1, geometry.cellWidth)),
+            padding_left: UInt32(geometry.padding), screen_height: UInt32(geometry.height))
+        ghostty_selection_gesture_event_set(gestureDrag, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_GEOMETRY, &shape)
+        applyGesture(gestureDrag, clearIfNone: false)
+    }
+
+    func selectionRelease(cell: (x: UInt16, y: UInt16)) {
+        var ref = GhosttyGridRef()
+        if gridRef(cell, &ref) {
+            ghostty_selection_gesture_event_set(gestureRelease, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF, &ref)
+        } else {
+            ghostty_selection_gesture_event_set(gestureRelease, GHOSTTY_SELECTION_GESTURE_EVENT_OPT_REF, nil)
+        }
+        applyGesture(gestureRelease, clearIfNone: false)
+    }
+
+    private func applyGesture(_ event: GhosttySelectionGestureEvent, clearIfNone: Bool) {
+        var selection = GhosttySelection()
+        let result = ghostty_selection_gesture_event(selectionGesture, terminal, event, &selection)
+        if result == GHOSTTY_SUCCESS {
+            ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection)
+            onContentChange?()
+        } else if clearIfNone, hasSelection {
+            clearSelection()
+        }
+    }
+
     // MARK: Selection & text
 
     /// Selects from one viewport cell to another (inclusive).
@@ -284,7 +439,8 @@ final class TerminalSession {
 
     // MARK: Environment
 
-    private static let bracketedPasteMode: GhosttyMode = 2004 // DEC private mode (ANSI bit clear)
+    private static let bracketedPasteMode: GhosttyMode = 2004 // DEC private modes (ANSI bit clear)
+    private static let alternateScrollMode: GhosttyMode = 1007
 
     private static func loginShell() -> String {
         if let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell {

@@ -44,7 +44,14 @@ struct WorkspaceCommands: Commands {
             .keyboardShortcut("`", modifiers: .control)
             .disabled(workspace?.rootNode == nil)
 
+            Button("New Terminal") { workspace?.newTerminal() }
+                .keyboardShortcut("`", modifiers: [.control, .shift])
+                .disabled(workspace?.rootNode == nil)
+
             Button("Restart Terminal") { workspace?.restartTerminal() }
+                .disabled(workspace?.terminal == nil)
+
+            Button("Kill Terminal") { if let terminal = workspace?.terminal { workspace?.closeTerminal(terminal) } }
                 .disabled(workspace?.terminal == nil)
         }
 

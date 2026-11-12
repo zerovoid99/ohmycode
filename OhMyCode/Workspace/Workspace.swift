@@ -14,7 +14,8 @@ final class Workspace {
     /// Most recently opened first.
     private(set) var recentFiles: [URL] = []
     private(set) var palette: PaletteModel?
-    private(set) var terminal: TerminalSession?
+    private(set) var terminals: [TerminalSession] = []
+    var activeTerminalID: TerminalSession.ID?
     private(set) var isTerminalVisible = false
     /// Bumped to move keyboard focus into the terminal.
     private(set) var terminalFocusRequest = 0
@@ -51,8 +52,9 @@ final class Workspace {
         recentFiles.removeAll()
         fileIndex = nil
         rebuildFileIndex()
-        terminal?.terminate()
-        terminal = nil
+        terminals.forEach { $0.terminate() }
+        terminals.removeAll()
+        activeTerminalID = nil
         isTerminalVisible = false
 
         canonicalRootPath = FileWatcher.canonicalPath(url)
@@ -132,18 +134,54 @@ final class Workspace {
         }
     }
 
+    /// The terminal shown in the panel.
+    var terminal: TerminalSession? {
+        terminals.first { $0.id == activeTerminalID }
+    }
+
     func showTerminal() {
-        if terminal == nil { terminal = makeTerminal() }
-        guard terminal != nil else { return }
+        if terminals.isEmpty {
+            newTerminal()
+            return
+        }
         isTerminalVisible = true
         terminalFocusRequest += 1
     }
 
-    func restartTerminal() {
-        terminal?.terminate()
-        terminal = makeTerminal()
-        isTerminalVisible = terminal != nil
+    func newTerminal() {
+        guard let session = makeTerminal() else { return }
+        terminals.append(session)
+        selectTerminal(session)
+    }
+
+    func selectTerminal(_ session: TerminalSession) {
+        activeTerminalID = session.id
+        isTerminalVisible = true
         terminalFocusRequest += 1
+    }
+
+    func closeTerminal(_ session: TerminalSession) {
+        guard let index = terminals.firstIndex(where: { $0.id == session.id }) else { return }
+        session.terminate()
+        terminals.remove(at: index)
+        if terminals.isEmpty {
+            activeTerminalID = nil
+            isTerminalVisible = false
+            activeDocument?.editor?.focus()
+        } else if activeTerminalID == session.id {
+            selectTerminal(terminals[min(index, terminals.count - 1)])
+        }
+    }
+
+    /// Replaces the active terminal with a fresh shell in the same tab position.
+    func restartTerminal() {
+        guard let current = terminal, let index = terminals.firstIndex(where: { $0.id == current.id }) else {
+            return newTerminal()
+        }
+        guard let session = makeTerminal() else { return }
+        current.terminate()
+        terminals[index] = session
+        selectTerminal(session)
     }
 
     private func makeTerminal() -> TerminalSession? {
