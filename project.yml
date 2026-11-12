@@ -76,7 +76,12 @@ targets:
     type: bundle.unit-test
     platform: macOS
     sources:
-      - OhMyCodeTests
+      - path: OhMyCodeTests
+        excludes:
+          - Fixtures
+      - path: OhMyCodeTests/Fixtures
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: OhMyCode
     settings:

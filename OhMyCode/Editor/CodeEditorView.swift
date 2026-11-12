@@ -27,8 +27,12 @@ final class EditorController: NSObject {
     let document: EditorDocument
     private(set) var textView: CodeTextView!
     private(set) var gutterView: GutterView!
+    private(set) var diagnosticsOverlay: DiagnosticsOverlayView?
     // NSTextLayoutManager only holds its content manager weakly.
     private let textContentStorage = NSTextContentStorage()
+    private(set) lazy var completion = CompletionController(editor: self)
+    /// What the user just typed, captured before the change, for completion triggering.
+    private var pendingTypedText: String?
     /// Range that currently has highlight colors applied; scrolling inside it is free.
     private var highlightedRange: NSRange?
 
@@ -59,10 +63,22 @@ final class EditorController: NSObject {
         scrollView.documentView = textView
         self.textView = textView
 
+        let overlay = DiagnosticsOverlayView(textView: textView, document: document)
+        textView.addSubview(overlay)
+        diagnosticsOverlay = overlay
+
         let gutter = GutterView(textView: textView, document: document)
         self.gutterView = gutter
-        textView.onLayout = { [weak self, weak gutter] in
+        // Not textDidEndEditing: AppKit sends that after every edit while the window isn't key.
+        textView.onResignFocus = { [weak self] in self?.completion.dismiss() }
+        textView.onCommandClick = { [weak self] in
+            guard let self else { return }
+            self.completion.dismiss()
+            self.goToDefinition()
+        }
+        textView.onLayout = { [weak self, weak gutter, weak overlay] in
             gutter?.needsDisplay = true
+            overlay?.needsDisplay = true
             self?.refreshHighlights(force: false)
         }
         let containerView = EditorContainerView(gutterView: gutter, scrollView: scrollView)
@@ -79,6 +95,7 @@ final class EditorController: NSObject {
             self.restoreViewState()
             self.document.editor = self
             self.document.highlighter?.client = self
+            self.applyDiagnostics()
         }
         return containerView
     }
@@ -168,6 +185,18 @@ final class EditorController: NSObject {
         refreshHighlights(force: true)
     }
 
+    // MARK: Language features
+
+    /// The editor doesn't know its workspace; the workspace owning the document handles this.
+    func goToDefinition() {
+        NotificationCenter.default.post(name: .omcGoToDefinition, object: document)
+    }
+
+    /// Redraws diagnostic squiggles (drawn by an overlay; see DiagnosticsOverlayView).
+    func applyDiagnostics() {
+        diagnosticsOverlay?.needsDisplay = true
+    }
+
     func focus() {
         textView.window?.makeFirstResponder(textView)
     }
@@ -229,6 +258,23 @@ extension EditorController: NSTextViewDelegate {
         // Highlighting is rescheduled by the document's edit observer.
         gutterView.updateWidth()
         gutterView.needsDisplay = true
+        let typed = pendingTypedText
+        pendingTypedText = nil
+        completion.textDidChange(typed: typed)
+    }
+
+    func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
+        pendingTypedText = (replacementString?.isEmpty == false) ? replacementString : nil
+        return true
+    }
+
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if completion.handle(selector) { return true }
+        if selector == #selector(NSResponder.complete(_:)) {
+            completion.triggerManually()
+            return true
+        }
+        return false
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -241,6 +287,22 @@ extension EditorController: NSTextViewDelegate {
 /// so the gutter and syntax colors can follow the freshly laid-out viewport.
 final class CodeTextView: NSTextView {
     var onLayout: (() -> Void)?
+    var onCommandClick: (() -> Void)?
+    var onResignFocus: (() -> Void)?
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onResignFocus?() }
+        return resigned
+    }
+
+    /// ⌘-click: place the cursor there and go to the definition.
+    override func mouseDown(with event: NSEvent) {
+        guard event.modifierFlags.contains(.command), let onCommandClick else { return super.mouseDown(with: event) }
+        let point = convert(event.locationInWindow, from: nil)
+        setSelectedRange(NSRange(location: characterIndexForInsertion(at: point), length: 0))
+        onCommandClick()
+    }
 
     override func layout() {
         super.layout()
@@ -280,4 +342,9 @@ extension EditorController: SyntaxHighlighterClient {
         }
         highlightedRange = range
     }
+}
+
+extension Notification.Name {
+    /// Posted by an editor (⌘-click) to ask its workspace to go to the definition.
+    static let omcGoToDefinition = Notification.Name("omcGoToDefinition")
 }

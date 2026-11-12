@@ -22,7 +22,26 @@ struct StatusBarView: View {
                 Label("Changed on disk, your unsaved edits were kept", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             }
+            if let document, !document.diagnostics.isEmpty {
+                let errors = document.diagnostics.filter { $0.severity == .error }.count
+                let warnings = document.diagnostics.count - errors
+                HStack(spacing: 8) {
+                    Label("\(errors)", systemImage: "xmark.circle.fill")
+                        .foregroundStyle(errors > 0 ? .red : .secondary)
+                    Label("\(warnings)", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(warnings > 0 ? .yellow : .secondary)
+                }
+                if let diagnostic = document.diagnosticAtCursor {
+                    Text(diagnostic.message)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .help(diagnostic.message)
+                }
+            }
             Spacer()
+            if let client = document?.languageClient {
+                LanguageServerBadge(client: client)
+            }
             if let document {
                 Text("Ln \(document.cursorLine), Col \(document.cursorColumn)")
                 Text("\(document.lineCount) lines")
@@ -36,5 +55,27 @@ struct StatusBarView: View {
         .padding(.horizontal, 12)
         .frame(height: 22)
         .background(.bar)
+    }
+}
+
+private struct LanguageServerBadge: View {
+    let client: LanguageClient
+
+    var body: some View {
+        switch client.state {
+        case .starting:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.mini)
+                Text(client.name)
+            }
+        case .ready:
+            Label(client.name, systemImage: "bolt.fill")
+        case .failed(let message):
+            Label(client.name, systemImage: "bolt.slash.fill")
+                .foregroundStyle(.orange)
+                .help(message)
+        case .stopped:
+            EmptyView()
+        }
     }
 }

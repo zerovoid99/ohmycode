@@ -15,6 +15,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.rootNode != nil }, perform: { $0.showPalette(.files) }),
         PaletteCommand(id: "go.line", title: "Go to Line…", icon: "arrow.right.to.line", shortcut: "⌃G",
                        isAvailable: { $0.activeDocument != nil }, perform: { $0.showPalette(.goToLine) }),
+        PaletteCommand(id: "go.definition", title: "Go to Definition", icon: "arrow.turn.down.right", shortcut: "F12",
+                       isAvailable: { $0.activeDocument?.languageClient != nil }, perform: { $0.goToDefinition() }),
         PaletteCommand(id: "file.openFolder", title: "File: Open Folder…", icon: "folder", shortcut: "⌘O",
                        isAvailable: { _ in true }, perform: { $0.presentOpenPanel() }),
         PaletteCommand(id: "file.save", title: "File: Save", icon: "square.and.arrow.down", shortcut: "⌘S",

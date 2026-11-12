@@ -66,6 +66,10 @@ struct WorkspaceCommands: Commands {
                 .keyboardShortcut("g", modifiers: .control)
                 .disabled(workspace?.activeDocument == nil)
 
+            Button("Go to Definition") { workspace?.goToDefinition() }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF12FunctionKey)!)), modifiers: [])
+                .disabled(workspace?.activeDocument?.languageClient == nil)
+
             Divider()
 
             Button("Next Editor") { workspace?.selectAdjacentDocument(offset: 1) }

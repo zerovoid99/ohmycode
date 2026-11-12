@@ -17,6 +17,10 @@ final class Workspace {
     private(set) var gitStatus: GitStatus?
     @ObservationIgnored private(set) var gitRepository: Git.Repository?
     @ObservationIgnored private var gitTask: Task<Void, Never>?
+    /// Replaces server discovery per language (tests point a workspace at a fake server).
+    @ObservationIgnored var languageServerOverrides: [SourceLanguage: LanguageServerConfig] = [:]
+    /// One client per language server, shared by all documents it handles.
+    private(set) var languageClients: [String: LanguageClient] = [:]
     private(set) var terminals: [TerminalSession] = []
     var activeTerminalID: TerminalSession.ID?
     private(set) var isTerminalVisible = false
@@ -26,6 +30,16 @@ final class Workspace {
     @ObservationIgnored private var watcher: FileWatcher?
     /// Root as FSEvents reports paths (symlinks resolved).
     @ObservationIgnored private var canonicalRootPath = ""
+
+    init() {
+        NotificationCenter.default.addObserver(forName: .omcGoToDefinition, object: nil, queue: .main) { [weak self] note in
+            let document = note.object as? EditorDocument
+            MainActor.assumeIsolated {
+                guard let self, let document, self.documents.contains(where: { $0 === document }) else { return }
+                self.goToDefinition(in: document)
+            }
+        }
+    }
 
     var activeDocument: EditorDocument? {
         documents.first { $0.id == activeDocumentID }
@@ -63,6 +77,10 @@ final class Workspace {
         gitStatus = nil
         gitRepository = nil
         refreshGit()
+        languageClients.values.forEach { $0.shutdown() }
+        languageClients.removeAll()
+        // Resolve the login-shell PATH now, so the first file opened doesn't wait for it.
+        Task.detached(priority: .utility) { _ = await ShellEnvironment.shared.environment() }
 
         canonicalRootPath = FileWatcher.canonicalPath(url)
         watcher = FileWatcher(path: canonicalRootPath) { [weak self] events in
@@ -136,6 +154,68 @@ final class Workspace {
         }
         for document in documents where changedPaths.contains(FileWatcher.canonicalPath(document.url)) {
             document.reloadFromDiskIfChanged()
+        }
+    }
+
+    // MARK: Language servers
+
+    private func attachLanguageServer(to document: EditorDocument) {
+        guard let rootURL else { return }
+        Task { [weak self] in
+            let environment = await ShellEnvironment.shared.environment()
+            guard let self, self.rootURL == rootURL, self.documents.contains(where: { $0 === document }),
+                  let config = LanguageServers.config(for: document.language, path: environment["PATH"] ?? "",
+                                                      overrides: self.languageServerOverrides)
+            else { return }
+            let client: LanguageClient
+            if let existing = languageClients[config.name] {
+                client = existing
+            } else {
+                do {
+                    client = try LanguageClient(name: config.name, command: config.command, rootURL: rootURL,
+                                                environment: environment)
+                } catch {
+                    return // server missing or failed to launch: the editor works without it
+                }
+                client.onDiagnostics = { [weak self] url, diagnostics in
+                    self?.document(matching: url)?.setDiagnostics(diagnostics)
+                }
+                languageClients[config.name] = client
+            }
+            document.languageClient = client
+            client.didOpen(url: document.url, languageId: document.languageId,
+                           text: document.textStorage.mutableString as String)
+        }
+    }
+
+    /// Servers report symlink-resolved paths (/private/var/…); map them back under the
+    /// workspace root so the file isn't opened twice under different names.
+    private func workspaceURL(for url: URL) -> URL {
+        let path = FileWatcher.canonicalPath(url)
+        if let rootURL, path.hasPrefix(canonicalRootPath + "/") {
+            return rootURL.appending(path: String(path.dropFirst(canonicalRootPath.count + 1)))
+        }
+        return URL(filePath: path)
+    }
+
+    private func document(matching url: URL) -> EditorDocument? {
+        let path = FileWatcher.canonicalPath(url)
+        return documents.first { $0.canonicalPath == path }
+    }
+
+    /// Jumps to the definition of the symbol at the cursor (F12, ⌘-click).
+    func goToDefinition(in target: EditorDocument? = nil) {
+        guard let document = target ?? activeDocument, let client = document.languageClient,
+              let selection = document.editor?.textView.selectedRange() else { return }
+        let position = document.lspPosition(at: selection.location)
+        Task {
+            guard let location = try? await client.definition(url: document.url, position: position).first else {
+                NSSound.beep()
+                return
+            }
+            open(fileAt: workspaceURL(for: location.url))
+            guard let target = activeDocument else { return }
+            target.reveal(target.range(for: location.range))
         }
     }
 
@@ -281,7 +361,8 @@ final class Workspace {
         recentFiles.insert(url, at: 0)
         if recentFiles.count > 20 { recentFiles.removeLast() }
 
-        if let existing = documents.first(where: { $0.url == url }) {
+        let canonical = FileWatcher.canonicalPath(url)
+        if let existing = documents.first(where: { $0.url == url || $0.canonicalPath == canonical }) {
             activeDocumentID = existing.id
             return
         }
@@ -290,6 +371,7 @@ final class Workspace {
             documents.append(document)
             activeDocumentID = document.id
             loadDiffBase(for: document)
+            attachLanguageServer(to: document)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -299,6 +381,7 @@ final class Workspace {
         guard confirmClose(document),
               let index = documents.firstIndex(where: { $0.id == document.id }) else { return }
         documents.remove(at: index)
+        document.languageClient?.didClose(url: document.url)
         if activeDocumentID == document.id {
             activeDocumentID = documents.isEmpty ? nil : documents[min(index, documents.count - 1)].id
         }

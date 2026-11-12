@@ -58,6 +58,14 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored var viewState: EditorViewState?
     /// Modification date of the version on disk that the buffer reflects.
     @ObservationIgnored private var diskModificationDate: Date?
+    /// Language server attached to this document, if one is available for its language.
+    @ObservationIgnored var languageClient: LanguageClient?
+    /// Diagnostics from the language server, in the server's (LSP) coordinates.
+    private(set) var diagnostics: [Diagnostic] = []
+    /// Symlink-resolved path, to match URIs the language server reports.
+    @ObservationIgnored private(set) lazy var canonicalPath = FileWatcher.canonicalPath(url)
+    var languageId: String { LanguageServerConfig.languageId(for: language) }
+
     /// Gutter change markers against the git index, keyed by zero-based line.
     @ObservationIgnored private(set) var diffMarkers: [Int: DiffMarker] = [:]
     @ObservationIgnored private var diffBase: String?
@@ -94,6 +102,42 @@ final class EditorDocument: Identifiable {
         diskModificationDate = Self.modificationDate(of: url)
         isDirty = false
         hasExternalChanges = false
+        languageClient?.didSave(url: url)
+    }
+
+    // MARK: Language server coordinates
+
+    /// LSP position (line, UTF-16 column) for a UTF-16 offset in the current text.
+    func lspPosition(at offset: Int) -> LSPPosition {
+        let line = lineIndex.line(containing: offset)
+        return LSPPosition(line: line, character: offset - lineIndex.lineStarts[line])
+    }
+
+    /// UTF-16 offset for an LSP position, clamped to the document.
+    func offset(for position: LSPPosition) -> Int {
+        let length = textStorage.length
+        guard position.line < lineIndex.lineCount else { return length }
+        let lineStart = lineIndex.lineStarts[max(0, position.line)]
+        let lineEnd = position.line + 1 < lineIndex.lineCount ? lineIndex.lineStarts[position.line + 1] - 1 : length
+        return min(lineStart + max(0, position.character), max(lineStart, lineEnd))
+    }
+
+    func range(for lspRange: LSPRange) -> NSRange {
+        let start = offset(for: lspRange.start)
+        let end = max(start, offset(for: lspRange.end))
+        return NSRange(location: start, length: end - start)
+    }
+
+    func setDiagnostics(_ diagnostics: [Diagnostic]) {
+        guard diagnostics != self.diagnostics else { return }
+        self.diagnostics = diagnostics
+        editor?.applyDiagnostics()
+    }
+
+    /// The most severe diagnostic on the cursor's line, for the status bar.
+    var diagnosticAtCursor: Diagnostic? {
+        diagnostics.filter { $0.range.start.line <= cursorLine - 1 && $0.range.end.line >= cursorLine - 1 }
+            .min { $0.severity.rawValue < $1.severity.rawValue }
     }
 
     /// Picks up edits made by other programs. Unsaved edits are never overwritten: the
@@ -146,9 +190,16 @@ final class EditorDocument: Identifiable {
         // Points before/at the old end must be computed from the pre-edit index.
         let startPoint = point(at: start)
         let oldEndPoint = point(at: oldEnd)
+        let lspRange = LSPRange(start: lspPosition(at: start), end: lspPosition(at: oldEnd))
 
         // `mutableString`, not `string`: bridging `string` to Swift copies the whole text.
         lineIndex.apply(editedRange: range, changeInLength: delta, in: textStorage.mutableString)
+
+        if let languageClient {
+            let inserted = textStorage.mutableString.substring(with: range)
+            languageClient.didChange(url: url, range: lspRange, text: inserted,
+                                     fullText: { self.textStorage.mutableString as String })
+        }
 
         highlighter?.didEdit(InputEdit(
             startByte: start * 2, oldEndByte: oldEnd * 2, newEndByte: newEnd * 2,
