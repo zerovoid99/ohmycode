@@ -2,6 +2,16 @@ import AppKit
 import Observation
 import SwiftTreeSitter
 
+/// Where the user was in a document, kept while its tab is hidden.
+struct EditorViewState {
+    /// UTF-16 offset of the line at the top of the viewport, and how far it was scrolled past.
+    /// Anchoring to text rather than a raw y offset survives TextKit 2's estimated heights.
+    var topLineOffset: Int
+    var topLineDelta: CGFloat
+    var scrollX: CGFloat
+    var selection: NSRange
+}
+
 enum EditorDocumentError: LocalizedError {
     case binaryFile(URL)
     case unsupportedEncoding(URL)
@@ -44,6 +54,12 @@ final class EditorDocument: Identifiable {
         }
     }
     @ObservationIgnored private var pendingReveal: NSRange?
+    /// Scroll position and selection to restore when this tab is shown again.
+    @ObservationIgnored var viewState: EditorViewState?
+    /// Modification date of the version on disk that the buffer reflects.
+    @ObservationIgnored private var diskModificationDate: Date?
+    /// Set when the file changed on disk while there were unsaved edits.
+    private(set) var hasExternalChanges = false
 
     var fileName: String { url.lastPathComponent }
 
@@ -65,11 +81,41 @@ final class EditorDocument: Identifiable {
         }
         textStorage.delegate = observer
         storageObserver = observer
+        diskModificationDate = Self.modificationDate(of: url)
     }
 
     func save() throws {
         try textStorage.string.write(to: url, atomically: true, encoding: .utf8)
+        diskModificationDate = Self.modificationDate(of: url)
         isDirty = false
+        hasExternalChanges = false
+    }
+
+    /// Picks up edits made by other programs. Unsaved edits are never overwritten: the
+    /// document is flagged instead. Our own saves are recognized by modification date.
+    func reloadFromDiskIfChanged() {
+        guard let date = Self.modificationDate(of: url), date != diskModificationDate else { return }
+        guard !isDirty else {
+            hasExternalChanges = true
+            return
+        }
+        guard let data = try? Data(contentsOf: url), !data.prefix(8192).contains(0),
+              let text = String(data: data, encoding: .utf8) else { return }
+        diskModificationDate = date
+        guard text != textStorage.string else { return }
+
+        let selection = editor?.textView.selectedRange()
+        textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length),
+                                      with: NSAttributedString(string: text, attributes: EditorTheme.baseAttributes))
+        isDirty = false
+        hasExternalChanges = false
+        // Undo entries refer to the old text's ranges.
+        undoManager.removeAllActions()
+        editor?.documentDidReload(previousSelection: selection)
+    }
+
+    private static func modificationDate(of url: URL) -> Date? {
+        try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
     }
 
     /// Selects and scrolls to `line` (1-based), now or once an editor shows this document.

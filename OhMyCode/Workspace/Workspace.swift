@@ -15,6 +15,9 @@ final class Workspace {
     private(set) var recentFiles: [URL] = []
     private(set) var palette: PaletteModel?
     @ObservationIgnored private var indexTask: Task<Void, Never>?
+    @ObservationIgnored private var watcher: FileWatcher?
+    /// Root as FSEvents reports paths (symlinks resolved).
+    @ObservationIgnored private var canonicalRootPath = ""
 
     var activeDocument: EditorDocument? {
         documents.first { $0.id == activeDocumentID }
@@ -42,20 +45,72 @@ final class Workspace {
         documents.removeAll()
         activeDocumentID = nil
         recentFiles.removeAll()
+        fileIndex = nil
         rebuildFileIndex()
+
+        canonicalRootPath = FileWatcher.canonicalPath(url)
+        watcher = FileWatcher(path: canonicalRootPath) { [weak self] events in
+            self?.handleFileEvents(events)
+        }
     }
 
-    func rebuildFileIndex() {
+    /// Rebuilds the quick-open index in the background. The previous index stays usable until
+    /// the new one is ready; `delay` debounces bursts of file-system events.
+    func rebuildFileIndex(after delay: Duration = .zero) {
         guard let rootURL else { return }
         indexTask?.cancel()
-        fileIndex = nil
         indexTask = Task {
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
             let index = await Task.detached(priority: .userInitiated) {
                 FileIndexer.build(root: rootURL)
             }.value
             guard !Task.isCancelled, self.rootURL == rootURL else { return }
             self.fileIndex = index
             if self.palette?.mode == .files { self.palette?.refresh() }
+        }
+    }
+
+    // MARK: File system changes
+
+    func handleFileEvents(_ events: [FileWatcher.Event]) {
+        guard let rootNode else { return }
+        let prefix = canonicalRootPath + "/"
+        var directoriesToReload = Set<String>()
+        var changedPaths = Set<String>()
+        var needsIndexRebuild = false
+
+        for event in events {
+            if event.requiresRescan || event.path == canonicalRootPath {
+                rootNode.reloadLoadedSubtree()
+                needsIndexRebuild = true
+                changedPaths.formUnion(documents.map { FileWatcher.canonicalPath($0.url) })
+                continue
+            }
+            guard event.path.hasPrefix(prefix) else { continue }
+            let relative = String(event.path.dropFirst(prefix.count))
+            let components = relative.split(separator: "/").map(String.init)
+            // Git rewrites .git/index, locks etc. constantly; none of it changes the file list.
+            if components.first == ".git" { continue }
+
+            changedPaths.insert(event.path)
+            if event.isStructural {
+                directoriesToReload.insert(components.dropLast().joined(separator: "/"))
+                needsIndexRebuild = true
+            }
+        }
+
+        for directory in directoriesToReload {
+            let components = directory.isEmpty ? [] : directory.split(separator: "/").map(String.init)
+            rootNode.loadedNode(atRelativePath: components)?.reloadChildren()
+        }
+        if needsIndexRebuild {
+            rebuildFileIndex(after: .milliseconds(300))
+        }
+        for document in documents where changedPaths.contains(FileWatcher.canonicalPath(document.url)) {
+            document.reloadFromDiskIfChanged()
         }
     }
 

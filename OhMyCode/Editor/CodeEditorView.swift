@@ -15,6 +15,10 @@ struct CodeEditorView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: EditorContainerView, context: Context) {}
+
+    static func dismantleNSView(_ view: EditorContainerView, coordinator: EditorController) {
+        coordinator.saveViewState()
+    }
 }
 
 @MainActor
@@ -71,6 +75,7 @@ final class EditorController: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             textView.window?.makeFirstResponder(textView)
+            self.restoreViewState()
             self.refreshHighlights(force: true)
             self.document.editor = self
         }
@@ -103,6 +108,63 @@ final class EditorController: NSObject {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.autoresizingMask = [.width, .height]
+    }
+
+    // MARK: View state
+
+    func saveViewState() {
+        guard let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager else { return }
+        let visible = textView.visibleRect
+        let origin = textView.textContainerOrigin
+        var offset = 0
+        var delta: CGFloat = 0
+        if let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, visible.minY - origin.y))) {
+            offset = contentManager.offset(from: contentManager.documentRange.location,
+                                           to: fragment.rangeInElement.location)
+            delta = visible.minY - (fragment.layoutFragmentFrame.minY + origin.y)
+        }
+        document.viewState = EditorViewState(topLineOffset: offset, topLineDelta: delta,
+                                             scrollX: visible.minX, selection: textView.selectedRange())
+    }
+
+    func restoreViewState() {
+        guard let state = document.viewState,
+              let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager else { return }
+        let length = document.textStorage.length
+        let location = min(state.selection.location, length)
+        textView.setSelectedRange(NSRange(location: location, length: min(state.selection.length, length - location)))
+
+        let documentStart = contentManager.documentRange.location
+        guard let anchor = contentManager.location(documentStart, offsetBy: min(state.topLineOffset, length)) else { return }
+        var anchorY: CGFloat = 0
+        layoutManager.enumerateTextLayoutFragments(from: anchor, options: [.ensuresLayout]) { fragment in
+            anchorY = fragment.layoutFragmentFrame.minY
+            return false
+        }
+        textView.scroll(NSPoint(x: state.scrollX, y: anchorY + textView.textContainerOrigin.y + state.topLineDelta))
+    }
+
+    /// Zero-based line at the top of the viewport.
+    var topVisibleLine: Int {
+        guard let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager else { return 0 }
+        let y = max(0, textView.visibleRect.minY - textView.textContainerOrigin.y)
+        guard let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: y)) else { return 0 }
+        let offset = contentManager.offset(from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
+        return document.lineIndex.line(containing: offset)
+    }
+
+    /// The document's text was replaced from disk: keep the cursor near where it was.
+    func documentDidReload(previousSelection: NSRange?) {
+        let length = document.textStorage.length
+        if let previous = previousSelection {
+            textView.setSelectedRange(NSRange(location: min(previous.location, length), length: 0))
+        }
+        gutterView.updateWidth()
+        gutterView.needsDisplay = true
+        refreshHighlights(force: true)
     }
 
     func focus() {

@@ -5,6 +5,10 @@ struct StatusBarView: View {
 
     var body: some View {
         HStack(spacing: 16) {
+            if document?.hasExternalChanges == true {
+                Label("Changed on disk, your unsaved edits were kept", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
             Spacer()
             if let document {
                 Text("Ln \(document.cursorLine), Col \(document.cursorColumn)")
