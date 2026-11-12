@@ -34,6 +34,16 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored private(set) var lineIndex: LineIndex
     @ObservationIgnored private(set) var highlighter: SyntaxHighlighter?
     @ObservationIgnored private var storageObserver: TextStorageObserver?
+    /// The editor currently showing this document, if any.
+    @ObservationIgnored weak var editor: EditorController? {
+        didSet {
+            if let editor, let range = pendingReveal {
+                pendingReveal = nil
+                editor.reveal(range)
+            }
+        }
+    }
+    @ObservationIgnored private var pendingReveal: NSRange?
 
     var fileName: String { url.lastPathComponent }
 
@@ -60,6 +70,16 @@ final class EditorDocument: Identifiable {
     func save() throws {
         try textStorage.string.write(to: url, atomically: true, encoding: .utf8)
         isDirty = false
+    }
+
+    /// Selects and scrolls to `line` (1-based), now or once an editor shows this document.
+    func revealLine(_ line: Int) {
+        let index = min(max(line, 1), lineIndex.lineCount) - 1
+        reveal(NSRange(location: lineIndex.lineStarts[index], length: 0))
+    }
+
+    func reveal(_ range: NSRange) {
+        if let editor { editor.reveal(range) } else { pendingReveal = range }
     }
 
     func updateCursor(forSelectionAt location: Int) {

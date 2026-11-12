@@ -72,6 +72,7 @@ final class EditorController: NSObject {
             guard let self else { return }
             textView.window?.makeFirstResponder(textView)
             self.refreshHighlights(force: true)
+            self.document.editor = self
         }
         return containerView
     }
@@ -102,6 +103,26 @@ final class EditorController: NSObject {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.autoresizingMask = [.width, .height]
+    }
+
+    func focus() {
+        textView.window?.makeFirstResponder(textView)
+    }
+
+    func reveal(_ range: NSRange) {
+        let length = document.textStorage.length
+        let clamped = NSRange(location: min(range.location, length),
+                              length: min(range.length, length - min(range.location, length)))
+        textView.setSelectedRange(clamped)
+        textView.scrollRangeToVisible(clamped)
+        focus()
+    }
+
+    func showFindInterface() {
+        let item = NSMenuItem()
+        item.tag = NSTextFinder.Action.showFindInterface.rawValue
+        focus()
+        textView.performTextFinderAction(item)
     }
 
     @objc private func viewportDidScroll() {

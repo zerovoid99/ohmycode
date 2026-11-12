@@ -30,6 +30,17 @@ struct RootView: View {
                 WelcomeView(workspace: workspace)
             }
         }
+        .overlay(alignment: .top) {
+            if let palette = workspace.palette {
+                ZStack(alignment: .top) {
+                    // Click outside the palette to dismiss it.
+                    Color.black.opacity(0.001)
+                        .onTapGesture { workspace.closePalette() }
+                    PaletteView(model: palette, onDismiss: { workspace.closePalette() })
+                        .padding(.top, 8)
+                }
+            }
+        }
         .focusedSceneValue(\.workspace, workspace)
         .alert(
             "Error",
