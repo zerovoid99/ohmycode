@@ -50,6 +50,37 @@ enum GitFileStatus: Int, Sendable, Comparable {
     }
 }
 
+/// One path in `git status`, split into its staged (index) and unstaged (worktree) parts.
+struct GitChange: Sendable, Equatable, Identifiable, Hashable {
+    let path: String
+    /// Porcelain codes: index (staged) and worktree (unstaged); "." means unchanged.
+    let index: Character
+    let worktree: Character
+    var originalPath: String?
+
+    var id: String { path }
+    var isUntracked: Bool { index == "?" }
+    var isConflicted: Bool { index == "U" || worktree == "U" || (index == "A" && worktree == "A") || (index == "D" && worktree == "D") }
+    var isStaged: Bool { !isUntracked && !isConflicted && index != "." }
+    var hasUnstagedChanges: Bool { isUntracked || isConflicted || worktree != "." }
+
+    var stagedStatus: GitFileStatus? { isStaged ? Self.status(index) : nil }
+    var unstagedStatus: GitFileStatus? {
+        if isConflicted { return .conflicted }
+        if isUntracked { return .untracked }
+        return worktree == "." ? nil : Self.status(worktree)
+    }
+
+    private static func status(_ code: Character) -> GitFileStatus {
+        switch code {
+        case "A": .added
+        case "D": .deleted
+        case "R", "C": .renamed
+        default: .modified
+        }
+    }
+}
+
 /// A snapshot of `git status`, with paths relative to the workspace folder.
 struct GitStatus: Sendable, Equatable {
     var branch: String?
@@ -60,6 +91,11 @@ struct GitStatus: Sendable, Equatable {
     private(set) var untrackedDirectories: [String] = []
     /// Most important status of anything inside each folder.
     private(set) var directories: [String: GitFileStatus] = [:]
+    /// Every changed path, in git's order, for the Source Control panel.
+    private(set) var changes: [GitChange] = []
+
+    var stagedChanges: [GitChange] { changes.filter(\.isStaged) }
+    var unstagedChanges: [GitChange] { changes.filter(\.hasUnstagedChanges) }
 
     var changedFileCount: Int { files.count + untrackedDirectories.count }
 
@@ -77,10 +113,15 @@ struct GitStatus: Sendable, Equatable {
         let records = output.split(separator: 0, omittingEmptySubsequences: false)
             .map { String(decoding: $0, as: UTF8.self) }
         var i = 0
-        func add(_ path: String, _ fileStatus: GitFileStatus) {
+        func add(_ path: String, _ fileStatus: GitFileStatus, xy: String, original: String? = nil) {
             guard path.hasPrefix(prefix) else { return }
             let relative = String(path.dropFirst(prefix.count))
             guard !relative.isEmpty else { return }
+            let codes = Array(xy)
+            if codes.count == 2 {
+                status.changes.append(GitChange(path: relative, index: codes[0], worktree: codes[1],
+                                                originalPath: original.map { String($0.dropFirst(prefix.count)) }))
+            }
             if relative.hasSuffix("/") {
                 status.untrackedDirectories.append(relative)
             } else {
@@ -114,17 +155,21 @@ struct GitStatus: Sendable, Equatable {
             case "1":
                 let fields = record.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: false)
                 if fields.count == 9, let fileStatus = GitFileStatus(xy: String(fields[1])) {
-                    add(String(fields[8]), fileStatus)
+                    add(String(fields[8]), fileStatus, xy: String(fields[1]))
                 }
             case "2":
                 let fields = record.split(separator: " ", maxSplits: 9, omittingEmptySubsequences: false)
-                if fields.count == 10 { add(String(fields[9]), GitFileStatus(xy: String(fields[1])) ?? .renamed) }
+                let original = i < records.count ? records[i] : nil
+                if fields.count == 10 {
+                    add(String(fields[9]), GitFileStatus(xy: String(fields[1])) ?? .renamed, xy: String(fields[1]),
+                        original: original)
+                }
                 i += 1 // with -z the original path follows as its own record
             case "u":
                 let fields = record.split(separator: " ", maxSplits: 10, omittingEmptySubsequences: false)
-                if fields.count == 11 { add(String(fields[10]), .conflicted) }
+                if fields.count == 11 { add(String(fields[10]), .conflicted, xy: String(fields[1])) }
             case "?":
-                add(String(record.dropFirst(2)), .untracked)
+                add(String(record.dropFirst(2)), .untracked, xy: "??")
             default:
                 break
             }
@@ -154,6 +199,46 @@ enum Git {
         return GitStatus.parse(output, prefix: repository.prefix)
     }
 
+    // MARK: Changing the repository
+
+    struct CommandError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    static func stage(_ paths: [String], in repository: Repository) throws {
+        try check(["add", "--"] + paths, in: repository.root)
+    }
+
+    static func unstage(_ paths: [String], in repository: Repository) throws {
+        // `restore --staged` needs a commit to restore from; in a fresh repo, drop from the index.
+        if (try? check(["rev-parse", "--verify", "HEAD"], in: repository.root)) != nil {
+            try check(["restore", "--staged", "--"] + paths, in: repository.root)
+        } else {
+            try check(["rm", "--cached", "--quiet", "--"] + paths, in: repository.root)
+        }
+    }
+
+    /// Discards unstaged changes to tracked files (back to the staged version).
+    static func discard(_ paths: [String], in repository: Repository) throws {
+        try check(["restore", "--worktree", "--"] + paths, in: repository.root)
+    }
+
+    static func commit(message: String, in repository: Repository) throws {
+        try check(["commit", "--quiet", "-m", message], in: repository.root)
+    }
+
+    /// Runs git and throws its stderr on failure.
+    @discardableResult
+    private static func check(_ arguments: [String], in directory: URL) throws -> Data {
+        let result = execute(arguments, in: directory)
+        guard result.status == 0 else {
+            let message = String(decoding: result.error, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw CommandError(message: message.isEmpty ? "git \(arguments.first ?? "") failed" : message)
+        }
+        return result.output
+    }
+
     /// The file's content as staged in the index, or nil if it isn't tracked.
     static func indexContent(ofRelativePath path: String, in repository: Repository) -> String? {
         guard let output = run(["show", ":./" + path], in: repository.root) else { return nil }
@@ -161,6 +246,11 @@ enum Git {
     }
 
     private static func run(_ arguments: [String], in directory: URL) -> Data? {
+        let result = execute(arguments, in: directory)
+        return result.status == 0 ? result.output : nil
+    }
+
+    private static func execute(_ arguments: [String], in directory: URL) -> (status: Int32, output: Data, error: Data) {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/git")
         process.arguments = ["--no-optional-locks", "-c", "core.quotepath=off", "-C", directory.path] + arguments
@@ -168,12 +258,21 @@ enum Git {
         environment["GIT_OPTIONAL_LOCKS"] = "0"
         environment["LC_ALL"] = "C"
         process.environment = environment
-        let output = Pipe()
+        let output = Pipe(), errorOutput = Pipe()
         process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
+        process.standardError = errorOutput
+        do { try process.run() } catch { return (-1, Data(), Data("could not run git".utf8)) }
+        // Drain stderr concurrently so a chatty command can't block on a full pipe.
+        nonisolated(unsafe) var errorData = Data()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global().async {
+            errorData = errorOutput.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
         let data = output.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        return process.terminationStatus == 0 ? data : nil
+        group.wait()
+        return (process.terminationStatus, data, errorData)
     }
 }

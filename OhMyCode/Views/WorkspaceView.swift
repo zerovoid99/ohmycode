@@ -5,10 +5,26 @@ struct WorkspaceView: View {
 
     var body: some View {
         NavigationSplitView {
-            if let root = workspace.rootNode {
-                FileTreeView(root: root, workspace: workspace)
-                    .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 480)
+            VStack(spacing: 0) {
+                Picker("Sidebar", selection: $workspace.sidebarMode) {
+                    Label("Files", systemImage: "folder").tag(Workspace.SidebarMode.files)
+                    Label(changeCountLabel, systemImage: "arrow.triangle.branch").tag(Workspace.SidebarMode.sourceControl)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+
+                switch workspace.sidebarMode {
+                case .files:
+                    if let root = workspace.rootNode {
+                        FileTreeView(root: root, workspace: workspace)
+                    }
+                case .sourceControl:
+                    SourceControlView(workspace: workspace)
+                }
             }
+            .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 480)
         } detail: {
             VStack(spacing: 0) {
                 VSplitView {
@@ -25,6 +41,11 @@ struct WorkspaceView: View {
         }
         .navigationTitle(workspace.displayName)
         .navigationSubtitle(workspace.activeDocument?.fileName ?? "")
+    }
+
+    private var changeCountLabel: String {
+        let count = workspace.gitStatus?.changedFileCount ?? 0
+        return count > 0 ? "Source Control (\(count))" : "Source Control"
     }
 
     private var editorArea: some View {

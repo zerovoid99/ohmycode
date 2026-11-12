@@ -6,6 +6,20 @@ enum DiffMarker: Sendable, Equatable {
     case deletedAbove
 }
 
+/// A changed region: `oldCount` lines at `oldStart` in the base became `newCount` lines at
+/// `newStart` in the current text (zero-based line numbers).
+struct DiffHunk: Sendable, Equatable {
+    var oldStart: Int
+    var oldCount: Int
+    var newStart: Int
+    var newCount: Int
+
+    /// Whether a gutter marker on `line` (current text) belongs to this hunk.
+    func contains(line: Int) -> Bool {
+        newCount == 0 ? line == newStart : (newStart..<(newStart + newCount)).contains(line)
+    }
+}
+
 /// Line-level diff between the index version and the buffer, for gutter markers.
 enum LineDiff {
     /// Above this many differing lines (after trimming the common prefix/suffix) the middle is
@@ -14,6 +28,23 @@ enum LineDiff {
 
     /// Markers keyed by zero-based line in `current`.
     static func markers(base: [Substring], current: [Substring]) -> [Int: DiffMarker] {
+        markers(for: hunks(base: base, current: current))
+    }
+
+    static func markers(for hunks: [DiffHunk]) -> [Int: DiffMarker] {
+        var markers: [Int: DiffMarker] = [:]
+        for hunk in hunks {
+            if hunk.newCount == 0 {
+                markers[hunk.newStart] = .deletedAbove
+            } else {
+                let kind: DiffMarker = hunk.oldCount > 0 ? .modified : .added
+                for line in hunk.newStart..<(hunk.newStart + hunk.newCount) { markers[line] = kind }
+            }
+        }
+        return markers
+    }
+
+    static func hunks(base: [Substring], current: [Substring]) -> [DiffHunk] {
         var prefix = 0
         while prefix < base.count, prefix < current.count, base[prefix] == current[prefix] { prefix += 1 }
         var suffix = 0
@@ -22,13 +53,11 @@ enum LineDiff {
 
         let old = base[prefix..<(base.count - suffix)]
         let new = current[prefix..<(current.count - suffix)]
-        var markers: [Int: DiffMarker] = [:]
-        if old.isEmpty && new.isEmpty { return markers }
+        if old.isEmpty && new.isEmpty { return [] }
         if old.count + new.count > maxDiffLines {
-            for line in new.indices { markers[line] = .modified }
-            if new.isEmpty { markers[prefix] = .deletedAbove }
-            return markers
+            return [DiffHunk(oldStart: prefix, oldCount: old.count, newStart: prefix, newCount: new.count)]
         }
+        var hunks: [DiffHunk] = []
 
         let difference = Array(new).difference(from: Array(old))
         var removed = Set<Int>(), inserted = Set<Int>()
@@ -49,13 +78,35 @@ enum LineDiff {
                 i += 1; j += 1
                 continue
             }
-            let kind: DiffMarker = removedRun > 0 && insertedRun > 0 ? .modified : .added
-            for k in 0..<insertedRun { markers[prefix + j + k] = kind }
-            if insertedRun == 0 { markers[prefix + j] = .deletedAbove }
+            hunks.append(DiffHunk(oldStart: prefix + i, oldCount: removedRun, newStart: prefix + j, newCount: insertedRun))
             i += removedRun
             j += insertedRun
         }
-        return markers
+        return hunks
+    }
+
+    /// The edit that undoes `hunk` in `current`: a UTF-16 range of `text` and its replacement.
+    /// Applying it makes those lines equal the base again.
+    static func revertEdit(for hunk: DiffHunk, base: [Substring], text: NSString,
+                           lineStarts: [Int]) -> (range: NSRange, replacement: String) {
+        let lineCount = lineStarts.count
+        let baseLines = base[hunk.oldStart..<(hunk.oldStart + hunk.oldCount)].joined(separator: "\n")
+        let endsAtEnd = hunk.newStart + hunk.newCount >= lineCount
+        if hunk.newCount == 0 {
+            // Lines were deleted: put them back before line newStart (or after the last line).
+            if hunk.newStart < lineCount {
+                return (NSRange(location: lineStarts[hunk.newStart], length: 0), baseLines + "\n")
+            }
+            return (NSRange(location: text.length, length: 0), "\n" + baseLines)
+        }
+        var start = lineStarts[hunk.newStart]
+        let end = endsAtEnd ? text.length : lineStarts[hunk.newStart + hunk.newCount]
+        if hunk.oldCount == 0 {
+            // Added lines go away entirely; at the end of the file, so does the newline before them.
+            if endsAtEnd && start > 0 { start -= 1 }
+            return (NSRange(location: start, length: end - start), "")
+        }
+        return (NSRange(location: start, length: end - start), baseLines + (endsAtEnd ? "" : "\n"))
     }
 
     static func lines(_ text: String) -> [Substring] {

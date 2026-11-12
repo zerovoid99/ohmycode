@@ -14,7 +14,14 @@ final class Workspace {
     /// Most recently opened first.
     private(set) var recentFiles: [URL] = []
     private(set) var palette: PaletteModel?
+    enum SidebarMode: String, CaseIterable {
+        case files = "Files"
+        case sourceControl = "Source Control"
+    }
+
+    var sidebarMode = SidebarMode.files
     private(set) var gitStatus: GitStatus?
+    private(set) var isRunningGitCommand = false
     @ObservationIgnored private(set) var gitRepository: Git.Repository?
     @ObservationIgnored private var gitTask: Task<Void, Never>?
     /// Replaces server discovery per language (tests point a workspace at a fake server).
@@ -241,6 +248,67 @@ final class Workspace {
             self.gitRepository = result?.0
             if self.gitStatus != result?.1 { self.gitStatus = result?.1 }
             for document in self.documents { self.loadDiffBase(for: document) }
+        }
+    }
+
+    func stage(_ paths: [String]) { runGit { try Git.stage(paths, in: $0) } }
+    func unstage(_ paths: [String]) { runGit { try Git.unstage(paths, in: $0) } }
+
+    /// Discards unstaged changes. Untracked files go to the Trash rather than being deleted.
+    func discard(_ changes: [GitChange]) {
+        guard let rootURL, !changes.isEmpty else { return }
+        let alert = NSAlert()
+        alert.messageText = changes.count == 1
+            ? "Discard changes in \(changes[0].path)?" : "Discard changes in \(changes.count) files?"
+        alert.informativeText = changes.contains(where: \.isUntracked)
+            ? "Untracked files will be moved to the Trash. Other changes can't be undone." : "This can't be undone."
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons[0].hasDestructiveAction = true
+        guard Self.confirmDiscard?(changes) ?? (alert.runModal() == .alertFirstButtonReturn) else { return }
+
+        let tracked = changes.filter { !$0.isUntracked }.map(\.path)
+        let untracked = changes.filter(\.isUntracked).map { rootURL.appending(path: $0.path) }
+        let trash = Self.moveToTrash
+        runGit { repository in
+            for url in untracked { try trash(url) }
+            if !tracked.isEmpty { try Git.discard(tracked, in: repository) }
+        }
+    }
+
+    /// Tests replace the confirmation dialog and the Trash (so runs don't fill the user's Trash).
+    @ObservationIgnored static var confirmDiscard: (([GitChange]) -> Bool)?
+    @ObservationIgnored nonisolated(unsafe) static var moveToTrash: @Sendable (URL) throws -> Void = {
+        try FileManager.default.trashItem(at: $0, resultingItemURL: nil)
+    }
+
+    /// Commits what is staged. Returns false (and shows the error) if git refused.
+    func commit(message: String) async -> Bool {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let repository = gitRepository else { return false }
+        isRunningGitCommand = true
+        defer { isRunningGitCommand = false }
+        do {
+            try await Task.detached { try Git.commit(message: trimmed, in: repository) }.value
+            refreshGit()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    private func runGit(_ operation: @escaping @Sendable (Git.Repository) throws -> Void) {
+        guard let repository = gitRepository else { return }
+        isRunningGitCommand = true
+        Task {
+            do {
+                try await Task.detached { try operation(repository) }.value
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isRunningGitCommand = false
+            refreshGit()
         }
     }
 

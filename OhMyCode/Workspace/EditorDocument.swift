@@ -68,6 +68,7 @@ final class EditorDocument: Identifiable {
 
     /// Gutter change markers against the git index, keyed by zero-based line.
     @ObservationIgnored private(set) var diffMarkers: [Int: DiffMarker] = [:]
+    @ObservationIgnored private(set) var diffHunks: [DiffHunk] = []
     @ObservationIgnored private var diffBase: String?
     @ObservationIgnored private var diffBaseLines: [Substring]?
     @ObservationIgnored private var diffTask: Task<Void, Never>?
@@ -224,7 +225,7 @@ final class EditorDocument: Identifiable {
     private func scheduleDiff(after delay: Duration) {
         diffTask?.cancel()
         guard let base = diffBaseLines else {
-            if !diffMarkers.isEmpty { diffMarkers = [:]; editor?.gutterView.needsDisplay = true }
+            if !diffMarkers.isEmpty { diffMarkers = [:]; diffHunks = []; editor?.gutterView.needsDisplay = true }
             return
         }
         diffTask = Task {
@@ -233,13 +234,39 @@ final class EditorDocument: Identifiable {
                 guard !Task.isCancelled else { return }
             }
             let text = textStorage.mutableString as String
-            let markers = await Task.detached(priority: .utility) {
-                LineDiff.markers(base: base, current: LineDiff.lines(text))
+            let hunks = await Task.detached(priority: .utility) {
+                LineDiff.hunks(base: base, current: LineDiff.lines(text))
             }.value
             guard !Task.isCancelled else { return }
-            diffMarkers = markers
+            diffHunks = hunks
+            diffMarkers = LineDiff.markers(for: hunks)
             editor?.gutterView.needsDisplay = true
         }
+    }
+
+    func hunk(atLine line: Int) -> DiffHunk? {
+        diffHunks.first { $0.contains(line: line) }
+    }
+
+    /// The base (index) lines a hunk replaced, and the current lines it covers.
+    func lines(of hunk: DiffHunk) -> (old: [String], new: [String]) {
+        let base = diffBaseLines ?? []
+        let old = base[hunk.oldStart..<min(base.count, hunk.oldStart + hunk.oldCount)].map(String.init)
+        let text = textStorage.mutableString
+        let new = (hunk.newStart..<(hunk.newStart + hunk.newCount)).compactMap { line -> String? in
+            guard line < lineIndex.lineCount else { return nil }
+            let start = lineIndex.lineStarts[line]
+            let end = line + 1 < lineIndex.lineCount ? lineIndex.lineStarts[line + 1] - 1 : text.length
+            return text.substring(with: NSRange(location: start, length: max(0, end - start)))
+        }
+        return (old, new)
+    }
+
+    /// The edit that reverts `hunk` to the staged version (applied through the text view).
+    func revertEdit(for hunk: DiffHunk) -> (range: NSRange, replacement: String)? {
+        guard let base = diffBaseLines else { return nil }
+        return LineDiff.revertEdit(for: hunk, base: base, text: textStorage.mutableString,
+                                   lineStarts: lineIndex.lineStarts)
     }
 
     /// Waits for a pending diff (tests).

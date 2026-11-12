@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import Oh_My_Code
@@ -235,4 +236,198 @@ struct GitWorkspaceTests {
         try await Task.sleep(for: .milliseconds(300))
         #expect(other.gitStatus == nil)
     }
+}
+
+struct GitStageTwoTests {
+    @Test func stagedAndUnstagedAreSeparated() {
+        let output = Data([
+            "# branch.head main",
+            "1 M. N... 100644 100644 100644 a b staged.swift",
+            "1 .M N... 100644 100644 100644 a a unstaged.swift",
+            "1 MM N... 100644 100644 100644 a b both.swift",
+            "1 A. N... 000000 100644 100644 0 b new.swift",
+            "u UU N... 100644 100644 100644 100644 a b c conflict.swift",
+            "? untracked.swift",
+        ].joined(separator: "\0").appending("\0").utf8)
+        let status = GitStatus.parse(output, prefix: "")
+        #expect(status.stagedChanges.map(\.path) == ["staged.swift", "both.swift", "new.swift"])
+        #expect(status.unstagedChanges.map(\.path) == ["unstaged.swift", "both.swift", "conflict.swift", "untracked.swift"])
+        #expect(status.changes.first { $0.path == "new.swift" }?.stagedStatus == .added)
+        #expect(status.changes.first { $0.path == "untracked.swift" }?.unstagedStatus == .untracked)
+        #expect(status.changes.first { $0.path == "conflict.swift" }?.unstagedStatus == .conflicted)
+    }
+
+    /// Reverting every hunk (bottom-up) must reproduce the base exactly, for any edit.
+    @Test func revertingAllHunksRestoresBase() {
+        var rng = SystemRandomNumberGenerator()
+        let vocabulary = ["a", "b", "c", "dd", "", "x y"]
+        for _ in 0..<500 {
+            let baseLines = (0..<Int.random(in: 0...8, using: &rng)).map { _ in vocabulary.randomElement(using: &rng)! }
+            var currentLines = baseLines
+            for _ in 0..<Int.random(in: 0...4, using: &rng) {
+                let operation = currentLines.isEmpty ? 0 : Int.random(in: 0..<3, using: &rng)
+                switch operation {
+                case 0: currentLines.insert(vocabulary.randomElement(using: &rng)!, at: Int.random(in: 0...currentLines.count, using: &rng))
+                case 1: currentLines.remove(at: Int.random(in: 0..<currentLines.count, using: &rng))
+                default: currentLines[Int.random(in: 0..<currentLines.count, using: &rng)] = "CHANGED"
+                }
+            }
+            let baseText = baseLines.joined(separator: "\n") + (Bool.random(using: &rng) ? "\n" : "")
+            let currentText = currentLines.joined(separator: "\n") + (Bool.random(using: &rng) ? "\n" : "")
+            let base = LineDiff.lines(baseText)
+
+            let text = NSMutableString(string: currentText)
+            for hunk in LineDiff.hunks(base: base, current: LineDiff.lines(currentText)).reversed() {
+                let starts = LineIndex(string: text).lineStarts
+                let edit = LineDiff.revertEdit(for: hunk, base: base, text: text, lineStarts: starts)
+                text.replaceCharacters(in: edit.range, with: edit.replacement)
+            }
+            #expect(text as String == baseText, "base=\(baseText.debugDescription) current=\(currentText.debugDescription)")
+            if text as String != baseText { return }
+        }
+    }
+
+    private func git(_ arguments: [String], in directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path] + arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    @Test func stageUnstageDiscardCommit() throws {
+        let root = try GitRepositoryTests.makeRepository()
+        try git(["init", "-q", "-b", "main"], in: root)
+        try git(["config", "user.name", "OMC Test"], in: root)
+        try git(["config", "user.email", "omc@example.invalid"], in: root)
+        try git(["config", "commit.gpgsign", "false"], in: root)
+        let repository = try #require(Git.repository(at: root))
+
+        // Unstage works before the first commit too.
+        try Git.stage(["README.md"], in: repository)
+        #expect(Git.status(of: repository)?.stagedChanges.map(\.path) == ["README.md"])
+        try Git.unstage(["README.md"], in: repository)
+        #expect(Git.status(of: repository)?.stagedChanges.isEmpty == true)
+
+        try Git.stage(["README.md", "src/main.txt"], in: repository)
+        try Git.commit(message: "first", in: repository)
+        #expect(Git.status(of: repository)?.changes.isEmpty == true)
+
+        try "changed\n".write(to: root.appending(path: "README.md"), atomically: true, encoding: .utf8)
+        try Git.discard(["README.md"], in: repository)
+        #expect(try String(contentsOf: root.appending(path: "README.md"), encoding: .utf8) == "keep\n")
+
+        #expect(throws: Git.CommandError.self) { try Git.commit(message: "nothing staged", in: repository) }
+    }
+}
+
+@MainActor
+struct GitStageTwoWorkspaceTests {
+    private func git(_ arguments: [String], in directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path] + arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    private func eventually(timeout: Duration = .seconds(5), _ condition: @MainActor () -> Bool) async throws -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            if ContinuousClock.now > deadline { return false }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        return true
+    }
+
+    private func makeRepository() throws -> URL {
+        let root = try GitRepositoryTests.makeRepository()
+        try git(["init", "-q", "-b", "main"], in: root)
+        try git(["config", "user.name", "OMC Test"], in: root)
+        try git(["config", "user.email", "omc@example.invalid"], in: root)
+        try git(["config", "commit.gpgsign", "false"], in: root)
+        try git(["add", "."], in: root)
+        try git(["commit", "-q", "-m", "init"], in: root)
+        return root
+    }
+
+    @Test func stageCommitAndDiscardFromTheWorkspace() async throws {
+        let root = try makeRepository()
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        #expect(try await eventually { workspace.gitStatus != nil })
+
+        try "keep\nmore\n".write(to: root.appending(path: "README.md"), atomically: true, encoding: .utf8)
+        try "scratch".write(to: root.appending(path: "scratch.txt"), atomically: true, encoding: .utf8)
+        #expect(try await eventually { workspace.gitStatus?.unstagedChanges.count == 2 })
+
+        workspace.stage(["README.md"])
+        #expect(try await eventually { workspace.gitStatus?.stagedChanges.map(\.path) == ["README.md"] })
+
+        #expect(await workspace.commit(message: "  update readme  "))
+        #expect(try await eventually { workspace.gitStatus?.stagedChanges.isEmpty == true })
+        #expect(await workspace.commit(message: "nothing staged") == false)
+        #expect(workspace.errorMessage != nil)
+        workspace.errorMessage = nil
+
+        // Discard: untracked file goes to the (test) Trash, tracked edits are restored.
+        try "edited".write(to: root.appending(path: "src/main.txt"), atomically: true, encoding: .utf8)
+        #expect(try await eventually { workspace.gitStatus?.unstagedChanges.count == 2 })
+        let trashed = TrashRecorder()
+        Workspace.confirmDiscard = { _ in true }
+        Workspace.moveToTrash = { url in trashed.add(url); try FileManager.default.removeItem(at: url) }
+        defer {
+            Workspace.confirmDiscard = nil
+            Workspace.moveToTrash = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+        }
+        workspace.discard(workspace.gitStatus?.unstagedChanges ?? [])
+        #expect(try await eventually { workspace.gitStatus?.changes.isEmpty == true })
+        #expect(trashed.names == ["scratch.txt"])
+        #expect(try String(contentsOf: root.appending(path: "src/main.txt"), encoding: .utf8) == "one\ntwo\nthree\n")
+    }
+
+    @Test func revertHunkFromTheGutterIsUndoable() async throws {
+        let root = try makeRepository()
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: root.appending(path: "src/main.txt"))
+        let document = try #require(workspace.activeDocument)
+        let controller = EditorController(document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = controller.makeView()
+        window.makeFirstResponder(controller.textView)
+        try await Task.sleep(for: .milliseconds(300)) // diff base loads
+
+        let undo = document.undoManager
+        undo.groupsByEvent = false
+        undo.beginUndoGrouping()
+        controller.textView.insertText("TWO", replacementRange: NSRange(location: 4, length: 3))
+        undo.endUndoGrouping()
+        #expect(try await eventually { document.diffMarkers == [1: .modified] })
+
+        let hunk = try #require(document.hunk(atLine: 1))
+        #expect(document.lines(of: hunk).old == ["two"])
+        #expect(document.lines(of: hunk).new == ["TWO"])
+        undo.beginUndoGrouping()
+        controller.revert(hunk)
+        undo.endUndoGrouping()
+        #expect(document.textStorage.string == "one\ntwo\nthree\n")
+        #expect(try await eventually { document.diffMarkers.isEmpty })
+
+        undo.undo()
+        #expect(document.textStorage.string == "one\nTWO\nthree\n")
+        withExtendedLifetime((workspace, window)) {}
+    }
+}
+
+private final class TrashRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var urls: [URL] = []
+    func add(_ url: URL) { lock.withLock { urls.append(url) } }
+    var names: [String] { lock.withLock { urls.map(\.lastPathComponent) } }
 }

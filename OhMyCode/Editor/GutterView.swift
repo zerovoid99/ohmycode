@@ -12,6 +12,27 @@ final class GutterView: NSView {
 
     /// Called when the width changes so the container can re-layout.
     var onWidthChange: (() -> Void)?
+    /// Called with the zero-based line and its rect (in this view) when the gutter is clicked.
+    var onLineClick: ((Int, NSRect) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        guard let textView, let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let inText = convert(point, to: textView)
+        let origin = textView.textContainerOrigin
+        guard let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: inText.y - origin.y)) else { return }
+        let offset = contentManager.offset(from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
+        var line = document.lineIndex.line(containing: offset)
+        // The last fragment can also hold the empty line after a trailing newline.
+        let frame = fragment.layoutFragmentFrame
+        for (i, lineFragment) in fragment.textLineFragments.enumerated()
+        where inText.y - origin.y >= frame.minY + lineFragment.typographicBounds.minY {
+            line = document.lineIndex.line(containing: offset) + i
+        }
+        let top = convert(NSPoint(x: 0, y: frame.minY + origin.y), from: textView).y
+        onLineClick?(line, NSRect(x: 0, y: top, width: 8, height: frame.height))
+    }
 
     init(textView: NSTextView, document: EditorDocument) {
         self.textView = textView

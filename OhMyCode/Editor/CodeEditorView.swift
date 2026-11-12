@@ -76,6 +76,7 @@ final class EditorController: NSObject {
             self.completion.dismiss()
             self.goToDefinition()
         }
+        gutter.onLineClick = { [weak self] line, rect in self?.showHunk(atLine: line, rect: rect) }
         textView.onLayout = { [weak self, weak gutter, weak overlay] in
             gutter?.needsDisplay = true
             overlay?.needsDisplay = true
@@ -190,6 +191,35 @@ final class EditorController: NSObject {
     /// The editor doesn't know its workspace; the workspace owning the document handles this.
     func goToDefinition() {
         NotificationCenter.default.post(name: .omcGoToDefinition, object: document)
+    }
+
+    // MARK: Git hunks
+
+    private var hunkPopover: NSPopover?
+
+    /// Clicking a change marker shows the hunk with Revert.
+    func showHunk(atLine line: Int, rect: NSRect) {
+        guard let hunk = document.hunk(atLine: line) else { return }
+        let (old, new) = document.lines(of: hunk)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(rootView: HunkPopoverView(
+            oldLines: old, newLines: new,
+            onRevert: { [weak self, weak popover] in
+                self?.revert(hunk)
+                popover?.performClose(nil)
+            }
+        ))
+        hunkPopover = popover
+        popover.show(relativeTo: rect, of: gutterView, preferredEdge: .maxX)
+    }
+
+    /// Reverts through the text view, so it's a normal undoable edit.
+    func revert(_ hunk: DiffHunk) {
+        guard let edit = document.revertEdit(for: hunk) else { return }
+        textView.breakUndoCoalescing()
+        textView.insertText(edit.replacement, replacementRange: edit.range)
+        textView.breakUndoCoalescing()
     }
 
     /// Redraws diagnostic squiggles (drawn by an overlay; see DiagnosticsOverlayView).
