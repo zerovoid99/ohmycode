@@ -41,6 +41,9 @@ struct WorkspaceCommands: Commands {
             Button("Explorer") { workspace?.sidebarMode = .files }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(workspace?.rootNode == nil)
+            Button("Search") { workspace?.showSearch() }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(workspace?.rootNode == nil)
             Button("Source Control") { workspace?.sidebarMode = .sourceControl }
                 .keyboardShortcut("g", modifiers: [.control, .shift])
                 .disabled(workspace?.rootNode == nil)

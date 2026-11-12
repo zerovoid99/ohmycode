@@ -16,7 +16,32 @@ final class Workspace {
     private(set) var palette: PaletteModel?
     enum SidebarMode: String, CaseIterable {
         case files = "Files"
+        case search = "Search"
         case sourceControl = "Source Control"
+    }
+
+    @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
+
+    /// ⇧⌘F: show the search panel, seeded with the editor's selection.
+    func showSearch() {
+        sidebarMode = .search
+        var selected: String?
+        if let editor = activeDocument?.editor, let textView = editor.textView {
+            let range = textView.selectedRange()
+            if range.length > 0, range.length < 200 {
+                selected = (textView.string as NSString).substring(with: range)
+            }
+        }
+        search.focus(prefill: selected)
+    }
+
+    /// Files for Find in Files: the quick-open index (git-aware), built first if needed.
+    func searchableFiles() async -> [String] {
+        if fileIndex == nil, let rootURL {
+            let index = await Task.detached(priority: .userInitiated) { FileIndexer.build(root: rootURL) }.value
+            if self.rootURL == rootURL, fileIndex == nil { fileIndex = index }
+        }
+        return fileIndex?.files.map(\.text) ?? []
     }
 
     var sidebarMode = SidebarMode.files

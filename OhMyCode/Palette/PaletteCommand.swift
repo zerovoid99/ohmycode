@@ -48,6 +48,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.terminal != nil }, perform: { $0.restartTerminal() }),
         PaletteCommand(id: "view.explorer", title: "View: Show Explorer", icon: "folder", shortcut: "⇧⌘E",
                        isAvailable: { $0.rootNode != nil }, perform: { $0.sidebarMode = .files }),
+        PaletteCommand(id: "view.search", title: "Search: Find in Files", icon: "magnifyingglass", shortcut: "⇧⌘F",
+                       isAvailable: { $0.rootNode != nil }, perform: { $0.showSearch() }),
         PaletteCommand(id: "view.sourceControl", title: "View: Show Source Control", icon: "arrow.triangle.branch",
                        shortcut: "⌃⇧G", isAvailable: { $0.rootNode != nil }, perform: { $0.sidebarMode = .sourceControl }),
         PaletteCommand(id: "git.stageAll", title: "Git: Stage All Changes", icon: "plus", shortcut: nil,

@@ -7,8 +7,10 @@ struct WorkspaceView: View {
         NavigationSplitView {
             VStack(spacing: 0) {
                 Picker("Sidebar", selection: $workspace.sidebarMode) {
-                    Label("Files", systemImage: "folder").tag(Workspace.SidebarMode.files)
-                    Label(changeCountLabel, systemImage: "arrow.triangle.branch").tag(Workspace.SidebarMode.sourceControl)
+                    Image(systemName: "folder").help("Explorer (⇧⌘E)").tag(Workspace.SidebarMode.files)
+                    Image(systemName: "magnifyingglass").help("Search (⇧⌘F)").tag(Workspace.SidebarMode.search)
+                    Image(systemName: "arrow.triangle.branch").help(changeCountLabel + " (⌃⇧G)")
+                        .tag(Workspace.SidebarMode.sourceControl)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -20,6 +22,8 @@ struct WorkspaceView: View {
                     if let root = workspace.rootNode {
                         FileTreeView(root: root, workspace: workspace)
                     }
+                case .search:
+                    SearchView(model: workspace.search)
                 case .sourceControl:
                     SourceControlView(workspace: workspace)
                 }
