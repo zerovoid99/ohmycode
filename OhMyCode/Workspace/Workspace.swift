@@ -10,12 +10,25 @@ final class Workspace {
     /// Every open document, in any editor group.
     private(set) var documents: [EditorDocument] = [] {
         didSet {
+            for document in documents where !oldValue.contains(where: { $0 === document }) { attachBreakpoints(to: document) }
             // Tell the extensions (only once they're running: opening a folder starts them).
             guard extensionsStarted else { return }
             for document in documents where !oldValue.contains(where: { $0 === document }) { extensions.documentOpened(document) }
             for document in oldValue where !documents.contains(where: { $0 === document }) { extensions.documentClosed(document) }
         }
     }
+    /// Breakpoints in this folder's files.
+    let breakpoints = BreakpointStore()
+    /// The program being debugged (or the last one, terminated).
+    var debugSession: DebugSession?
+    /// What can be debugged: .omc/launch.json, or a Swift package's executables.
+    var launchConfigurations: [LaunchConfiguration] = []
+    var selectedLaunchName: String?
+    /// Replaces the debug adapter's command (tests).
+    @ObservationIgnored var debugAdapter: [String]?
+    enum BottomPanel { case terminal, debugConsole }
+    /// What the bottom panel shows.
+    var bottomPanel = BottomPanel.terminal
     /// The window showing this workspace (set by the window).
     @ObservationIgnored weak var window: NSWindow?
     /// The window's extensions.
@@ -55,6 +68,7 @@ final class Workspace {
         case references = "References"
         case history = "Timeline"
         case extensions = "Extensions"
+        case debug = "Run and Debug"
     }
 
     @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
@@ -219,6 +233,11 @@ final class Workspace {
         remotes = nil
         worktrees = nil
         submodules = []
+        if let session = debugSession { Task { await session.stop() } }
+        debugSession = nil
+        launchConfigurations = []
+        breakpoints.load(for: url)
+        breakpoints.onChange = { [weak self] path in self?.breakpointsChanged(in: path) }
         refreshGit()
         extensionsStarted = true
         extensions.start()
@@ -1510,7 +1529,14 @@ final class Workspace {
         terminals.first { $0.id == activeTerminalID }
     }
 
+    /// Shows the debug console in the bottom panel.
+    func showDebugConsole() {
+        bottomPanel = .debugConsole
+        isTerminalVisible = true
+    }
+
     func showTerminal() {
+        bottomPanel = .terminal
         if terminals.isEmpty {
             newTerminal()
             return
@@ -1527,6 +1553,7 @@ final class Workspace {
 
     func selectTerminal(_ session: TerminalSession) {
         activeTerminalID = session.id
+        bottomPanel = .terminal
         isTerminalVisible = true
         terminalFocusRequest += 1
     }

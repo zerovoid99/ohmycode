@@ -87,8 +87,18 @@ final class GutterView: NSView {
             onFoldClick?(line)
             return
         }
-        onLineClick?(line, NSRect(x: blameWidth, y: lineRect.minY, width: 8, height: lineRect.height))
+        // The change bar's strip shows the change; the rest of the numbers toggles a breakpoint.
+        if point.x < blameWidth + Self.changeStripWidth || onBreakpointClick == nil {
+            onLineClick?(line, NSRect(x: blameWidth, y: lineRect.minY, width: 8, height: lineRect.height))
+        } else {
+            onBreakpointClick?(line)
+        }
     }
+
+    /// Width of the change bars' strip at the left of the line numbers.
+    static let changeStripWidth: CGFloat = 8
+    /// A click on a line number: toggle its breakpoint.
+    var onBreakpointClick: ((Int) -> Void)?
 
     init(textView: NSTextView, document: EditorDocument) {
         self.textView = textView
@@ -176,6 +186,8 @@ final class GutterView: NSView {
             NSRect(x: 0, y: dirtyRect.minY, width: blameWidth, height: dirtyRect.height).fill(using: .sourceOver)
         }
         var firstDrawnLine: Int?
+        let breakpoints = document.breakpointMarks?() ?? [:]
+        let executionLine = document.executionLine
 
         layoutManager.enumerateTextLayoutFragments(from: viewportRange.location, options: []) { fragment in
             if fragment.rangeInElement.location.compare(viewportRange.endLocation) == .orderedDescending { return false }
@@ -204,6 +216,12 @@ final class GutterView: NSView {
                     self.drawDiffMarker(marker, x: self.blameWidth, y: y, height: bounds.height)
                 }
 
+                if let mark = breakpoints[line] {
+                    self.drawBreakpoint(mark, y: y, height: bounds.height)
+                }
+                if line == executionLine {
+                    self.drawExecutionArrow(y: y, height: bounds.height)
+                }
                 let label = String(line + 1) as NSString
                 let attributes = line == currentLine ? currentAttributes : normalAttributes
                 let size = label.size(withAttributes: attributes)
@@ -218,6 +236,48 @@ final class GutterView: NSView {
 }
 
 extension GutterView {
+    /// A red dot before the line number: hollow when the debugger couldn't place it, grey
+    /// when disabled, with a bar when it has a condition.
+    fileprivate func drawBreakpoint(_ mark: BreakpointMark, y: CGFloat, height: CGFloat) {
+        let size = min(10, height - 4)
+        let rect = NSRect(x: blameWidth + Self.changeStripWidth + 1, y: y + (height - size) / 2, width: size, height: size)
+        let color = mark.isEnabled ? NSColor.systemRed : NSColor.systemGray
+        let dot = NSBezierPath(ovalIn: rect)
+        if mark.isVerified == false {
+            color.setStroke()
+            dot.lineWidth = 1.5
+            dot.stroke()
+        } else {
+            color.setFill()
+            dot.fill()
+        }
+        if mark.hasCondition {
+            NSColor.white.setFill()
+            NSRect(x: rect.minX + 2.5, y: rect.midY - 0.75, width: rect.width - 5, height: 1.5).fill()
+        }
+    }
+
+    /// A yellow arrow where the debugger is stopped.
+    fileprivate func drawExecutionArrow(y: CGFloat, height: CGFloat) {
+        let size = min(12, height - 2)
+        let x = blameWidth + Self.changeStripWidth
+        let top = y + (height - size) / 2
+        let arrow = NSBezierPath()
+        arrow.move(to: NSPoint(x: x, y: top + size * 0.25))
+        arrow.line(to: NSPoint(x: x + size * 0.5, y: top + size * 0.25))
+        arrow.line(to: NSPoint(x: x + size * 0.5, y: top))
+        arrow.line(to: NSPoint(x: x + size, y: top + size / 2))
+        arrow.line(to: NSPoint(x: x + size * 0.5, y: top + size))
+        arrow.line(to: NSPoint(x: x + size * 0.5, y: top + size * 0.75))
+        arrow.line(to: NSPoint(x: x, y: top + size * 0.75))
+        arrow.close()
+        NSColor.systemYellow.setFill()
+        arrow.fill()
+        NSColor.black.withAlphaComponent(0.35).setStroke()
+        arrow.lineWidth = 0.75
+        arrow.stroke()
+    }
+
     /// VS Code-style change bar at the gutter's left edge.
     fileprivate func drawDiffMarker(_ marker: DiffMarker, x: CGFloat, y: CGFloat, height: CGFloat) {
         switch marker {

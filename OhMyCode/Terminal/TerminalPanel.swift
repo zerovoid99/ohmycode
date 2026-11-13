@@ -9,6 +9,8 @@ struct TerminalPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
+                BottomPanelSwitcher(workspace: workspace).padding(.leading, 8)
+                Divider().frame(height: 16).padding(.horizontal, 6)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
                         ForEach(workspace.terminals) { terminal in

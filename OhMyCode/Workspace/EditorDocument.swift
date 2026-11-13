@@ -103,6 +103,21 @@ final class EditorDocument: Identifiable {
     var canBlame: Bool { blameProvider != nil }
     /// The window's extensions, for their language features (completion, hover, formatting).
     @ObservationIgnored weak var extensionHost: ExtensionHost?
+    /// Lines (zero-based) an edit replaced with `count` lines, when that moved the lines after
+    /// them (breakpoints follow).
+    @ObservationIgnored var onLinesReplaced: ((Range<Int>, Int) -> Void)?
+    /// The line the debugger is stopped at (zero-based), highlighted.
+    @ObservationIgnored var executionLine: Int? {
+        didSet {
+            guard executionLine != oldValue else { return }
+            editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true }
+            redrawGutters()
+        }
+    }
+    /// Toggles the breakpoint on a line (zero-based); set by the workspace.
+    @ObservationIgnored var toggleBreakpointAction: ((Int) -> Void)?
+    /// Breakpoints on this file's lines (zero-based): true when the debugger confirmed them.
+    @ObservationIgnored var breakpointMarks: (() -> [Int: BreakpointMark])?
     /// Called after each edit and after saving (the window's extensions listen).
     @ObservationIgnored var onDidEdit: (() -> Void)?
     @ObservationIgnored var onDidSave: (() -> Void)?
@@ -329,19 +344,21 @@ final class EditorDocument: Identifiable {
         if lineCount != lineIndex.lineCount { lineCount = lineIndex.lineCount }
         if !isDirty { isDirty = true }
         scheduleDiff(after: .milliseconds(200))
+        // Which lines the edit replaced, and with how many.
+        let newEndLine = lineIndex.line(containing: newEnd)
+        var old = startLine..<oldEndLine + 1, count = newEndLine - startLine + 1
+        // Whole lines added or removed (the edit ends where a line starts, before and after):
+        // the line after them is untouched.
+        let newEndsLine = newEnd == lineIndex.lineStarts[newEndLine]
+        if (oldEndsLine || oldEnd == start) && (newEndsLine || newEnd == start) && start == lineIndex.lineStarts[startLine]
+            && (oldEnd > start || newEnd > start) {
+            old = startLine..<old.upperBound - 1
+            count -= 1
+        }
+        if old.count != count { onLinesReplaced?(old, count) }
         // Until blame runs again on the new text: edited lines aren't committed, lines after
         // them move with the edit.
         if let blame {
-            let newEndLine = lineIndex.line(containing: newEnd)
-            var old = startLine..<oldEndLine + 1, count = newEndLine - startLine + 1
-            // Whole lines added or removed (the edit ends where a line starts, before and
-            // after): the line after them is untouched.
-            let newEndsLine = newEnd == lineIndex.lineStarts[newEndLine]
-            if (oldEndsLine || oldEnd == start) && (newEndsLine || newEnd == start) && start == lineIndex.lineStarts[startLine]
-                && (oldEnd > start || newEnd > start) {
-                old = startLine..<old.upperBound - 1
-                count -= 1
-            }
             self.blame = BlameLine.shifted(blame, replacing: old, with: count)
             editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true }
             redrawGutters()
@@ -428,7 +445,7 @@ final class EditorDocument: Identifiable {
     /// Waits for pending blame (tests).
     func waitForBlame() async { await blameTask?.value }
 
-    private func redrawGutters() {
+    func redrawGutters() {
         for editor in editors { editor.gutterView.needsDisplay = true }
     }
 

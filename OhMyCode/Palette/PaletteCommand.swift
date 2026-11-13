@@ -170,6 +170,17 @@ struct PaletteCommand: Identifiable {
                            workspace.sidebarMode = .history
                            workspace.historyScope = .compare
                        }),
+        PaletteCommand(id: "debug.start", title: "Debug: Start Debugging", icon: "play.fill", shortcut: "F5",
+                       isAvailable: { $0.rootURL != nil && $0.debugSession?.isActive != true },
+                       perform: { $0.startOrContinueDebugging() }),
+        PaletteCommand(id: "debug.stop", title: "Debug: Stop", icon: "stop.fill", shortcut: "⇧F5",
+                       isAvailable: { $0.debugSession?.isActive == true }, perform: { $0.stopDebugging() }),
+        PaletteCommand(id: "debug.toggleBreakpoint", title: "Debug: Toggle Breakpoint", icon: "circle.fill", shortcut: "F9",
+                       isAvailable: { $0.activeDocument != nil }, perform: { $0.toggleBreakpointAtCursor() }),
+        PaletteCommand(id: "debug.removeBreakpoints", title: "Debug: Remove All Breakpoints", icon: "trash", shortcut: nil,
+                       isAvailable: { !$0.breakpoints.byPath.isEmpty }, perform: { $0.breakpoints.removeAll() }),
+        PaletteCommand(id: "debug.openLaunch", title: "Debug: Open launch.json", icon: "gearshape", shortcut: nil,
+                       isAvailable: { $0.rootURL != nil }, perform: { $0.createLaunchFile() }),
         PaletteCommand(id: "extensions.new", title: "Extensions: New Extension…", icon: "puzzlepiece.extension", shortcut: nil,
                        isAvailable: { _ in true }, perform: { workspace in Task { @MainActor in await workspace.createExtension() } }),
         PaletteCommand(id: "extensions.reload", title: "Extensions: Reload", icon: "arrow.clockwise", shortcut: nil,

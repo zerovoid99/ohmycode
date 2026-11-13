@@ -12,6 +12,7 @@ struct WorkspaceView: View {
                     Image(systemName: "arrow.triangle.branch").help(changeCountLabel + " (⌃⇧G)")
                         .tag(Workspace.SidebarMode.sourceControl)
                     Image(systemName: "clock.arrow.circlepath").help("Timeline").tag(Workspace.SidebarMode.history)
+                    Image(systemName: "ladybug").help("Run and Debug (⇧⌘D)").tag(Workspace.SidebarMode.debug)
                     Image(systemName: "puzzlepiece.extension").help("Extensions").tag(Workspace.SidebarMode.extensions)
                     if workspace.references != nil {
                         Image(systemName: "link").help("References").tag(Workspace.SidebarMode.references)
@@ -37,6 +38,8 @@ struct WorkspaceView: View {
                     TimelineView(workspace: workspace)
                 case .extensions:
                     ExtensionsView(workspace: workspace)
+                case .debug:
+                    DebugView(workspace: workspace)
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
@@ -49,7 +52,10 @@ struct WorkspaceView: View {
                         // Fill the split's height: without a max, an empty editor area (no
                         // ideal height) let VSplitView collapse it and misplace the status bar.
                         .frame(minHeight: 120, maxHeight: .infinity)
-                    if workspace.isTerminalVisible, let terminal = workspace.terminal {
+                    if workspace.isTerminalVisible, workspace.bottomPanel == .debugConsole {
+                        DebugConsoleView(workspace: workspace)
+                            .frame(minHeight: 90, idealHeight: 260)
+                    } else if workspace.isTerminalVisible, let terminal = workspace.terminal {
                         TerminalPanel(workspace: workspace, session: terminal)
                             .frame(minHeight: 90, idealHeight: 260)
                     }

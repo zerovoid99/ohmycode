@@ -12,6 +12,8 @@ final class DiagnosticsOverlayView: NSView {
     var foldPlaceholders: (() -> [(rect: NSRect, header: Int)])?
     /// Extra cursors (multi-cursor): caret bars and selected text.
     var extraCursors: (() -> (carets: [NSRect], selections: [NSRect]))?
+    /// The line the debugger is stopped at, highlighted across the editor.
+    var executionLine: (() -> NSRect?)?
     /// Git blame of the cursor's line, drawn after its end.
     var blameAnnotation: (() -> BlameAnnotation?)?
     /// Merge conflicts: tinted sides, and the actions after each `<<<<<<<` line.
@@ -61,6 +63,10 @@ final class DiagnosticsOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let theme = EditorTheme.current
+        if let rect = executionLine?(), rect.intersects(dirtyRect) {
+            NSColor.systemYellow.withAlphaComponent(0.22).setFill()
+            rect.fill(using: .sourceOver)
+        }
         for (rect, kind) in conflictBands?() ?? [] where rect.intersects(dirtyRect) {
             kind.color.setFill()
             rect.fill(using: .sourceOver)

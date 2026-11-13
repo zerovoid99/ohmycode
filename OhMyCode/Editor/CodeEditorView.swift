@@ -90,6 +90,7 @@ final class EditorController: NSObject {
         overlay.foldPlaceholders = { [weak self] in self?.foldPlaceholderRects() ?? [] }
         overlay.extraCursors = { [weak self] in self?.extraCursorShapes() ?? ([], []) }
         overlay.blameAnnotation = { [weak self] in self?.blameAnnotation() }
+        overlay.executionLine = { [weak self] in self?.executionLineRect() }
         overlay.conflictBands = { [weak self] in self?.conflictBands() ?? [] }
         overlay.conflictActions = { [weak self] in self?.conflictActionRects() ?? [] }
 
@@ -129,6 +130,10 @@ final class EditorController: NSObject {
         textView.onKeyDown = { [weak self] in self?.hover.dismiss(); self?.blameHover.dismiss() }
         gutter.onLineClick = { [weak self] line, rect in self?.showHunk(atLine: line, rect: rect) }
         gutter.onFoldClick = { [weak self] line in self?.document.toggleFold(atLine: line) }
+        gutter.onBreakpointClick = { [weak self] line in
+            guard let self else { return }
+            self.document.toggleBreakpointAction?(line)
+        }
         gutter.onBlameHover = { [weak self] line, rect in self?.blameHover.gutterMouseMoved(line: line, rect: rect) }
         gutter.onBlameExited = { [weak self] in self?.blameHover.mouseExited() }
         gutter.onBlameClick = { [weak self] line in self?.handleBlameColumnClick(line: line) }
@@ -278,6 +283,17 @@ final class EditorController: NSObject {
             if rect.intersects(visible) { result.append((rect, header)) }
         }
         return result
+    }
+
+    // MARK: Debugging
+
+    /// The stopped line's band, across the editor's width.
+    func executionLineRect() -> NSRect? {
+        guard let line = document.executionLine, line < document.lineIndex.lineCount else { return nil }
+        let start = document.lineIndex.lineStarts[line]
+        let length = document.textStorage.length
+        guard let rect = rect(for: NSRange(location: start, length: start < length ? 1 : 0)) else { return nil }
+        return NSRect(x: 0, y: rect.minY, width: max(textView.bounds.width, textView.visibleRect.maxX), height: rect.height)
     }
 
     // MARK: Blame
@@ -562,6 +578,7 @@ final class EditorController: NSObject {
     }
 
     func reveal(_ range: NSRange) {
+        guard textView != nil else { return } // no view yet
         document.unfold(containing: range)
         let length = document.textStorage.length
         let clamped = NSRange(location: min(range.location, length),

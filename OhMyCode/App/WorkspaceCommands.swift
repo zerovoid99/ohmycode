@@ -8,6 +8,10 @@ extension FocusedValues {
 struct WorkspaceCommands: Commands {
     @FocusedValue(\.workspace) private var workspace
 
+    static func functionKey(_ key: Int) -> KeyEquivalent {
+        KeyEquivalent(Character(UnicodeScalar(UInt16(key))!))
+    }
+
     private func supports(_ feature: LanguageClient.Feature) -> Bool {
         workspace?.activeDocument?.languageClient?.supports(feature) == true
     }
@@ -64,6 +68,40 @@ struct WorkspaceCommands: Commands {
             Button("Source Control") { workspace?.sidebarMode = .sourceControl }
                 .keyboardShortcut("g", modifiers: [.control, .shift])
                 .disabled(workspace?.rootNode == nil)
+        }
+
+        CommandMenu("Debug") {
+            let session = workspace?.debugSession
+            let isActive = session?.isActive == true
+            let isStopped = session?.state == .stopped
+            Button(isStopped ? "Continue" : "Start Debugging") { workspace?.startOrContinueDebugging() }
+                .keyboardShortcut(Self.functionKey(NSF5FunctionKey), modifiers: [])
+                .disabled(workspace?.rootURL == nil || (isActive && !isStopped))
+            Button("Stop Debugging") { workspace?.stopDebugging() }
+                .keyboardShortcut(Self.functionKey(NSF5FunctionKey), modifiers: .shift)
+                .disabled(!isActive)
+            Button("Restart Debugging") { workspace?.restartDebugging() }
+                .keyboardShortcut(Self.functionKey(NSF5FunctionKey), modifiers: [.shift, .command])
+                .disabled(!isActive)
+            Divider()
+            Button("Step Over") { session?.stepOver() }
+                .keyboardShortcut(Self.functionKey(NSF10FunctionKey), modifiers: [])
+                .disabled(!isStopped)
+            Button("Step Into") { session?.stepInto() }
+                .keyboardShortcut(Self.functionKey(NSF11FunctionKey), modifiers: [])
+                .disabled(!isStopped)
+            Button("Step Out") { session?.stepOut() }
+                .keyboardShortcut(Self.functionKey(NSF11FunctionKey), modifiers: .shift)
+                .disabled(!isStopped)
+            Button("Pause") { session?.pause() }
+                .disabled(session?.state != .running)
+            Divider()
+            Button("Toggle Breakpoint") { workspace?.toggleBreakpointAtCursor() }
+                .keyboardShortcut(Self.functionKey(NSF9FunctionKey), modifiers: [])
+                .disabled(workspace?.activeDocument == nil)
+            Button("Show Run and Debug") { workspace?.sidebarMode = .debug }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .disabled(workspace == nil)
         }
 
         CommandMenu("Terminal") {

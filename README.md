@@ -26,6 +26,28 @@ xcodebuild -scheme OhMyCode -destination 'platform=macOS' test
 - [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter) and tree-sitter grammars
   (MIT): syntax highlighting.
 
+## Debugging
+Run and Debug (⇧⌘D, F5) debugs with LLDB through the Debug Adapter Protocol (`lldb-dap`, part of
+Xcode): Swift, C, C++ and Objective-C. A Swift package's executables are found by themselves
+(built with `swift build` first); anything else goes in `.omc/launch.json`:
+
+```json
+{
+  "configurations": [{
+    "name": "Debug tool",
+    "program": "${workspaceFolder}/build/tool",
+    "args": [],
+    "cwd": "${workspaceFolder}",
+    "env": {},
+    "preLaunch": "make"
+  }]
+}
+```
+
+Click a line number (or F9) for a breakpoint; its context menu in the Breakpoints list adds a
+condition. F10/F11/⇧F11 step over/into/out. The Debug Console shows the program's output and
+evaluates expressions in the selected frame (start with a backtick for an LLDB command).
+
 ## Extensions
 Extensions are written in TypeScript or JavaScript and run in JavaScriptCore: each one in its
 own context, off the main thread, so a slow extension can't freeze the editor. They can only
