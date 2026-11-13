@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		020BDA84409FA41D7BA2F892 /* CherryPickRevertTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD1EE59BB50DF03FDACEC29F /* CherryPickRevertTests.swift */; };
 		023ACAFE62E90FC0786D187B /* Folding.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD481A433E345CB1885E699A /* Folding.swift */; };
 		034D9CC0BA3A8D8AF6D44394 /* LanguageFeatureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A2EB4BF7034731316A9A0A0 /* LanguageFeatureTests.swift */; };
 		044DA0A3099C7DFA46352B52 /* SourceLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8902C7C1FC02562C44039229 /* SourceLanguage.swift */; };
@@ -207,6 +208,7 @@
 		C36812F51B050541F79C1862 /* GitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitTests.swift; sourceTree = "<group>"; };
 		CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VSCodeThemeTests.swift; sourceTree = "<group>"; };
 		CCCA5F034FB1A1D75C15F673 /* FileWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatcher.swift; sourceTree = "<group>"; };
+		CD1EE59BB50DF03FDACEC29F /* CherryPickRevertTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CherryPickRevertTests.swift; sourceTree = "<group>"; };
 		CD24CD25D1A3855BF3816B4B /* ThemeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeStyle.swift; sourceTree = "<group>"; };
 		CD379088235C2421A7031BC4 /* LSPTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LSPTests.swift; sourceTree = "<group>"; };
 		D06B0B21A096AF4D60EC2722 /* DiagnosticsOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsOverlayView.swift; sourceTree = "<group>"; };
@@ -328,6 +330,7 @@
 				0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */,
 				67EAC67DA0BCF2450AAD5F84 /* BlameDiffTests.swift */,
 				0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */,
+				CD1EE59BB50DF03FDACEC29F /* CherryPickRevertTests.swift */,
 				914B50B9C32C4D129975E6BF /* CommitGraphTests.swift */,
 				2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */,
 				16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */,
@@ -686,6 +689,7 @@
 				D3F4C2A897DA315C7F9495F4 /* AutoEditTests.swift in Sources */,
 				8314EEB610146D25ED51C5DF /* BlameDiffTests.swift in Sources */,
 				CCF3FEB6ABD8D4B06EE01189 /* BranchOperationTests.swift in Sources */,
+				020BDA84409FA41D7BA2F892 /* CherryPickRevertTests.swift in Sources */,
 				70BE660B9B25C427A5DE8207 /* CommitGraphTests.swift in Sources */,
 				AAB71F6BE2CE7E5D5864EADF /* DiffHighlightTests.swift in Sources */,
 				E1AD3FCB68345C20CCD3CAC5 /* EditorChromeTests.swift in Sources */,

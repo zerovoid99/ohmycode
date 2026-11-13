@@ -984,6 +984,24 @@ final class Workspace {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
+    // MARK: Cherry-pick and revert
+
+    /// Copies a commit onto the current branch. Conflicts leave a cherry-pick in progress.
+    func cherryPick(_ commit: RepoCommit) {
+        guard gitStatus?.operation == nil else { errorMessage = "Finish the merge or rebase in progress first."; return }
+        guard confirmUnsavedBeforeCheckout() else { return }
+        runGit { try Git.cherryPick(commit, in: $0) }
+    }
+
+    /// Adds a commit undoing `commit`, after asking.
+    func revertCommit(_ commit: RepoCommit) {
+        guard gitStatus?.operation == nil else { errorMessage = "Finish the merge or rebase in progress first."; return }
+        let merge = commit.parents.count > 1 ? " It's a merge: its changes relative to the first parent are undone." : ""
+        guard confirm("Revert “\(commit.summary)”? A new commit undoing its changes is added to \(gitStatus?.branch ?? "HEAD").\(merge)"),
+              confirmUnsavedBeforeCheckout() else { return }
+        runGit { try Git.revert(commit, in: $0) }
+    }
+
     // MARK: Interactive rebase
 
     /// Sets up an interactive rebase of `commit` and everything after it on the current branch.

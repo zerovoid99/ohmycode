@@ -55,17 +55,17 @@ struct OperationBanner: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label(operation == .merge ? "Merging" : "Rebasing", systemImage: "arrow.triangle.merge")
+            Label(operation.title, systemImage: "arrow.triangle.merge")
                 .font(.callout.weight(.semibold))
             Text(conflicts > 0
                  ? "\(conflicts) file\(conflicts == 1 ? " has" : "s have") conflicts. Fix them, stage the files, then "
-                   + (operation == .merge ? "commit." : "continue.")
-                 : operation == .merge ? "Conflicts are resolved: commit to finish the merge." : "Ready to continue.")
+                   + (operation.finishesWithCommit ? "commit." : "continue.")
+                 : operation.finishesWithCommit ? "Conflicts are resolved: commit to finish the merge." : "Ready to continue.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
-                if operation == .rebase {
+                if !operation.finishesWithCommit {
                     Button("Continue") { workspace.resolveOperation(.continue) }.disabled(conflicts > 0)
                     Button("Skip") { workspace.resolveOperation(.skip) }
                         .help("Drop the commit being replayed")

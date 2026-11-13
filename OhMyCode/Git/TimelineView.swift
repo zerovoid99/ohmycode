@@ -238,6 +238,11 @@ private struct RepositoryLogView: View {
     private func menu(for commit: RepoCommit) -> some View {
         Button("Create Branch Here…") { workspace.createBranch(at: commit) }
         Button("Check Out (Detached)…") { workspace.checkoutDetached(commit) }
+        Divider()
+        Button("Cherry-Pick into \(workspace.gitStatus?.branch ?? "HEAD")") { workspace.cherryPick(commit) }
+            .help("Apply this commit's changes on the current branch as a new commit")
+        Button("Revert Commit…") { workspace.revertCommit(commit) }
+            .help("Add a commit that undoes this one")
         Button("Interactive Rebase from Here…") { Task { await workspace.planInteractiveRebase(from: commit) } }
             .help("Reorder, reword, squash or drop this commit and the ones after it")
         Divider()

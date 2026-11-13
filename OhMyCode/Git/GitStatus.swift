@@ -222,6 +222,8 @@ enum Git {
         let exists = { (name: String) in FileManager.default.fileExists(atPath: directory.appending(path: name).path) }
         if exists("rebase-merge") || exists("rebase-apply") { return .rebase }
         if exists("MERGE_HEAD") { return .merge }
+        if exists("CHERRY_PICK_HEAD") { return .cherryPick }
+        if exists("REVERT_HEAD") { return .revert }
         return nil
     }
 
@@ -262,10 +264,7 @@ enum Git {
 
     /// `--continue`, `--skip` or `--abort` for the merge or rebase in progress.
     static func resolve(_ operation: GitOperation, _ action: GitOperation.Action, in repository: Repository) throws {
-        switch operation {
-        case .merge: try check(["merge", "--\(action.rawValue)"], in: repository.root)
-        case .rebase: try check(["rebase", "--\(action.rawValue)"], in: repository.root)
-        }
+        try check([operation.rawValue, "--\(action.rawValue)"], in: repository.root)
     }
 
     static func fetch(in repository: Repository) throws {
@@ -283,6 +282,19 @@ enum Git {
         } else {
             try check(["push"], in: repository.root)
         }
+    }
+
+    // MARK: Cherry-pick and revert
+
+    /// Applies a commit's changes on top of HEAD as a new commit (a merge commit's changes
+    /// relative to its first parent).
+    static func cherryPick(_ commit: RepoCommit, in repository: Repository) throws {
+        try check(["cherry-pick"] + (commit.parents.count > 1 ? ["-m", "1"] : []) + [commit.sha], in: repository.root)
+    }
+
+    /// A new commit undoing a commit's changes (for a merge commit, relative to its first parent).
+    static func revert(_ commit: RepoCommit, in repository: Repository) throws {
+        try check(["revert", "--no-edit"] + (commit.parents.count > 1 ? ["-m", "1"] : []) + [commit.sha], in: repository.root)
     }
 
     // MARK: Interactive rebase
@@ -796,7 +808,22 @@ struct RepoHistory: Equatable {
 
 /// A merge or rebase that stopped and waits (for conflicts to be resolved).
 enum GitOperation: String, Sendable, Equatable {
+    /// Raw values are the git commands.
     case merge, rebase
+    case cherryPick = "cherry-pick"
+    case revert
+
+    var title: String {
+        switch self {
+        case .merge: "Merging"
+        case .rebase: "Rebasing"
+        case .cherryPick: "Cherry-Picking"
+        case .revert: "Reverting"
+        }
+    }
+
+    /// Merges finish with a commit; the others continue (committing what's staged).
+    var finishesWithCommit: Bool { self == .merge }
 
     enum Action: String, Sendable { case `continue`, skip, abort }
 }
