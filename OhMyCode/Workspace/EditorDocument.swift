@@ -37,6 +37,8 @@ final class EditorDocument: Identifiable {
     let undoManager = UndoManager()
 
     private(set) var isDirty = false
+    /// Theme/font generation the text's base attributes were set for.
+    @ObservationIgnored private var styleGeneration = EditorTheme.generation
     /// Bumped on every text change; lets async results (formatting, rename) detect staleness.
     @ObservationIgnored private(set) var editVersion = 0
     private(set) var lineCount = 1
@@ -302,6 +304,14 @@ final class EditorDocument: Identifiable {
     /// The editor showing this document in an editor group, if any.
     func editor(inGroup group: EditorGroup) -> EditorController? {
         editors.first { $0.group === group }
+    }
+
+    /// Applies the current editor font and text color to the whole text, after a settings
+    /// change. Attribute-only: no undo entry, no reparse, not dirty.
+    func refreshStyleIfNeeded() {
+        guard styleGeneration != EditorTheme.generation else { return }
+        styleGeneration = EditorTheme.generation
+        textStorage.addAttributes(EditorTheme.baseAttributes, range: NSRange(location: 0, length: textStorage.length))
     }
 
     func hunk(atLine line: Int) -> DiffHunk? {

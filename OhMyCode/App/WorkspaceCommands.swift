@@ -41,6 +41,16 @@ struct WorkspaceCommands: Commands {
         // ⌘P belongs to Quick Open, as in other code editors.
         CommandGroup(replacing: .printItem) {}
 
+        CommandGroup(after: .toolbar) {
+            Button("Zoom In") { AppSettings.shared.zoom(by: 1) }
+                .keyboardShortcut("=", modifiers: .command)
+            Button("Zoom Out") { AppSettings.shared.zoom(by: -1) }
+                .keyboardShortcut("-", modifiers: .command)
+            Button("Reset Zoom") { AppSettings.shared.resetZoom() }
+                .keyboardShortcut("0", modifiers: .command)
+            Divider()
+        }
+
         CommandGroup(after: .sidebar) {
             Button("Explorer") { workspace?.sidebarMode = .files }
                 .keyboardShortcut("e", modifiers: [.command, .shift])

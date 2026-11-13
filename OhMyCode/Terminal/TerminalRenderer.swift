@@ -157,8 +157,8 @@ final class TerminalRenderer {
 final class GlyphAtlas {
     struct Key: Hashable {
         let text: String
-        let font: Int   // index into the font set (regular, bold, italic, bold italic)
-        let scale: Int  // backing scale × 100
+        let font: String // PostScript name and size
+        let scale: Int   // backing scale × 100
     }
 
     struct Glyph {
@@ -188,8 +188,8 @@ final class GlyphAtlas {
     var glyphCount: Int { glyphs.count }
 
     /// The glyph for a grapheme, rasterizing it on first use; nil for blank text.
-    func glyph(_ text: String, font: NSFont, fontIndex: Int, scale: CGFloat) -> Glyph? {
-        let key = Key(text: text, font: fontIndex, scale: Int(scale * 100))
+    func glyph(_ text: String, font: NSFont, scale: CGFloat) -> Glyph? {
+        let key = Key(text: text, font: "\(font.fontName)@\(font.pointSize)", scale: Int(scale * 100))
         if let cached = glyphs[key] { return cached }
         let before = generation
         let glyph = rasterize(text, font: font, scale: scale)

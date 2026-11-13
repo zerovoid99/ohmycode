@@ -165,7 +165,7 @@ struct TerminalViewTests {
                 let atlas = try #require(TerminalRenderer.shared?.atlas)
                 atlas.reset()
                 for scalar in UnicodeScalar("A").value...UnicodeScalar("z").value {
-                    _ = atlas.glyph(String(UnicodeScalar(scalar)!), font: .boldSystemFont(ofSize: 30), fontIndex: 9, scale: 2)
+                    _ = atlas.glyph(String(UnicodeScalar(scalar)!), font: .boldSystemFont(ofSize: 30), scale: 2)
                 }
             }
             let bitmap = try #require(view.snapshot(scale: 2))

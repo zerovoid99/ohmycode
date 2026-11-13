@@ -1,0 +1,149 @@
+import AppKit
+import Observation
+
+/// User preferences (Settings window, ⌘,), persisted in UserDefaults and applied live: views
+/// listen for `AppSettings.didChange`.
+@MainActor
+@Observable
+final class AppSettings {
+    /// Under tests, a scratch store that starts at the defaults: tests never see or overwrite
+    /// the user's real settings (the test host is the app itself).
+    static let shared = AppSettings(defaults: isRunningTests ? scratchDefaults() : .standard)
+
+    private static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+
+    private static func scratchDefaults() -> UserDefaults {
+        let name = "dev.zerovoid99.ohmycode.tests"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+    static let didChange = Notification.Name("omcSettingsDidChange")
+
+    enum Appearance: String, CaseIterable, Identifiable {
+        case system, light, dark
+        var id: String { rawValue }
+        var title: String { rawValue.capitalized }
+    }
+
+    static let fontSizes: ClosedRange<Double> = 8...36
+    static let defaultEditorFontSize: Double = 13
+    static let defaultTerminalFontSize: Double = 12
+
+    var appearance: Appearance { didSet { changed() } }
+    var themeID: String { didSet { changed() } }
+    /// Font family; empty means the system monospaced font (SF Mono).
+    var editorFontFamily: String { didSet { changed() } }
+    var editorFontSize: Double { didSet { changed() } }
+    /// Empty means the same family as the editor.
+    var terminalFontFamily: String { didSet { changed() } }
+    var terminalFontSize: Double { didSet { changed() } }
+
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var isLoading = false
+
+    init(defaults: UserDefaults) {
+        self.defaults = defaults
+        isLoading = true
+        appearance = Appearance(rawValue: defaults.string(forKey: Keys.appearance) ?? "") ?? .system
+        themeID = defaults.string(forKey: Keys.theme) ?? EditorTheme.defaultTheme.id
+        editorFontFamily = defaults.string(forKey: Keys.editorFontFamily) ?? ""
+        editorFontSize = Self.clampedSize(defaults.object(forKey: Keys.editorFontSize) as? Double ?? Self.defaultEditorFontSize)
+        terminalFontFamily = defaults.string(forKey: Keys.terminalFontFamily) ?? ""
+        terminalFontSize = Self.clampedSize(defaults.object(forKey: Keys.terminalFontSize) as? Double ?? Self.defaultTerminalFontSize)
+        isLoading = false
+    }
+
+    private enum Keys {
+        static let appearance = "appearance"
+        static let theme = "editorTheme"
+        static let editorFontFamily = "editorFontFamily"
+        static let editorFontSize = "editorFontSize"
+        static let terminalFontFamily = "terminalFontFamily"
+        static let terminalFontSize = "terminalFontSize"
+    }
+
+    private static func clampedSize(_ size: Double) -> Double {
+        min(max(size.rounded(), fontSizes.lowerBound), fontSizes.upperBound)
+    }
+
+    private func changed() {
+        guard !isLoading else { return }
+        // Keep sizes in range however they were set (stepper, zoom, typed value). `isLoading`
+        // keeps these nested sets from re-entering.
+        isLoading = true
+        editorFontSize = Self.clampedSize(editorFontSize)
+        terminalFontSize = Self.clampedSize(terminalFontSize)
+        isLoading = false
+        defaults.set(appearance.rawValue, forKey: Keys.appearance)
+        defaults.set(themeID, forKey: Keys.theme)
+        defaults.set(editorFontFamily, forKey: Keys.editorFontFamily)
+        defaults.set(editorFontSize, forKey: Keys.editorFontSize)
+        defaults.set(terminalFontFamily, forKey: Keys.terminalFontFamily)
+        defaults.set(terminalFontSize, forKey: Keys.terminalFontSize)
+        guard self === AppSettings.shared else { return } // test instances don't restyle the app
+        EditorTheme.invalidate()
+        applyAppearance()
+        NotificationCenter.default.post(name: Self.didChange, object: self)
+    }
+
+    /// Sets the app-wide light/dark appearance.
+    func applyAppearance() {
+        guard NSApp != nil else { return }
+        let target: NSAppearance? = switch appearance {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
+        }
+        if NSApp.appearance != target { NSApp.appearance = target }
+    }
+
+    // MARK: Fonts
+
+    var editorFont: NSFont { Self.font(family: editorFontFamily, size: editorFontSize) }
+
+    func terminalFont(bold: Bool = false) -> NSFont {
+        Self.font(family: terminalFontFamily.isEmpty ? editorFontFamily : terminalFontFamily,
+                  size: terminalFontSize, bold: bold)
+    }
+
+    static func font(family: String, size: Double, bold: Bool = false) -> NSFont {
+        let size = CGFloat(size)
+        if !family.isEmpty,
+           let font = NSFontManager.shared.font(withFamily: family, traits: bold ? .boldFontMask : [],
+                                                 weight: bold ? 9 : 5, size: size) {
+            return font
+        }
+        return NSFont.monospacedSystemFont(ofSize: size, weight: bold ? .bold : .regular)
+    }
+
+    /// Installed fixed-pitch font families, for the font pickers.
+    static let monospacedFamilies: [String] = {
+        let names = NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? []
+        let families = Set(names.compactMap { NSFont(name: $0, size: 12)?.familyName }.filter { !$0.hasPrefix(".") })
+        return families.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }()
+
+    // MARK: Zoom (⌘+ / ⌘- / ⌘0)
+
+    func zoom(by step: Double) {
+        editorFontSize += step
+        terminalFontSize += step
+    }
+
+    func resetZoom() {
+        editorFontSize = Self.defaultEditorFontSize
+        terminalFontSize = Self.defaultTerminalFontSize
+    }
+
+    func restoreDefaults() {
+        appearance = .system
+        themeID = EditorTheme.defaultTheme.id
+        editorFontFamily = ""
+        terminalFontFamily = ""
+        resetZoom()
+    }
+}

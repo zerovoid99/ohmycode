@@ -37,6 +37,7 @@ final class EditorController: NSObject {
     private(set) weak var group: EditorGroup?
     var onFocus: (() -> Void)?
     private var textLayoutManager: NSTextLayoutManager?
+    private weak var containerView: EditorContainerView?
     private(set) lazy var completion = CompletionController(editor: self)
     private(set) lazy var hover = HoverController(editor: self)
     /// What the user just typed, captured before the change, for completion triggering.
@@ -103,6 +104,10 @@ final class EditorController: NSObject {
             self?.refreshHighlights(force: false)
         }
         let containerView = EditorContainerView(gutterView: gutter, scrollView: scrollView)
+        self.containerView = containerView
+        applySettings()
+        NotificationCenter.default.addObserver(self, selector: #selector(settingsDidChange),
+                                               name: AppSettings.didChange, object: nil)
 
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
@@ -136,9 +141,6 @@ final class EditorController: NSObject {
         textView.isContinuousSpellCheckingEnabled = false
         textView.isGrammarCheckingEnabled = false
         textView.smartInsertDeleteEnabled = false
-        textView.font = EditorTheme.font
-        textView.typingAttributes = EditorTheme.baseAttributes
-        textView.backgroundColor = .textBackgroundColor
         textView.drawsBackground = true
         textView.textContainerInset = NSSize(width: 4, height: 6)
 
@@ -148,6 +150,29 @@ final class EditorController: NSObject {
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.autoresizingMask = [.width, .height]
+    }
+
+    // MARK: Theme and font
+
+    @objc private func settingsDidChange() {
+        applySettings()
+    }
+
+    /// Applies the current theme and font (also live, from the Settings window).
+    func applySettings() {
+        let theme = EditorTheme.current
+        document.refreshStyleIfNeeded()
+        // Fixed light/dark themes draw the editor with that appearance (gutter, scrollers).
+        containerView?.appearance = theme.appearance
+        textView.font = EditorTheme.font
+        textView.typingAttributes = EditorTheme.baseAttributes
+        textView.backgroundColor = theme.background
+        textView.insertionPointColor = theme.cursor
+        textView.selectedTextAttributes = [.backgroundColor: theme.selection]
+        textView.enclosingScrollView?.backgroundColor = theme.background
+        gutterView.themeDidChange()
+        diagnosticsOverlay?.needsDisplay = true
+        refreshHighlights(force: true)
     }
 
     // MARK: View state

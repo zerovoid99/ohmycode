@@ -48,6 +48,13 @@ final class GutterView: NSView {
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { true }
 
+    /// Font size or colors changed.
+    func themeDidChange() {
+        digitCount = 0 // re-measure with the new font
+        updateWidth()
+        needsDisplay = true
+    }
+
     func updateWidth() {
         let digits = max(3, String(document.lineCount).count)
         guard digits != digitCount else { return }
@@ -60,7 +67,8 @@ final class GutterView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         // Since macOS 14 views don't clip to bounds by default and `dirtyRect` may extend past
         // them: filling it unclipped painted over the whole editor and hid all text.
-        NSColor.textBackgroundColor.setFill()
+        let theme = EditorTheme.current
+        theme.background.setFill()
         dirtyRect.intersection(bounds).fill()
 
         guard let textView,
@@ -71,12 +79,13 @@ final class GutterView: NSView {
         let containerOrigin = textView.textContainerOrigin
         let documentStart = contentManager.documentRange.location
         let currentLine = document.cursorLine - 1
+        let gutterFont = EditorTheme.gutterFont
 
         let normalAttributes: [NSAttributedString.Key: Any] = [
-            .font: EditorTheme.gutterFont, .foregroundColor: NSColor.tertiaryLabelColor,
+            .font: gutterFont, .foregroundColor: theme.lineNumber,
         ]
         let currentAttributes: [NSAttributedString.Key: Any] = [
-            .font: EditorTheme.gutterFont, .foregroundColor: NSColor.labelColor,
+            .font: gutterFont, .foregroundColor: theme.currentLineNumber,
         ]
 
         // Read only what the text view's viewport pass already laid out, so drawing never

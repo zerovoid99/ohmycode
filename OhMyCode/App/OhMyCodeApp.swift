@@ -2,6 +2,10 @@ import SwiftUI
 
 @main
 struct OhMyCodeApp: App {
+    init() {
+        DispatchQueue.main.async { AppSettings.shared.applyAppearance() } // once NSApp exists
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

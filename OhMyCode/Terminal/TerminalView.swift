@@ -25,10 +25,11 @@ final class TerminalView: NSView {
 
     static let padding: CGFloat = 6
 
-    private let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-    private lazy var boldFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-    private lazy var italicFont = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
-    private lazy var boldItalicFont = NSFontManager.shared.convert(boldFont, toHaveTrait: .italicFontMask)
+    // From Settings (terminal font); replaced live when it changes.
+    private var font = AppSettings.shared.terminalFont()
+    private var boldFont = AppSettings.shared.terminalFont(bold: true)
+    private var italicFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+    private var boldItalicFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
     private(set) var cellWidth: CGFloat = 0
     private(set) var cellHeight: CGFloat = 0
     private var baseline: CGFloat = 0
@@ -71,7 +72,9 @@ final class TerminalView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay
-        measureFont()
+        loadFonts()
+        NotificationCenter.default.addObserver(self, selector: #selector(settingsDidChange),
+                                               name: AppSettings.didChange, object: nil)
         ghostty_render_state_row_iterator_new(nil, &rowIterator)
         ghostty_render_state_row_cells_new(nil, &rowCells)
         colors.size = MemoryLayout<GhosttyRenderStateColors>.size
@@ -105,6 +108,24 @@ final class TerminalView: NSView {
     override func resignFirstResponder() -> Bool { needsDisplay = true; return true }
 
     // MARK: Layout
+
+    private func loadFonts() {
+        font = AppSettings.shared.terminalFont()
+        boldFont = AppSettings.shared.terminalFont(bold: true)
+        italicFont = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
+        boldItalicFont = NSFontManager.shared.convert(boldFont, toHaveTrait: .italicFontMask)
+        measureFont()
+    }
+
+    /// Font or theme changed in Settings: re-measure cells (the grid may change size) and
+    /// rebuild every row.
+    @objc private func settingsDidChange() {
+        loadFonts()
+        updateGridSize()
+        applyAppearanceColors()
+        rowCache.removeAll()
+        needsDisplay = true
+    }
 
     private func measureFont() {
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
@@ -157,9 +178,10 @@ final class TerminalView: NSView {
     private func applyAppearanceColors() {
         guard let session else { return }
         var foreground = GhosttyColorRgb(), background = GhosttyColorRgb()
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            foreground = Self.rgb(NSColor.textColor)
-            background = Self.rgb(NSColor.textBackgroundColor)
+        let theme = EditorTheme.current
+        (theme.appearance ?? effectiveAppearance).performAsCurrentDrawingAppearance {
+            foreground = Self.rgb(theme.foreground)
+            background = Self.rgb(theme.background)
         }
         session.setDefaultColors(foreground: foreground, background: background)
         rowCache.removeAll()
@@ -250,8 +272,9 @@ final class TerminalView: NSView {
     func makeFrame(scale: CGFloat) -> TerminalFrame {
         guard let session else {
             var background = SIMD4<Float>(1, 1, 1, 1)
-            effectiveAppearance.performAsCurrentDrawingAppearance {
-                background = Self.color(Self.rgb(NSColor.textBackgroundColor))
+            let theme = EditorTheme.current
+            (theme.appearance ?? effectiveAppearance).performAsCurrentDrawingAppearance {
+                background = Self.color(Self.rgb(theme.background))
             }
             return TerminalFrame(clearColor: background)
         }
@@ -293,7 +316,7 @@ final class TerminalView: NSView {
     private func glyphInstance(_ text: String, fontIndex: Int, column: CGFloat, row: Int, color: SIMD4<Float>,
                                scale: CGFloat) -> GlyphInstance? {
         guard let renderer,
-              let glyph = renderer.atlas.glyph(text, font: font(fontIndex), fontIndex: fontIndex, scale: scale)
+              let glyph = renderer.atlas.glyph(text, font: font(fontIndex), scale: scale)
         else { return nil }
         let x = Float(((Self.padding + column * cellWidth) * scale).rounded())
         let baselineY = Float(((Self.padding + CGFloat(row) * cellHeight + baseline) * scale).rounded())
@@ -472,8 +495,9 @@ final class TerminalView: NSView {
 
     private var selectionColor: GhosttyColorRgb {
         var rgb = GhosttyColorRgb()
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            rgb = Self.rgb(NSColor.selectedTextBackgroundColor)
+        let theme = EditorTheme.current
+        (theme.appearance ?? effectiveAppearance).performAsCurrentDrawingAppearance {
+            rgb = Self.rgb(theme.selection)
         }
         return rgb
     }
