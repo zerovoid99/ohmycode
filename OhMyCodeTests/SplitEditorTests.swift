@@ -170,4 +170,52 @@ struct SplitEditorTests {
         #expect(document.editor === leftEditor)
         withExtendedLifetime((workspace, leftWindow, rightWindow)) {}
     }
+
+    @Test func draggingTabsReordersAndMovesBetweenGroups() throws {
+        let root = try makeFolder(["a.txt": "a\n", "b.txt": "b\n", "c.txt": "c\n", "d.txt": "d\n"])
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        for name in ["a", "b", "c"] { workspace.open(fileAt: root.appending(path: "\(name).txt")) }
+        let first = workspace.activeGroup
+        func names(_ group: EditorGroup) -> [String] { workspace.documents(in: group).map(\.fileName) }
+        let a = try #require(workspace.documents.first { $0.fileName == "a.txt" })
+        let c = try #require(workspace.documents.first { $0.fileName == "c.txt" })
+
+        // Reorder: drop index is a position between tabs (before the tab at that index).
+        workspace.moveTab(a.id, from: first, to: first, at: 3)      // after the last tab
+        #expect(names(first) == ["b.txt", "c.txt", "a.txt"])
+        workspace.moveTab(a.id, from: first, to: first, at: 0)
+        #expect(names(first) == ["a.txt", "b.txt", "c.txt"])
+        workspace.moveTab(a.id, from: first, to: first, at: 1)      // its own slot: no change
+        #expect(names(first) == ["a.txt", "b.txt", "c.txt"])
+        #expect(workspace.activeDocumentID == a.id)
+
+        // Into another group at a position; the moved tab becomes active there.
+        workspace.open(fileAt: root.appending(path: "d.txt"))
+        workspace.splitEditor()
+        let second = workspace.activeGroup
+        #expect(names(second) == ["d.txt"])
+        workspace.moveTab(c.id, from: first, to: second, at: 0)
+        #expect(names(second) == ["c.txt", "d.txt"] && names(first) == ["a.txt", "b.txt", "d.txt"])
+        #expect(workspace.activeGroupID == second.id && workspace.activeDocumentID == c.id)
+
+        // Dropping a tab on a group that already shows it just moves the existing tab.
+        let d = try #require(workspace.documents.first { $0.fileName == "d.txt" })
+        workspace.moveTab(d.id, from: first, to: second, at: 0)
+        #expect(names(second) == ["d.txt", "c.txt"] && names(first) == ["a.txt", "b.txt"])
+
+        // Moving a group's only tab away closes that group.
+        for document in workspace.documents(in: second) { workspace.moveTab(document.id, from: second, to: first, at: 99) }
+        #expect(workspace.groups.map(\.id) == [first.id])
+        #expect(names(first) == ["a.txt", "b.txt", "d.txt", "c.txt"])
+        #expect(workspace.documents.count == 4)
+        withExtendedLifetime(workspace) {}
+    }
+
+    @Test func tabDragPayloadRoundTripsAndIgnoresOtherText() {
+        let payload = TabDragPayload(documentID: UUID(), groupID: UUID())
+        #expect(TabDragPayload(payload.string) == payload)
+        #expect(TabDragPayload("some dragged text") == nil)
+        #expect(TabDragPayload("omc-tab:not-a-uuid:x") == nil)
+    }
 }

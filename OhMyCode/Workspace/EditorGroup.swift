@@ -20,6 +20,16 @@ final class EditorGroup: Identifiable {
         activeDocumentID = id
     }
 
+    /// Puts a tab at `index` (moving it if it's already here), clamped to the tab count.
+    func insert(_ id: EditorDocument.ID, at index: Int) {
+        var target = index
+        if let current = documentIDs.firstIndex(of: id) {
+            documentIDs.remove(at: current)
+            if current < target { target -= 1 } // indices after it shifted left
+        }
+        documentIDs.insert(id, at: min(max(0, target), documentIDs.count))
+    }
+
     /// Removes a tab; the next one (or the previous, at the end) becomes active.
     func remove(_ id: EditorDocument.ID) {
         guard let index = documentIDs.firstIndex(of: id) else { return }

@@ -3,12 +3,16 @@ import SwiftUI
 struct TabBarView: View {
     let workspace: Workspace
     let group: EditorGroup
+    /// Where a dragged tab would land (index in this group's tabs), while hovering.
+    @State private var dropIndex: Int?
+    @State private var tabWidths: [EditorDocument.ID: CGFloat] = [:]
 
     var body: some View {
         let isActiveGroup = workspace.activeGroupID == group.id
+        let documents = workspace.documents(in: group)
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                ForEach(workspace.documents(in: group)) { document in
+                ForEach(Array(documents.enumerated()), id: \.element.id) { index, document in
                     TabItemView(
                         document: document,
                         isActive: document.id == group.activeDocumentID,
@@ -20,6 +24,19 @@ struct TabBarView: View {
                         },
                         onClose: { workspace.close(document, in: group) }
                     )
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tabWidths[document.id] = $0 }
+                    .overlay(alignment: .leading) { dropMarker(at: index) }
+                    .overlay(alignment: .trailing) { if index == documents.count - 1 { dropMarker(at: documents.count) } }
+                    .draggable(TabDragPayload(documentID: document.id, groupID: group.id).string) {
+                        Label(document.fileName, systemImage: "doc.text")
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    // Dropping on a tab's left half puts the tab before it, on the right half after.
+                    .onDrop(of: [.text], delegate: TabDropDelegate(
+                        dropIndex: $dropIndex,
+                        target: { $0.x < (tabWidths[document.id] ?? 0) / 2 ? index : index + 1 },
+                        perform: { drop($0, at: $1) }))
                     .contextMenu {
                         Button("Close") { workspace.close(document, in: group) }
                         Divider()
@@ -42,10 +59,60 @@ struct TabBarView: View {
                     }
                     Divider()
                 }
+                // The empty rest of the bar: drop to put the tab last.
+                Color.clear
+                    .frame(minWidth: 40, maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onDrop(of: [.text], delegate: TabDropDelegate(
+                        dropIndex: $dropIndex, target: { _ in documents.count }, perform: { drop($0, at: $1) }))
             }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
         .frame(height: 32)
         .themedBackground(.tabBar, fallback: .bar)
+    }
+
+    @ViewBuilder private func dropMarker(at index: Int) -> some View {
+        if dropIndex == index {
+            Color.accentColor.frame(width: 2).padding(.vertical, 4)
+        }
+    }
+
+    private func drop(_ payload: TabDragPayload, at index: Int) {
+        dropIndex = nil
+        guard let source = workspace.group(id: payload.groupID) else { return }
+        workspace.moveTab(payload.documentID, from: source, to: group, at: index)
+        workspace.document(id: payload.documentID)?.editor(inGroup: group)?.focus()
+    }
+}
+
+/// Shows where a dragged tab would land and moves it there on drop. Only tab payloads are
+/// accepted; other dragged text is ignored.
+private struct TabDropDelegate: DropDelegate {
+    @Binding var dropIndex: Int?
+    let target: (CGPoint) -> Int
+    let perform: @MainActor @Sendable (TabDragPayload, Int) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.text]) }
+    func dropEntered(info: DropInfo) { dropIndex = target(info.location) }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        dropIndex = target(info.location)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) { dropIndex = nil }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let index = target(info.location)
+        dropIndex = nil
+        guard let provider = info.itemProviders(for: [.text]).first else { return false }
+        let perform = perform
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            guard let string = object as? String, let payload = TabDragPayload(string) else { return }
+            Task { @MainActor in perform(payload, index) }
+        }
+        return true
     }
 }
 

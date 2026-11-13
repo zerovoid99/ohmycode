@@ -586,6 +586,28 @@ final class Workspace {
         retargetEditor()
     }
 
+    /// Drag and drop of a tab: reorders within a group, or moves it to another group at `index`
+    /// (tab position, before the tab there). The moved tab becomes active, and a group left
+    /// without tabs closes.
+    func moveTab(_ documentID: EditorDocument.ID, from source: EditorGroup, to target: EditorGroup, at index: Int) {
+        guard source.contains(documentID), groups.contains(where: { $0 === target }) else { return }
+        if source !== target {
+            if let document = document(id: documentID) { document.editor(inGroup: source)?.saveViewState() }
+            if let state = source.viewStates[documentID] { target.viewStates[documentID] = state }
+        }
+        target.insert(documentID, at: index)
+        if source !== target {
+            source.remove(documentID)
+            if source.documentIDs.isEmpty { closeGroup(source) }
+        }
+        activeGroupID = target.id
+        activeDocumentID = documentID
+    }
+
+    func group(id: EditorGroup.ID) -> EditorGroup? {
+        groups.first { $0.id == id }
+    }
+
     /// ⌘1…⌘4: focuses a group's editor.
     func focusGroup(at index: Int) {
         guard groups.indices.contains(index) else { return }
