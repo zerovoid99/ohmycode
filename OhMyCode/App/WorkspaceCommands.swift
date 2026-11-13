@@ -102,10 +102,27 @@ struct WorkspaceCommands: Commands {
 
             Button("Next Editor") { workspace?.selectAdjacentDocument(offset: 1) }
                 .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
-                .disabled((workspace?.documents.count ?? 0) < 2)
+                .disabled((workspace?.activeGroup.documentIDs.count ?? 0) < 2)
             Button("Previous Editor") { workspace?.selectAdjacentDocument(offset: -1) }
                 .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
-                .disabled((workspace?.documents.count ?? 0) < 2)
+                .disabled((workspace?.activeGroup.documentIDs.count ?? 0) < 2)
+
+            Divider()
+
+            Button("Split Editor") { workspace?.splitEditor() }
+                .keyboardShortcut("\\", modifiers: .command)
+                .disabled(workspace?.activeDocument == nil || (workspace?.groups.count ?? 0) >= Workspace.maxGroups)
+            Button("Move Editor into Next Group") { workspace?.moveActiveEditor(by: 1) }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .control])
+                .disabled(workspace?.activeDocument == nil)
+            Button("Move Editor into Previous Group") { workspace?.moveActiveEditor(by: -1) }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .control])
+                .disabled(workspace?.activeDocument == nil)
+            ForEach(0..<Workspace.maxGroups, id: \.self) { index in
+                Button("Focus Editor Group \(index + 1)") { workspace?.focusGroup(at: index) }
+                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                    .disabled((workspace?.groups.count ?? 0) <= index)
+            }
         }
     }
 }

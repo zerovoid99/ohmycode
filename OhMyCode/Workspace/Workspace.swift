@@ -7,8 +7,25 @@ import Observation
 final class Workspace {
     private(set) var rootURL: URL?
     private(set) var rootNode: FileNode?
+    /// Every open document, in any editor group.
     private(set) var documents: [EditorDocument] = []
-    var activeDocumentID: EditorDocument.ID?
+    /// Split editor panes, left to right; there is always at least one.
+    private(set) var groups: [EditorGroup]
+    var activeGroupID: EditorGroup.ID {
+        didSet { if activeGroupID != oldValue { retargetEditor() } }
+    }
+    static let maxGroups = 4
+
+    var activeGroup: EditorGroup { groups.first { $0.id == activeGroupID } ?? groups[0] }
+
+    /// The active group's current tab. Setting it shows that document in the active group.
+    var activeDocumentID: EditorDocument.ID? {
+        get { activeGroup.activeDocumentID }
+        set {
+            activeGroup.show(newValue)
+            retargetEditor()
+        }
+    }
     var errorMessage: String?
     private(set) var fileIndex: FileIndex?
     /// Most recently opened first.
@@ -69,6 +86,9 @@ final class Workspace {
     @ObservationIgnored private var canonicalRootPath = ""
 
     init() {
+        let group = EditorGroup()
+        groups = [group]
+        activeGroupID = group.id
         NotificationCenter.default.addObserver(forName: .omcEditorCommand, object: nil, queue: .main) { [weak self] note in
             let document = note.object as? EditorDocument
             let command = (note.userInfo?["command"] as? String).flatMap(EditorCommand.init(rawValue:))
@@ -103,7 +123,9 @@ final class Workspace {
         rootURL = url
         rootNode = FileNode(url: url, isDirectory: true)
         documents.removeAll()
-        activeDocumentID = nil
+        let group = EditorGroup()
+        groups = [group]
+        activeGroupID = group.id
         recentFiles.removeAll()
         fileIndex = nil
         rebuildFileIndex()
@@ -485,27 +507,108 @@ final class Workspace {
         }
     }
 
-    func close(_ document: EditorDocument) {
-        guard confirmClose(document),
-              let index = documents.firstIndex(where: { $0.id == document.id }) else { return }
-        documents.remove(at: index)
-        document.languageClient?.didClose(url: document.url)
-        if activeDocumentID == document.id {
-            activeDocumentID = documents.isEmpty ? nil : documents[min(index, documents.count - 1)].id
+    /// Closes a document's tab in `group` (by default the active group, or wherever it is
+    /// shown). The document itself closes, asking to save, once no group shows it.
+    func close(_ document: EditorDocument, in group: EditorGroup? = nil) {
+        guard let group = group ?? (activeGroup.contains(document.id) ? activeGroup
+                                    : groups.first { $0.contains(document.id) }) else { return }
+        let shownElsewhere = groups.contains { $0 !== group && $0.contains(document.id) }
+        if !shownElsewhere {
+            guard confirmClose(document) else { return }
+            documents.removeAll { $0.id == document.id }
+            document.languageClient?.didClose(url: document.url)
         }
+        group.remove(document.id)
+        if group.documentIDs.isEmpty { closeGroup(group) }
+        retargetEditor()
     }
 
     func closeAll() {
-        for document in documents.reversed() {
-            close(document)
-            if documents.contains(where: { $0.id == document.id }) { return } // cancelled
+        for group in groups.reversed() {
+            for id in group.documentIDs.reversed() {
+                guard let document = document(id: id) else { continue }
+                close(document, in: group)
+                if group.contains(id) { return } // cancelled
+            }
         }
     }
 
     func selectAdjacentDocument(offset: Int) {
-        guard !documents.isEmpty else { return }
-        let current = documents.firstIndex { $0.id == activeDocumentID } ?? 0
-        activeDocumentID = documents[(current + offset + documents.count) % documents.count].id
+        let ids = activeGroup.documentIDs
+        guard !ids.isEmpty else { return }
+        let current = ids.firstIndex { $0 == activeDocumentID } ?? 0
+        activeDocumentID = ids[(current + offset + ids.count) % ids.count]
+    }
+
+    func document(id: EditorDocument.ID?) -> EditorDocument? {
+        guard let id else { return nil }
+        return documents.first { $0.id == id }
+    }
+
+    func documents(in group: EditorGroup) -> [EditorDocument] {
+        group.documentIDs.compactMap { document(id: $0) }
+    }
+
+    // MARK: Editor groups (split editor)
+
+    /// ⌘\: opens the active document in a new group to the right.
+    func splitEditor() {
+        guard let document = activeDocument, groups.count < Self.maxGroups,
+              let index = groups.firstIndex(where: { $0.id == activeGroupID }) else { NSSound.beep(); return }
+        document.editor(inGroup: activeGroup)?.saveViewState()
+        let group = EditorGroup()
+        if let state = activeGroup.viewStates[document.id] { group.viewStates[document.id] = state }
+        group.show(document.id)
+        groups.insert(group, at: index + 1)
+        activeGroupID = group.id
+    }
+
+    /// Moves the active tab to the next group (`offset` 1) or previous (-1), creating a group
+    /// at the edge if there is none.
+    func moveActiveEditor(by offset: Int) {
+        guard let document = activeDocument, let index = groups.firstIndex(where: { $0.id == activeGroupID }) else { return }
+        let source = activeGroup
+        let targetIndex = index + offset
+        let target: EditorGroup
+        if groups.indices.contains(targetIndex) {
+            target = groups[targetIndex]
+        } else {
+            guard source.documentIDs.count > 1, groups.count < Self.maxGroups else { NSSound.beep(); return }
+            target = EditorGroup()
+            groups.insert(target, at: offset > 0 ? index + 1 : index)
+        }
+        document.editor(inGroup: source)?.saveViewState()
+        if let state = source.viewStates[document.id] { target.viewStates[document.id] = state }
+        target.show(document.id)
+        source.remove(document.id)
+        if source.documentIDs.isEmpty { closeGroup(source) }
+        activeGroupID = target.id
+        retargetEditor()
+    }
+
+    /// ⌘1…⌘4: focuses a group's editor.
+    func focusGroup(at index: Int) {
+        guard groups.indices.contains(index) else { return }
+        activeGroupID = groups[index].id
+        activeDocument?.editor(inGroup: groups[index])?.focus()
+    }
+
+    private func closeGroup(_ group: EditorGroup) {
+        guard groups.count > 1, let index = groups.firstIndex(where: { $0 === group }) else { return }
+        groups.remove(at: index)
+        if activeGroupID == group.id { activeGroupID = groups[max(0, index - 1)].id }
+    }
+
+    /// Cursor-based actions (go to definition, reveal) act on the active group's editor of the
+    /// active document. If that group has no editor for it yet, reveals wait for the one SwiftUI
+    /// is about to create. (Editors outside any group, as in tests, are left alone.)
+    private func retargetEditor() {
+        guard let document = activeDocument else { return }
+        if let editor = document.editor(inGroup: activeGroup) {
+            document.editor = editor
+        } else if document.editor?.group != nil {
+            document.editor = nil
+        }
     }
 
     func saveAll() {

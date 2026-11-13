@@ -46,9 +46,17 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored private(set) var lineIndex: LineIndex
     @ObservationIgnored private(set) var highlighter: SyntaxHighlighter?
     @ObservationIgnored private var storageObserver: TextStorageObserver?
-    /// The editor currently showing this document, if any.
+    /// Shared by every editor showing this document (split views): each adds its own
+    /// layout manager, so edits in one view lay out in all of them.
+    @ObservationIgnored let textContentStorage = NSTextContentStorage()
+    /// Every editor showing this document (weak).
+    @ObservationIgnored private let editorTable = NSHashTable<EditorController>.weakObjects()
+    var editors: [EditorController] { editorTable.allObjects }
+
+    /// The editor that cursor-based actions use: the focused one, or the last one shown.
     @ObservationIgnored weak var editor: EditorController? {
         didSet {
+            if let editor { editorTable.add(editor) }
             if let editor, let range = pendingReveal {
                 pendingReveal = nil
                 editor.reveal(range)
@@ -91,6 +99,7 @@ final class EditorDocument: Identifiable {
         self.lineIndex = LineIndex(string: textStorage.mutableString)
         self.lineCount = lineIndex.lineCount
         self.highlighter = SyntaxHighlighter(language: language, textStorage: textStorage)
+        textContentStorage.textStorage = textStorage
 
         let observer = TextStorageObserver { [weak self] range, delta in
             self?.textDidEdit(range: range, changeInLength: delta)
@@ -168,7 +177,7 @@ final class EditorDocument: Identifiable {
     func setDiagnostics(_ diagnostics: [Diagnostic]) {
         guard diagnostics != self.diagnostics else { return }
         self.diagnostics = diagnostics
-        editor?.applyDiagnostics()
+        editors.forEach { $0.applyDiagnostics() }
     }
 
     /// The most severe diagnostic on the cursor's line, for the status bar.
@@ -190,14 +199,14 @@ final class EditorDocument: Identifiable {
         diskModificationDate = date
         guard text != textStorage.mutableString as String else { return }
 
-        let selection = editor?.textView.selectedRange()
+        let selections = editors.map { ($0, $0.textView.selectedRange()) }
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length),
                                       with: NSAttributedString(string: text, attributes: EditorTheme.baseAttributes))
         isDirty = false
         hasExternalChanges = false
         // Undo entries refer to the old text's ranges.
         undoManager.removeAllActions()
-        editor?.documentDidReload(previousSelection: selection)
+        for (editor, selection) in selections { editor.documentDidReload(previousSelection: selection) }
     }
 
     private static func modificationDate(of url: URL) -> Date? {
@@ -262,7 +271,7 @@ final class EditorDocument: Identifiable {
     private func scheduleDiff(after delay: Duration) {
         diffTask?.cancel()
         guard let base = diffBaseLines else {
-            if !diffMarkers.isEmpty { diffMarkers = [:]; diffHunks = []; editor?.gutterView.needsDisplay = true }
+            if !diffMarkers.isEmpty { diffMarkers = [:]; diffHunks = []; redrawGutters() }
             return
         }
         diffTask = Task {
@@ -277,8 +286,22 @@ final class EditorDocument: Identifiable {
             guard !Task.isCancelled else { return }
             diffHunks = hunks
             diffMarkers = LineDiff.markers(for: hunks)
-            editor?.gutterView.needsDisplay = true
+            redrawGutters()
         }
+    }
+
+    private func redrawGutters() {
+        for editor in editors { editor.gutterView.needsDisplay = true }
+    }
+
+    /// Registers an editor showing this document (without making it the target of actions).
+    func attach(_ editor: EditorController) {
+        editorTable.add(editor)
+    }
+
+    /// The editor showing this document in an editor group, if any.
+    func editor(inGroup group: EditorGroup) -> EditorController? {
+        editors.first { $0.group === group }
     }
 
     func hunk(atLine line: Int) -> DiffHunk? {

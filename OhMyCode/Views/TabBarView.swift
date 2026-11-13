@@ -2,17 +2,44 @@ import SwiftUI
 
 struct TabBarView: View {
     let workspace: Workspace
+    let group: EditorGroup
 
     var body: some View {
+        let isActiveGroup = workspace.activeGroupID == group.id
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                ForEach(workspace.documents) { document in
+                ForEach(workspace.documents(in: group)) { document in
                     TabItemView(
                         document: document,
-                        isActive: document.id == workspace.activeDocumentID,
-                        onSelect: { workspace.activeDocumentID = document.id },
-                        onClose: { workspace.close(document) }
+                        isActive: document.id == group.activeDocumentID,
+                        isActiveGroup: isActiveGroup,
+                        onSelect: {
+                            workspace.activeGroupID = group.id
+                            workspace.activeDocumentID = document.id
+                            document.editor(inGroup: group)?.focus()
+                        },
+                        onClose: { workspace.close(document, in: group) }
                     )
+                    .contextMenu {
+                        Button("Close") { workspace.close(document, in: group) }
+                        Divider()
+                        Button("Split Right") {
+                            workspace.activeGroupID = group.id
+                            workspace.activeDocumentID = document.id
+                            workspace.splitEditor()
+                        }
+                        .disabled(workspace.groups.count >= Workspace.maxGroups)
+                        Button("Move to Next Group") {
+                            workspace.activeGroupID = group.id
+                            workspace.activeDocumentID = document.id
+                            workspace.moveActiveEditor(by: 1)
+                        }
+                        Button("Move to Previous Group") {
+                            workspace.activeGroupID = group.id
+                            workspace.activeDocumentID = document.id
+                            workspace.moveActiveEditor(by: -1)
+                        }
+                    }
                     Divider()
                 }
             }
@@ -25,6 +52,7 @@ struct TabBarView: View {
 private struct TabItemView: View {
     let document: EditorDocument
     let isActive: Bool
+    let isActiveGroup: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
     @State private var isHovering = false
@@ -33,7 +61,7 @@ private struct TabItemView: View {
         HStack(spacing: 6) {
             Text(document.fileName)
                 .font(.callout)
-                .foregroundStyle(isActive ? .primary : .secondary)
+                .foregroundStyle(isActive && isActiveGroup ? .primary : .secondary)
                 .lineLimit(1)
             Button(action: onClose) {
                 Image(systemName: document.isDirty && !isHovering ? "circle.fill" : "xmark")

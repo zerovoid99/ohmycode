@@ -59,23 +59,12 @@ struct WorkspaceView: View {
         return count > 0 ? "Source Control (\(count))" : "Source Control"
     }
 
+    /// Editor groups side by side (split editor); a single group fills the area.
     private var editorArea: some View {
-        VStack(spacing: 0) {
-            if !workspace.documents.isEmpty {
-                TabBarView(workspace: workspace)
-                Divider()
-            }
-            if let document = workspace.activeDocument {
-                CodeEditorView(document: document)
-                    .id(document.id)
-            } else {
-                ContentUnavailableView(
-                    "No Open Editors",
-                    systemImage: "doc.text",
-                    description: Text("Select a file in the sidebar to open it.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(nsColor: .textBackgroundColor))
+        HSplitView {
+            ForEach(workspace.groups) { group in
+                EditorGroupView(workspace: workspace, group: group)
+                    .frame(minWidth: 180, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
     }

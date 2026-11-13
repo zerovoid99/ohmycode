@@ -65,15 +65,14 @@ extension EditorDocument {
             shift += newLength - edit.range.length
         }
 
-        let textView = editor?.textView
-        let selection = textView?.selectedRange()
-        textView?.breakUndoCoalescing()
+        let selections = editors.map { ($0.textView!, $0.textView.selectedRange()) }
+        editor?.textView.breakUndoCoalescing()
         // Back to front, so earlier ranges stay valid. One storage edit each: the document's
         // incremental line index, parser and LSP sync all see ordinary single edits.
         for edit in effective.reversed() {
             textStorage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.text, attributes: EditorTheme.baseAttributes))
         }
-        if let textView, let selection {
+        for (textView, selection) in selections {
             textView.setSelectedRange(Self.adjust(selection, by: effective, length: textStorage.length))
         }
 
@@ -86,7 +85,7 @@ extension EditorDocument {
         }
         undoManager.setActionName(actionName)
         if ownsGroup { undoManager.endUndoGrouping() }
-        editor?.textDidChangeProgrammatically()
+        editors.forEach { $0.textDidChangeProgrammatically() }
         return true
     }
 

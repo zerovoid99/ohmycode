@@ -6,13 +6,18 @@ import SwiftUI
 /// visible viewport, so large files stay responsive.
 struct CodeEditorView: NSViewRepresentable {
     let document: EditorDocument
+    /// The editor group (split pane) this editor is in.
+    var group: EditorGroup?
+    /// Called when this editor gets keyboard focus.
+    var onFocus: (() -> Void)?
 
     func makeCoordinator() -> EditorController {
-        EditorController(document: document)
+        EditorController(document: document, group: group)
     }
 
     func makeNSView(context: Context) -> EditorContainerView {
-        context.coordinator.makeView()
+        context.coordinator.onFocus = onFocus
+        return context.coordinator.makeView()
     }
 
     func updateNSView(_ view: EditorContainerView, context: Context) {}
@@ -28,23 +33,32 @@ final class EditorController: NSObject {
     private(set) var textView: CodeTextView!
     private(set) var gutterView: GutterView!
     private(set) var diagnosticsOverlay: DiagnosticsOverlayView?
-    // NSTextLayoutManager only holds its content manager weakly.
-    private let textContentStorage = NSTextContentStorage()
+    /// The split pane showing this editor (nil outside the workspace, e.g. in tests).
+    private(set) weak var group: EditorGroup?
+    var onFocus: (() -> Void)?
+    private var textLayoutManager: NSTextLayoutManager?
     private(set) lazy var completion = CompletionController(editor: self)
     private(set) lazy var hover = HoverController(editor: self)
     /// What the user just typed, captured before the change, for completion triggering.
     private var pendingTypedText: String?
     /// Range that currently has highlight colors applied; scrolling inside it is free.
-    private var highlightedRange: NSRange?
+    private(set) var highlightedRange: NSRange?
 
-    init(document: EditorDocument) {
+    init(document: EditorDocument, group: EditorGroup? = nil) {
         self.document = document
+        self.group = group
+    }
+
+    /// The document's content storage keeps its layout managers alive: detach ours, or a closed
+    /// split would keep being laid out on every edit.
+    isolated deinit {
+        if let textLayoutManager { document.textContentStorage.removeTextLayoutManager(textLayoutManager) }
     }
 
     func makeView() -> EditorContainerView {
         let textLayoutManager = NSTextLayoutManager()
-        textContentStorage.addTextLayoutManager(textLayoutManager)
-        textContentStorage.textStorage = document.textStorage
+        document.textContentStorage.addTextLayoutManager(textLayoutManager)
+        self.textLayoutManager = textLayoutManager
 
         let container = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
                                                      height: CGFloat.greatestFiniteMagnitude))
@@ -72,6 +86,7 @@ final class EditorController: NSObject {
         self.gutterView = gutter
         // Not textDidEndEditing: AppKit sends that after every edit while the window isn't key.
         textView.onResignFocus = { [weak self] in self?.completion.dismiss() }
+        textView.onBecomeFocus = { [weak self] in self?.didBecomeFocused() }
         textView.onCommandClick = { [weak self] in
             guard let self else { return }
             self.completion.dismiss()
@@ -97,10 +112,11 @@ final class EditorController: NSObject {
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            textView.window?.makeFirstResponder(textView)
+            self.document.attach(self)
             self.restoreViewState()
             self.document.editor = self
-            self.document.highlighter?.client = self
+            textView.window?.makeFirstResponder(textView)
+            self.document.highlighter?.addClient(self)
             self.applyDiagnostics()
         }
         return containerView
@@ -148,12 +164,16 @@ final class EditorController: NSObject {
                                            to: fragment.rangeInElement.location)
             delta = visible.minY - (fragment.layoutFragmentFrame.minY + origin.y)
         }
-        document.viewState = EditorViewState(topLineOffset: offset, topLineDelta: delta,
-                                             scrollX: visible.minX, selection: textView.selectedRange())
+        let state = EditorViewState(topLineOffset: offset, topLineDelta: delta,
+                                    scrollX: visible.minX, selection: textView.selectedRange())
+        document.viewState = state
+        group?.viewStates[document.id] = state
     }
 
+    /// This pane's own state for the document, or else the document's latest (so a new split
+    /// opens where the other view is).
     func restoreViewState() {
-        guard let state = document.viewState,
+        guard let state = group?.viewStates[document.id] ?? document.viewState,
               let layoutManager = textView.textLayoutManager,
               let contentManager = layoutManager.textContentManager else { return }
         let length = document.textStorage.length
@@ -232,10 +252,24 @@ final class EditorController: NSObject {
 
     /// Text changed without going through the text view (multi-edits, undo of those).
     func textDidChangeProgrammatically() {
-        gutterView.updateWidth()
-        gutterView.needsDisplay = true
+        refreshAfterEdit()
         completion.dismiss()
         hover.dismiss()
+    }
+
+    /// Another editor (split view) changed the shared text.
+    func refreshAfterEdit() {
+        gutterView.updateWidth()
+        gutterView.needsDisplay = true
+        diagnosticsOverlay?.needsDisplay = true
+    }
+
+    private func didBecomeFocused() {
+        document.editor = self
+        // Edits and selection sync go through the primary layout manager.
+        if let textLayoutManager { document.textContentStorage.primaryTextLayoutManager = textLayoutManager }
+        document.updateCursor(forSelectionAt: textView.selectedRange().location)
+        onFocus?()
     }
 
     // MARK: Geometry
@@ -333,7 +367,7 @@ final class EditorController: NSObject {
         guard let highlighter = document.highlighter else { return }
         if !force, let highlightedRange, let visible = visibleCharacterRange(),
            NSIntersectionRange(highlightedRange, visible) == visible { return }
-        highlighter.requestHighlights()
+        highlighter.requestHighlights(for: self)
     }
 
     /// The range the text view's viewport pass laid out (visible area plus TextKit's overdraw).
@@ -380,6 +414,7 @@ extension EditorController: NSTextViewDelegate {
         let typed = pendingTypedText
         pendingTypedText = nil
         completion.textDidChange(typed: typed)
+        for other in document.editors where other !== self { other.refreshAfterEdit() }
     }
 
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
@@ -397,7 +432,10 @@ extension EditorController: NSTextViewDelegate {
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
-        document.updateCursor(forSelectionAt: textView.selectedRange().location)
+        // The status bar follows the focused editor; other splits move their selection on edits.
+        if document.editor === self || document.editor == nil {
+            document.updateCursor(forSelectionAt: textView.selectedRange().location)
+        }
         gutterView.needsDisplay = true
     }
 }
@@ -440,6 +478,14 @@ final class CodeTextView: NSTextView {
     override func scrollWheel(with event: NSEvent) {
         onKeyDown?()
         super.scrollWheel(with: event)
+    }
+
+    var onBecomeFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onBecomeFocus?() }
+        return became
     }
 
     override func resignFirstResponder() -> Bool {

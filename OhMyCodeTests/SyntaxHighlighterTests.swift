@@ -72,7 +72,7 @@ struct SyntaxHighlighterTests {
         window.contentView = editorView
         window.layoutIfNeeded()
         controller.textView.layoutSubtreeIfNeeded()
-        document.highlighter?.client = controller
+        document.highlighter?.addClient(controller)
         await document.highlighter?.waitUntilIdle()
         controller.textView.layoutSubtreeIfNeeded()
 
