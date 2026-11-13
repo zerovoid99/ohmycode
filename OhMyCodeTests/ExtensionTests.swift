@@ -433,3 +433,54 @@ struct ExampleExtensionTests {
         _ = try await command.value
     }
 }
+
+@MainActor
+struct ExtensionWatchdogTests {
+    @Test func stopsEndlessLoopsAndKeepsTheExtensionRunning() async throws {
+        #expect(ExecutionLimit.isAvailable)
+        let store = makeStore()
+        try store.install(from: try makeExtension("""
+        { "id": "test.loop", "name": "Loop", "version": "1", "main": "main.js", "activationEvents": ["onStartup"],
+          "contributes": { "commands": [{ "command": "loop.spin", "title": "Spin" }] } }
+        """, source: """
+        const omc = require('omc');
+        exports.activate = () => {
+          omc.commands.registerCommand('loop.spin', () => { while (true) {} });
+          omc.commands.registerCommand('loop.caught', () => { try { while (true) {} } catch (e) { return 'caught'; } });
+          omc.commands.registerCommand('loop.ok', () => 'ok');
+          omc.commands.registerCommand('loop.later', () => { setTimeout(() => { while (true) {} }, 0); return 'scheduled'; });
+        };
+        """))
+        try store.install(from: try makeExtension("""
+        { "id": "test.loopstart", "name": "Loop Start", "version": "1", "main": "main.js", "activationEvents": ["onStartup"] }
+        """, source: "exports.activate = () => { for (;;) {} };"))
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-ext-ws-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let workspace = Workspace()
+        let host = workspace.extensions
+        host.store = store
+        host.executionTimeLimit = 0.3
+        workspace.openFolder(root)
+        await host.waitUntilIdle()
+
+        let start = ContinuousClock.now
+        do { _ = try await host.executeCommand("loop.spin"); Issue.record("an endless loop is stopped") }
+        catch { #expect(error.localizedDescription.contains("endless loop")) }
+        #expect(ContinuousClock.now - start < .seconds(3))
+        // It can't be caught, and the extension still works afterwards.
+        do { _ = try await host.executeCommand("loop.caught"); Issue.record("termination can't be caught") }
+        catch { #expect(error.localizedDescription.contains("endless loop")) }
+        #expect(try await host.executeCommand("loop.ok") == .string("ok"))
+
+        // In a timer: logged.
+        #expect(try await host.executeCommand("loop.later") == .string("scheduled"))
+        let loop = try #require(host.extensions.first { $0.id == "test.loop" })
+        #expect(try await eventually { loop.log.contains { $0.level == "error" && $0.message.contains("endless loop") } })
+        #expect(try await host.executeCommand("loop.ok") == .string("ok") && loop.state == .active)
+
+        // In activate(): the extension fails to start.
+        let failed = host.extensions.first { $0.id == "test.loopstart" }?.state
+        if case .failed(let message) = failed { #expect(message.contains("endless loop")) } else { Issue.record("activation fails") }
+        withExtendedLifetime(workspace) {}
+    }
+}

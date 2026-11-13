@@ -29,6 +29,10 @@ final class ExtensionRuntime: @unchecked Sendable {
         }
     }
 
+    /// How long one stretch of the extension's JavaScript may run without returning (an
+    /// endless loop is stopped, the extension keeps running). Nil: no limit.
+    let timeLimit: Double?
+
     let queue: DispatchQueue
     private let bridge: Bridge
     // Only on `queue`:
@@ -37,9 +41,10 @@ final class ExtensionRuntime: @unchecked Sendable {
     private var waiting: [Int: CheckedContinuation<String?, Error>] = [:]
     private var nextToken = 1
 
-    init(label: String, bridge: Bridge) {
+    init(label: String, bridge: Bridge, timeLimit: Double? = 5) {
         queue = DispatchQueue(label: "dev.zerovoid99.ohmycode.extension.\(label)", qos: .userInitiated)
         self.bridge = bridge
+        self.timeLimit = timeLimit
     }
 
     // MARK: Lifecycle
@@ -51,7 +56,7 @@ final class ExtensionRuntime: @unchecked Sendable {
             self.context = context
             context.objectForKeyedSubscript("__omcLoad")
                 .call(withArguments: [source, filename, (filename as NSString).deletingLastPathComponent])
-            if let error = Self.takeException(context) { throw RuntimeError.script(error) }
+            if let error = self.takeException(context) { throw RuntimeError.script(error) }
             context.objectForKeyedSubscript("__omcActivate").call(withArguments: [contextJSON, token])
         }
     }
@@ -100,7 +105,7 @@ final class ExtensionRuntime: @unchecked Sendable {
                 self.waiting[token] = continuation
                 do {
                     try body(token)
-                    if let context = self.context, let error = Self.takeException(context) {
+                    if let context = self.context, let error = self.takeException(context) {
                         throw RuntimeError.script(error)
                     }
                 } catch {
@@ -115,6 +120,7 @@ final class ExtensionRuntime: @unchecked Sendable {
     private func makeContext() -> JSContext {
         let context = JSContext(virtualMachine: JSVirtualMachine())!
         context.name = queue.label
+        if let timeLimit { ExecutionLimit.set(timeLimit, on: context) }
         let native = JSValue(newObjectIn: context)!
         let bridge = self.bridge
 
@@ -151,7 +157,7 @@ final class ExtensionRuntime: @unchecked Sendable {
         native.setObject(ExtensionPrelude.apiVersion, forKeyedSubscript: "version" as NSString)
         context.setObject(native, forKeyedSubscript: "__omcNative" as NSString)
         context.evaluateScript(ExtensionPrelude.source, withSourceURL: URL(string: "omc://prelude.js"))
-        if let error = Self.takeException(context) { bridge.log("error", "The API failed to load: \(error)") }
+        if let error = self.takeException(context) { bridge.log("error", "The API failed to load: \(error)") }
         return context
     }
 
@@ -181,16 +187,40 @@ final class ExtensionRuntime: @unchecked Sendable {
 
     /// Logs an exception the script left uncaught.
     private func reportException() {
-        if let context, let error = Self.takeException(context) { bridge.log("error", error) }
+        if let context, let error = self.takeException(context) { bridge.log("error", error) }
     }
 
-    private static func takeException(_ context: JSContext) -> String? {
+    private func takeException(_ context: JSContext) -> String? {
         guard let exception = context.exception, !exception.isUndefined, !exception.isNull else { return nil }
         context.exception = nil
         let message = exception.toString() ?? "Unknown error"
+        if message == ExecutionLimit.terminationMessage, let timeLimit {
+            return "Stopped after running \(timeLimit.formatted()) seconds without a break (an endless loop?)."
+        }
         if let stack = exception.objectForKeyedSubscript("stack"), !stack.isUndefined, let text = stack.toString(), !text.isEmpty {
             return message + "\n" + text
         }
         return message
+    }
+}
+
+/// JavaScriptCore's execution time limit. It isn't in the public headers (WebKit uses it), so
+/// it's looked up at run time; without it there's no limit.
+enum ExecutionLimit {
+    static let terminationMessage = "JavaScript execution terminated."
+
+    private typealias ShouldTerminate = @convention(c) (JSContextRef?, UnsafeMutableRawPointer?) -> Bool
+    private typealias SetLimit = @convention(c) (JSContextGroupRef?, Double, ShouldTerminate?, UnsafeMutableRawPointer?) -> Void
+
+    private static let setLimit: SetLimit? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "JSContextGroupSetExecutionTimeLimit") else { return nil }
+        return unsafeBitCast(symbol, to: SetLimit.self)
+    }()
+
+    static var isAvailable: Bool { setLimit != nil }
+
+    /// Each call into the context may run `seconds` before it's terminated.
+    static func set(_ seconds: Double, on context: JSContext) {
+        setLimit?(JSContextGetGroup(context.jsGlobalContextRef), seconds, nil, nil)
     }
 }

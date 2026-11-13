@@ -1,6 +1,7 @@
 // Type definitions for the Oh My Code extension API (`require("omc")`), version 0.1.0.
 //
-// Extensions run in JavaScriptCore, one isolated context each, off the main thread. The main
+// Extensions run in JavaScriptCore, one isolated context each, off the main thread. JavaScript
+// that runs 5 seconds without returning (an endless loop) is stopped. The main
 // file is CommonJS: export `activate(context)` (and optionally `deactivate()`). Write
 // TypeScript and compile it (tsc with "module": "commonjs", or esbuild --format=cjs); only
 // "omc" can be required, so bundle any other dependency into the main file.

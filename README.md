@@ -54,6 +54,8 @@ An extension is a folder with an `extension.json` and its compiled main file:
 - **Activation:** `onStartup` (or `*`) when the window opens, `onLanguage:<id>` when such a file
   opens, and on first use of any command listed under `contributes.commands` (those also show in
   the command palette).
+- **Limits:** JavaScript that runs 5 seconds without returning is stopped (the extension keeps
+  running); `activate()` gets 10 seconds.
 - **Permissions:** the extension can always use the editor and files in the open folder. It needs
   `process` to run programs, `network` to make requests, and `fileSystem` for files elsewhere. The
   permissions are shown before installing.

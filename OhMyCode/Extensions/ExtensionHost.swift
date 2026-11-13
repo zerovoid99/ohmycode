@@ -148,7 +148,7 @@ final class ExtensionHost {
         let task = Task { () -> Bool in
             instance.state = .activating
             let installed = instance.installed
-            let runtime = ExtensionRuntime(label: installed.id, bridge: makeBridge(for: installed.id))
+            let runtime = ExtensionRuntime(label: installed.id, bridge: makeBridge(for: installed.id), timeLimit: executionTimeLimit)
             instance.runtime = runtime
             do {
                 let source = try String(contentsOf: installed.mainURL, encoding: .utf8)
@@ -200,6 +200,8 @@ final class ExtensionHost {
         }
     }
 
+    /// How long the extension's JavaScript may run in one go (see `ExtensionRuntime.timeLimit`).
+    @ObservationIgnored var executionTimeLimit: Double? = 5
     /// How long `activate()` and `deactivate()` may take.
     @ObservationIgnored var activationTimeout: Duration = .seconds(10)
     @ObservationIgnored var stopTimeout: Duration = .seconds(3)
