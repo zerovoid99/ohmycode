@@ -97,6 +97,8 @@ final class Workspace {
     /// whether to check out a commit.
     @ObservationIgnored var branchNamePrompt: ((RepoCommit) -> String?)?
     @ObservationIgnored var checkoutConfirmation: ((RepoCommit) -> Bool)?
+    /// An interactive rebase being set up (shown as a sheet).
+    var pendingRebase: RebasePlan?
     /// Stash entries, newest first (read with `git status`).
     private(set) var stashes: [GitStash] = []
     /// Files of each stash, read when it's expanded.
@@ -980,6 +982,33 @@ final class Workspace {
         }
         let trimmed = answer?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    // MARK: Interactive rebase
+
+    /// Sets up an interactive rebase of `commit` and everything after it on the current branch.
+    func planInteractiveRebase(from commit: RepoCommit) async {
+        guard let repository = gitRepository else { return }
+        guard gitStatus?.operation == nil else { errorMessage = "Finish the merge or rebase in progress first."; return }
+        let steps = await Task.detached { Git.rebaseCommits(from: commit, in: repository) }.value
+        guard let steps, !steps.isEmpty else {
+            errorMessage = "\(commit.shortSHA) isn't on the current branch, so it can't be rebased from here."
+            return
+        }
+        pendingRebase = RebasePlan(base: commit, steps: steps)
+    }
+
+    /// Runs the rebase as planned. Rewriting pushed commits is asked about first.
+    func startRebase(_ plan: RebasePlan) {
+        guard RebaseStep.problem(with: plan.steps) == nil, let repository = gitRepository,
+              let oldest = plan.original.first else { return }
+        guard !Git.isPushed(oldest.commit.sha, in: repository) || confirm(
+            "Some of these commits are already pushed. Rebasing rewrites them, so the branch will need a force push. Rebase anyway?")
+        else { return }
+        guard confirmUnsavedBeforeCheckout() else { return }
+        pendingRebase = nil
+        let steps = plan.steps, base = plan.base.parents.first
+        runGit { try Git.interactiveRebase(steps, onto: base, in: $0) }
     }
 
     // MARK: Stash

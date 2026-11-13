@@ -285,6 +285,60 @@ enum Git {
         }
     }
 
+    // MARK: Interactive rebase
+
+    /// The commits an interactive rebase from `commit` (included) to HEAD would replay, oldest
+    /// first. Nil if `commit` isn't an ancestor of HEAD.
+    static func rebaseCommits(from commit: RepoCommit, in repository: Repository) -> [RebaseStep]? {
+        guard execute(["merge-base", "--is-ancestor", commit.sha, "HEAD"], in: repository.root).status == 0 else { return nil }
+        let range = commit.parents.first.map { "\($0)..HEAD" } ?? "HEAD"
+        guard let output = run(["log", "--reverse", "--format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s", range],
+                               in: repository.root),
+              let bodies = run(["log", "--format=%x1e%H%x1f%B", range], in: repository.root) else { return nil }
+        // Full messages (with bodies), so rewording starts from the whole message.
+        var messages: [String: String] = [:]
+        for record in String(decoding: bodies, as: UTF8.self).split(separator: "\u{1e}") {
+            let parts = record.split(separator: "\u{1f}", maxSplits: 1, omittingEmptySubsequences: false)
+            if parts.count == 2 { messages[String(parts[0])] = parts[1].trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+        return RepoCommit.parseLog(output).map { RebaseStep(commit: $0, message: messages[$0.sha] ?? $0.summary) }
+    }
+
+    /// Whether any of `commits` is on a remote branch already.
+    static func isPushed(_ commit: String, in repository: Repository) -> Bool {
+        guard let output = run(["branch", "--remotes", "--contains", commit], in: repository.root) else { return false }
+        return !String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Runs `git rebase -i` with `steps` as its todo list instead of an editor. Rewording
+    /// amends the picked commit's message right after it (`exec git commit --amend -F file`).
+    /// Uncommitted changes are stashed for the rebase and restored after (`--autostash`).
+    static func interactiveRebase(_ steps: [RebaseStep], onto base: String?, in repository: Repository) throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "omc-rebase-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var todo = ""
+        for (index, step) in steps.enumerated() {
+            switch step.action {
+            case .pick, .squash, .fixup, .drop:
+                todo += "\(step.action.rawValue) \(step.commit.sha)\n"
+            case .reword:
+                let messageFile = directory.appending(path: "message-\(index)")
+                try step.message.write(to: messageFile, atomically: true, encoding: .utf8)
+                todo += "pick \(step.commit.sha)\n"
+                todo += "exec git commit --quiet --amend --only --allow-empty -F \(shellQuoted(messageFile.path))\n"
+            }
+        }
+        let todoFile = directory.appending(path: "todo")
+        try todo.write(to: todoFile, atomically: true, encoding: .utf8)
+        try check(["rebase", "--interactive", "--autostash", base ?? "--root"], in: repository.root,
+                  environment: ["GIT_SEQUENCE_EDITOR": "cp \(shellQuoted(todoFile.path))"])
+    }
+
+    private static func shellQuoted(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     // MARK: Stash
 
     static func stashes(in repository: Repository) -> [GitStash]? {
@@ -399,8 +453,9 @@ enum Git {
 
     /// Runs git and throws its stderr on failure.
     @discardableResult
-    private static func check(_ arguments: [String], in directory: URL, input: Data? = nil) throws -> Data {
-        let result = execute(arguments, in: directory, input: input)
+    private static func check(_ arguments: [String], in directory: URL, input: Data? = nil,
+                              environment overrides: [String: String] = [:]) throws -> Data {
+        let result = execute(arguments, in: directory, input: input, environment: overrides)
         guard result.status == 0 else {
             // Most commands explain failures on stderr; merge reports conflicts on stdout.
             let text = { (data: Data) in String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -497,7 +552,8 @@ enum Git {
         return result.status == 0 ? result.output : nil
     }
 
-    private static func execute(_ arguments: [String], in directory: URL, input: Data? = nil)
+    private static func execute(_ arguments: [String], in directory: URL, input: Data? = nil,
+                                environment overrides: [String: String] = [:])
         -> (status: Int32, output: Data, error: Data) {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/git")
@@ -511,6 +567,7 @@ enum Git {
         environment["GIT_EDITOR"] = "true"
         environment["GIT_SEQUENCE_EDITOR"] = "true"
         if environment["GIT_SSH_COMMAND"] == nil { environment["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes" }
+        environment.merge(overrides) { _, override in override }
         process.environment = environment
         let output = Pipe(), errorOutput = Pipe()
         process.standardOutput = output
@@ -834,4 +891,78 @@ struct StashFile: Sendable, Hashable, Identifiable {
     let file: CommitFile
     let isUntracked: Bool
     var id: String { (isUntracked ? "u:" : "t:") + file.path }
+}
+
+/// One line of an interactive rebase's todo list.
+struct RebaseStep: Sendable, Hashable, Identifiable {
+    enum Action: String, Sendable, CaseIterable {
+        case pick, reword, squash, fixup, drop
+
+        var help: String {
+            switch self {
+            case .pick: "Keep the commit"
+            case .reword: "Keep the commit, with a new message"
+            case .squash: "Meld into the commit above, keeping both messages"
+            case .fixup: "Meld into the commit above, dropping this message"
+            case .drop: "Remove the commit"
+            }
+        }
+    }
+
+    var action: Action
+    let commit: RepoCommit
+    /// The new message, for `reword`.
+    var message: String
+
+    var id: String { commit.sha }
+
+    init(commit: RepoCommit, action: Action = .pick, message: String? = nil) {
+        self.commit = commit
+        self.action = action
+        self.message = message ?? commit.summary
+    }
+
+    /// Why `steps` can't run as they are, or nil if they can.
+    static func problem(with steps: [RebaseStep]) -> String? {
+        let kept = steps.filter { $0.action != .drop }
+        if kept.isEmpty { return "Every commit would be dropped." }
+        if kept.first.map({ $0.action == .squash || $0.action == .fixup }) == true {
+            return "The first commit can't be squashed or fixed up: there's nothing above it to meld into."
+        }
+        if steps.contains(where: { $0.action == .reword && $0.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return "A reworded commit needs a message."
+        }
+        if steps.contains(where: { $0.commit.parents.count > 1 }) {
+            return "The range has merge commits; rebasing would flatten them."
+        }
+        return nil
+    }
+}
+
+/// An interactive rebase being edited: the commits from `base` to HEAD, as steps.
+struct RebasePlan: Identifiable {
+    let id = UUID()
+    let base: RepoCommit
+    /// As git would list them (oldest first, all picked).
+    let original: [RebaseStep]
+    var steps: [RebaseStep]
+
+    init(base: RepoCommit, steps: [RebaseStep]) {
+        self.base = base
+        original = steps
+        self.steps = steps
+    }
+
+    /// Whether running it would change anything.
+    var changesSomething: Bool {
+        if steps.map(\.commit.sha) != original.map(\.commit.sha) { return true }
+        let originalMessages = Dictionary(uniqueKeysWithValues: original.map { ($0.id, $0.message) })
+        return steps.contains { step in
+            switch step.action {
+            case .pick: false
+            case .reword: step.message != originalMessages[step.id]   // the same message changes nothing
+            case .squash, .fixup, .drop: true
+            }
+        }
+    }
 }

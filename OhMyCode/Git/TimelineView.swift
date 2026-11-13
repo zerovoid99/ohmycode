@@ -238,6 +238,8 @@ private struct RepositoryLogView: View {
     private func menu(for commit: RepoCommit) -> some View {
         Button("Create Branch Here…") { workspace.createBranch(at: commit) }
         Button("Check Out (Detached)…") { workspace.checkoutDetached(commit) }
+        Button("Interactive Rebase from Here…") { Task { await workspace.planInteractiveRebase(from: commit) } }
+            .help("Reorder, reword, squash or drop this commit and the ones after it")
         Divider()
         Button("Copy Commit Hash") {
             NSPasteboard.general.clearContents()
