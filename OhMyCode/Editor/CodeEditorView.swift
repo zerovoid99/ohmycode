@@ -89,6 +89,8 @@ final class EditorController: NSObject {
         overlay.foldPlaceholders = { [weak self] in self?.foldPlaceholderRects() ?? [] }
         overlay.extraCursors = { [weak self] in self?.extraCursorShapes() ?? ([], []) }
         overlay.blameAnnotation = { [weak self] in self?.blameAnnotation() }
+        overlay.conflictBands = { [weak self] in self?.conflictBands() ?? [] }
+        overlay.conflictActions = { [weak self] in self?.conflictActionRects() ?? [] }
 
         let gutter = GutterView(textView: textView, document: document)
         self.gutterView = gutter
@@ -113,6 +115,7 @@ final class EditorController: NSObject {
         }
         textView.onClick = { [weak self] point in
             self?.clearExtraCursors()
+            if self?.handleConflictClick(at: point) == true { return true }
             guard let self, let hit = self.foldPlaceholderRects().first(where: { $0.rect.contains(point) }) else { return false }
             self.document.unfold(atHeader: hit.header)
             return true

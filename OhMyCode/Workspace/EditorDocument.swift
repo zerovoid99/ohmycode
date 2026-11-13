@@ -85,6 +85,9 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored private(set) var blame: [BlameLine?]?
     @ObservationIgnored var blameProvider: ((String) async -> [BlameLine?]?)?
     @ObservationIgnored private var blameTask: Task<Void, Never>?
+    /// Merge conflicts left in the text (`<<<<<<<` … `>>>>>>>`), re-read shortly after edits.
+    @ObservationIgnored private(set) var conflicts: [MergeConflict] = []
+    @ObservationIgnored private var conflictTask: Task<Void, Never>?
     /// Stages one hunk of this document (set by the workspace for files in a git repository).
     @ObservationIgnored var stageHunkAction: ((DiffHunk) -> Void)?
 
@@ -127,6 +130,7 @@ final class EditorDocument: Identifiable {
         textStorage.delegate = observer
         storageObserver = observer
         diskModificationDate = Self.modificationDate(of: url)
+        scheduleConflictScan()
     }
 
     /// The content storage doesn't retain its delegate and may outlive the document.
@@ -284,6 +288,25 @@ final class EditorDocument: Identifiable {
         // Line numbers moved: hide blame until it's computed again for the new text.
         if blame != nil { blame = nil; editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true } }
         scheduleBlame(after: .milliseconds(800))
+        scheduleConflictScan(after: .milliseconds(100))
+    }
+
+    /// Re-reads the conflict markers. A file without "<<<<<<<" costs one search.
+    func scheduleConflictScan(after delay: Duration = .zero) {
+        conflictTask?.cancel()
+        guard delay > .zero else { updateConflicts(); return }
+        conflictTask = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            updateConflicts()
+        }
+    }
+
+    private func updateConflicts() {
+        let found = ConflictParser.conflicts(in: textStorage.mutableString)
+        guard found != conflicts else { return }
+        conflicts = found
+        for editor in editors { editor.diagnosticsOverlay?.needsDisplay = true }
     }
 
     // MARK: Git diff markers

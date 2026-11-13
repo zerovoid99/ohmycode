@@ -14,6 +14,9 @@ final class DiagnosticsOverlayView: NSView {
     var extraCursors: (() -> (carets: [NSRect], selections: [NSRect]))?
     /// Git blame of the cursor's line, drawn after its end.
     var blameAnnotation: (() -> (text: String, origin: NSPoint)?)?
+    /// Merge conflicts: tinted sides, and the actions after each `<<<<<<<` line.
+    var conflictBands: (() -> [(rect: NSRect, kind: ConflictBand)])?
+    var conflictActions: (() -> [(rect: NSRect, conflict: MergeConflict, resolution: MergeConflict.Resolution)])?
 
     init(textView: NSTextView, document: EditorDocument) {
         self.textView = textView
@@ -58,6 +61,30 @@ final class DiagnosticsOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let theme = EditorTheme.current
+        for (rect, kind) in conflictBands?() ?? [] where rect.intersects(dirtyRect) {
+            kind.color.setFill()
+            rect.fill(using: .sourceOver)
+        }
+        let actions = conflictActions?() ?? []
+        for (index, action) in actions.enumerated() where action.rect.intersects(dirtyRect) {
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: EditorController.conflictActionFont, .foregroundColor: NSColor.linkColor,
+            ]
+            let text = action.resolution.rawValue as NSString
+            let size = text.size(withAttributes: attributes)
+            text.draw(at: NSPoint(x: action.rect.minX, y: action.rect.midY - size.height / 2), withAttributes: attributes)
+            // "|" between the actions of one conflict.
+            if index + 1 < actions.count, actions[index + 1].conflict == action.conflict {
+                let separator = "|" as NSString
+                let separatorAttributes: [NSAttributedString.Key: Any] = [
+                    .font: EditorController.conflictActionFont, .foregroundColor: theme.lineNumber,
+                ]
+                let gap = actions[index + 1].rect.minX - action.rect.maxX
+                let width = separator.size(withAttributes: separatorAttributes).width
+                separator.draw(at: NSPoint(x: action.rect.maxX + (gap - width) / 2, y: action.rect.midY - size.height / 2),
+                               withAttributes: separatorAttributes)
+            }
+        }
         if let (text, origin) = blameAnnotation?() {
             let font = NSFontManager.shared.convert(EditorTheme.font, toHaveTrait: .italicFontMask)
             (text as NSString).draw(at: origin, withAttributes: [
