@@ -3,6 +3,9 @@ import SwiftUI
 struct StatusBarView: View {
     let document: EditorDocument?
     var gitStatus: GitStatus?
+    /// Extensions' items: left ones after the branch, right ones before the cursor position.
+    var items: [ExtensionStatusItem] = []
+    var run: (String) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 16) {
@@ -38,7 +41,9 @@ struct StatusBarView: View {
                         .help(diagnostic.message)
                 }
             }
+            ForEach(items.filter(\.isLeft)) { ExtensionStatusItemView(item: $0, run: run) }
             Spacer()
+            ForEach(items.filter { !$0.isLeft }) { ExtensionStatusItemView(item: $0, run: run) }
             if let client = document?.languageClient {
                 LanguageServerBadge(client: client)
             }

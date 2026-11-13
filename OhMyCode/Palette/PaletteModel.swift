@@ -6,6 +6,12 @@ struct PaletteItem: Identifiable {
         case openFile(URL)
         case command(PaletteCommand)
         case goToLine(Int)
+        /// A command an extension adds.
+        case extensionCommand(String)
+        /// A quick pick's item, by index.
+        case choose(Int)
+        /// An input box's text.
+        case submitText
     }
 
     let id: String
@@ -25,15 +31,34 @@ struct PaletteItem: Identifiable {
 final class PaletteModel {
     enum Mode {
         case files, commands, goToLine
+        /// A quick pick or input box (an extension asking).
+        case prompt
 
         var prefix: String {
             switch self {
-            case .files: ""
+            case .files, .prompt: ""
             case .commands: ">"
             case .goToLine: ":"
             }
         }
     }
+
+    /// A question an extension asks through the palette: pick an item, or type text.
+    struct Prompt {
+        enum Kind {
+            case pick([QuickPickItem])
+            /// The prompt shown under the text.
+            case input(String?)
+        }
+        enum Reply { case index(Int), text(String) }
+
+        let kind: Kind
+        let placeholder: String?
+        let reply: (Reply?) -> Void
+    }
+
+    /// The question being asked, if the palette is a prompt.
+    @ObservationIgnored private(set) var prompt: Prompt?
 
     nonisolated static let resultLimit = 60
 
@@ -49,6 +74,7 @@ final class PaletteModel {
     @ObservationIgnored private var searchGeneration = 0
 
     var mode: Mode {
+        if prompt != nil { return .prompt }
         if query.hasPrefix(">") { return .commands }
         if query.hasPrefix(":") { return .goToLine }
         return .files
@@ -59,6 +85,9 @@ final class PaletteModel {
         case .files: "Search files by name (type > for commands, : to go to a line)"
         case .commands: "Type a command"
         case .goToLine: "Type a line number"
+        case .prompt:
+            if let placeholder = prompt?.placeholder { placeholder }
+            else if case .pick = prompt?.kind { "Select an item" } else { "Type, then press Enter" }
         }
     }
 
@@ -66,6 +95,27 @@ final class PaletteModel {
         self.workspace = workspace
         self.query = mode.prefix
         refresh()
+    }
+
+    init(workspace: Workspace, prompt: Prompt, text: String) {
+        self.workspace = workspace
+        self.prompt = prompt
+        self.query = text
+        refresh()
+    }
+
+    /// Answers the prompt with nothing (the palette closed without a choice).
+    func cancelPrompt() {
+        guard let prompt else { return }
+        self.prompt = nil
+        prompt.reply(nil)
+    }
+
+    private func finishPrompt(_ reply: Prompt.Reply) {
+        guard let prompt else { return }
+        self.prompt = nil
+        workspace.closePalette()
+        prompt.reply(reply)
     }
 
     func moveSelection(_ offset: Int) {
@@ -90,6 +140,13 @@ final class PaletteModel {
         case .goToLine(let line):
             workspace.closePalette()
             workspace.activeDocument?.revealLine(line)
+        case .extensionCommand(let id):
+            workspace.closePalette()
+            workspace.extensions.run(id)
+        case .choose(let index):
+            finishPrompt(.index(index))
+        case .submitText:
+            finishPrompt(.text(query))
         }
     }
 
@@ -101,6 +158,7 @@ final class PaletteModel {
         case .files: refreshFiles()
         case .commands: refreshCommands()
         case .goToLine: refreshGoToLine()
+        case .prompt: refreshPrompt()
         }
     }
 
@@ -176,11 +234,41 @@ final class PaletteModel {
                 guard let match = FuzzyMatcher.match(prepared, FuzzyCandidate(command.title)) else { return nil }
                 return (command, match)
             }
-        let sorted = prepared.isEmpty ? scored : scored.sorted { $0.1.score > $1.1.score }
-        setItems(sorted.map { command, match in
-            PaletteItem(id: command.id, action: .command(command), icon: command.icon, title: command.title,
-                        titleMatches: match.positions, shortcut: command.shortcut)
-        }, emptyMessage: "No matching commands")
+        let builtIn = scored.map { command, match in
+            (PaletteItem(id: command.id, action: .command(command), icon: command.icon, title: command.title,
+                         titleMatches: match.positions, shortcut: command.shortcut), match.score)
+        }
+        let contributed = workspace.extensions.paletteCommands.compactMap { command, instance -> (PaletteItem, Int)? in
+            let title = command.paletteTitle
+            guard let match = FuzzyMatcher.match(prepared, FuzzyCandidate(title)) else { return nil }
+            return (PaletteItem(id: "extension:" + command.command, action: .extensionCommand(command.command),
+                                icon: command.icon ?? "puzzlepiece.extension", title: title, titleMatches: match.positions,
+                                // The extension, unless the category already names it.
+                                detail: command.category == instance.manifest.name ? nil : instance.manifest.name), match.score)
+        }
+        let all = builtIn + contributed
+        let sorted = prepared.isEmpty ? all : all.sorted { $0.1 > $1.1 }
+        setItems(sorted.map(\.0), emptyMessage: "No matching commands")
+    }
+
+    // MARK: Prompts
+
+    private func refreshPrompt() {
+        guard let prompt else { return }
+        switch prompt.kind {
+        case .pick(let choices):
+            let prepared = FuzzyMatcher.prepareQuery(query)
+            let scored = choices.enumerated().compactMap { index, item -> (PaletteItem, Int)? in
+                guard let match = FuzzyMatcher.match(prepared, FuzzyCandidate(item.label)) else { return nil }
+                return (PaletteItem(id: "pick:\(index)", action: .choose(index), icon: "circle.fill", title: item.label,
+                                    titleMatches: match.positions, detail: item.description ?? item.detail), match.score)
+            }
+            let sorted = prepared.isEmpty ? scored : scored.sorted { $0.1 > $1.1 }
+            setItems(sorted.map(\.0), emptyMessage: "No matching items")
+        case .input(let message):
+            setItems([PaletteItem(id: "input", action: .submitText, icon: "return",
+                                  title: message ?? "Press Enter to confirm", detail: message == nil ? nil : "Press Enter to confirm")])
+        }
     }
 
     // MARK: Go to line
@@ -200,4 +288,11 @@ final class PaletteModel {
         setItems([PaletteItem(id: "line", action: .goToLine(line), icon: "arrow.right.to.line",
                               title: "Go to line \(line)", detail: document.fileName)])
     }
+}
+
+/// An item an extension offers in a quick pick.
+struct QuickPickItem: Equatable, Sendable {
+    let label: String
+    var description: String?
+    var detail: String?
 }

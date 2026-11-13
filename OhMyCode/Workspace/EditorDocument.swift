@@ -101,6 +101,9 @@ final class EditorDocument: Identifiable {
     }
     /// Whether the file can be blamed (it's in a git repository).
     var canBlame: Bool { blameProvider != nil }
+    /// Called after each edit and after saving (the window's extensions listen).
+    @ObservationIgnored var onDidEdit: (() -> Void)?
+    @ObservationIgnored var onDidSave: (() -> Void)?
     /// What the blame popover can do with a line's commit (set by the workspace).
     @ObservationIgnored var blameActions: BlameActions?
     /// Merge conflicts left in the text (`<<<<<<<` … `>>>>>>>`), re-read shortly after edits.
@@ -164,6 +167,7 @@ final class EditorDocument: Identifiable {
         isDirty = false
         hasExternalChanges = false
         languageClient?.didSave(url: url)
+        onDidSave?()
     }
 
     // MARK: Language server coordinates
@@ -326,6 +330,7 @@ final class EditorDocument: Identifiable {
         }
         scheduleBlame(after: .milliseconds(800))
         scheduleConflictScan(after: .milliseconds(100))
+        onDidEdit?()
     }
 
     /// Re-reads the conflict markers. A file without "<<<<<<<" costs one search.

@@ -48,6 +48,7 @@ struct PaletteView: View {
         case .files: "magnifyingglass"
         case .commands: "chevron.right"
         case .goToLine: "number"
+        case .prompt: "questionmark.bubble"
         }
     }
 

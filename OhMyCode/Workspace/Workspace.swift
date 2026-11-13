@@ -8,7 +8,20 @@ final class Workspace {
     private(set) var rootURL: URL?
     private(set) var rootNode: FileNode?
     /// Every open document, in any editor group.
-    private(set) var documents: [EditorDocument] = []
+    private(set) var documents: [EditorDocument] = [] {
+        didSet {
+            // Tell the extensions (only once they're running: opening a folder starts them).
+            guard extensionsStarted else { return }
+            for document in documents where !oldValue.contains(where: { $0 === document }) { extensions.documentOpened(document) }
+            for document in oldValue where !documents.contains(where: { $0 === document }) { extensions.documentClosed(document) }
+        }
+    }
+    /// The window's extensions.
+    @ObservationIgnored private(set) lazy var extensions = ExtensionHost(workspace: self)
+    @ObservationIgnored private var extensionsStarted = false
+    /// Messages shown in the corner of the window (from extensions).
+    private(set) var notifications: [AppNotification] = []
+    @ObservationIgnored private var notificationReplies: [UUID: (String?) -> Void] = [:]
     /// Open diff tabs (their ids are tab ids in the groups, like document ids).
     private(set) var diffSessions: [DiffSession] = []
     /// Split editor panes, left to right; there is always at least one.
@@ -39,6 +52,7 @@ final class Workspace {
         case sourceControl = "Source Control"
         case references = "References"
         case history = "Timeline"
+        case extensions = "Extensions"
     }
 
     @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
@@ -204,6 +218,8 @@ final class Workspace {
         worktrees = nil
         submodules = []
         refreshGit()
+        extensionsStarted = true
+        extensions.start()
         languageClients.values.forEach { $0.shutdown() }
         languageClients.removeAll()
         // Resolve the login-shell PATH now, so the first file opened doesn't wait for it.
@@ -1546,19 +1562,107 @@ final class Workspace {
         }
     }
 
+    // MARK: Extensions
+
+    /// Tests answer this instead of the install dialog: the manifest and whether it replaces an
+    /// installed version.
+    @ObservationIgnored var extensionInstallConfirmation: ((ExtensionManifest, Bool) -> Bool)?
+
+    /// Installs an extension folder after showing what it may do (and confirming a replacement).
+    func installExtension(from folder: URL, development: Bool) {
+        let store = extensions.store
+        do {
+            let manifest = try ExtensionManifest.load(from: folder)
+            let existing = store.installed().first { $0.id == manifest.id }
+            let confirmed = extensionInstallConfirmation.map { $0(manifest, existing != nil) } ?? {
+                let alert = NSAlert()
+                alert.messageText = existing == nil ? "Install \(manifest.name) \(manifest.version)?"
+                    : "Replace \(manifest.name) \(existing!.manifest.version) with \(manifest.version)?"
+                let permissions = ExtensionManifest.Permission.allCases.filter(manifest.grantedPermissions.contains)
+                alert.informativeText = (manifest.description.map { $0 + "\n\n" } ?? "")
+                    + (permissions.isEmpty ? "It works only with the editor and the open folder."
+                       : "It asks to:\n" + permissions.map { "• " + $0.title }.joined(separator: "\n")
+                         + "\n\nOnly install extensions you trust.")
+                alert.addButton(withTitle: existing == nil ? "Install" : "Replace")
+                alert.addButton(withTitle: "Cancel")
+                return alert.runModal() == .alertFirstButtonReturn
+            }()
+            guard confirmed else { return }
+            try store.install(from: folder, development: development, replacing: existing != nil)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func uninstallExtension(_ instance: ExtensionInstance) {
+        guard confirm("Uninstall \(instance.manifest.name)? Its settings and stored data are removed too.") else { return }
+        do { try extensions.uninstall(instance) } catch { errorMessage = error.localizedDescription }
+    }
+
+    // MARK: Notifications, quick pick and input
+
+    /// Shows a message in the corner; resolves with the item clicked, or nil when dismissed.
+    /// Without items it goes away by itself after `notificationDuration`.
+    func notify(_ kind: AppNotification.Kind, _ message: String, source: String?, items: [String] = []) async -> String? {
+        await withCheckedContinuation { continuation in
+            let notification = AppNotification(kind: kind, message: message, source: source, items: items)
+            notifications.append(notification)
+            notificationReplies[notification.id] = { continuation.resume(returning: $0) }
+            if notifications.count > 4 { dismissNotification(notifications[0].id) }
+            if items.isEmpty {
+                Task {
+                    try? await Task.sleep(for: notificationDuration)
+                    dismissNotification(notification.id)
+                }
+            }
+        }
+    }
+
+    @ObservationIgnored var notificationDuration: Duration = .seconds(8)
+
+    func dismissNotification(_ id: UUID, choosing item: String? = nil) {
+        notifications.removeAll { $0.id == id }
+        notificationReplies.removeValue(forKey: id)?(item)
+    }
+
+    /// Lets the user pick one of `items` in the palette; nil when dismissed.
+    func showQuickPick(_ items: [QuickPickItem], placeholder: String?) async -> Int? {
+        await withCheckedContinuation { continuation in
+            presentPrompt(PaletteModel.Prompt(kind: .pick(items), placeholder: placeholder) { reply in
+                if case .index(let index) = reply { continuation.resume(returning: index) } else { continuation.resume(returning: nil) }
+            }, text: "")
+        }
+    }
+
+    /// Asks for text in the palette; nil when dismissed.
+    func showInputBox(prompt: String?, value: String, placeholder: String?) async -> String? {
+        await withCheckedContinuation { continuation in
+            presentPrompt(PaletteModel.Prompt(kind: .input(prompt), placeholder: placeholder) { reply in
+                if case .text(let text) = reply { continuation.resume(returning: text) } else { continuation.resume(returning: nil) }
+            }, text: value)
+        }
+    }
+
+    private func presentPrompt(_ prompt: PaletteModel.Prompt, text: String) {
+        palette?.cancelPrompt()
+        palette = PaletteModel(workspace: self, prompt: prompt, text: text)
+    }
+
     // MARK: Palette
 
     func showPalette(_ mode: PaletteModel.Mode) {
-        if let palette {
+        if let palette, palette.prompt == nil {
             palette.query = mode.prefix
         } else {
+            palette?.cancelPrompt()
             palette = PaletteModel(workspace: self, mode: mode)
         }
     }
 
     func closePalette() {
-        guard palette != nil else { return }
-        palette = nil
+        guard let palette else { return }
+        self.palette = nil
+        palette.cancelPrompt()
         activeDocument?.editor?.focus()
     }
 

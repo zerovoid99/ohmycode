@@ -1,0 +1,20 @@
+{
+  "id": "examples.word-count",
+  "name": "Word Count",
+  "version": "1.0.0",
+  "description": "Shows the words in the current file (or selection) in the status bar.",
+  "main": "dist/extension.js",
+  "activationEvents": ["onStartup"],
+  "contributes": {
+    "commands": [
+      { "command": "wordCount.show", "title": "Show Word Count", "category": "Word Count" }
+    ],
+    "configuration": {
+      "wordCount.countSelection": {
+        "type": "boolean",
+        "default": true,
+        "description": "Count only the selected text when there is a selection."
+      }
+    }
+  }
+}

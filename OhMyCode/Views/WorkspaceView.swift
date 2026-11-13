@@ -12,6 +12,7 @@ struct WorkspaceView: View {
                     Image(systemName: "arrow.triangle.branch").help(changeCountLabel + " (⌃⇧G)")
                         .tag(Workspace.SidebarMode.sourceControl)
                     Image(systemName: "clock.arrow.circlepath").help("Timeline").tag(Workspace.SidebarMode.history)
+                    Image(systemName: "puzzlepiece.extension").help("Extensions").tag(Workspace.SidebarMode.extensions)
                     if workspace.references != nil {
                         Image(systemName: "link").help("References").tag(Workspace.SidebarMode.references)
                     }
@@ -34,6 +35,8 @@ struct WorkspaceView: View {
                     ReferencesView(workspace: workspace)
                 case .history:
                     TimelineView(workspace: workspace)
+                case .extensions:
+                    ExtensionsView(workspace: workspace)
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)
@@ -52,7 +55,11 @@ struct WorkspaceView: View {
                     }
                 }
                 Divider()
-                StatusBarView(document: workspace.activeDocument, gitStatus: workspace.gitStatus)
+                StatusBarView(document: workspace.activeDocument, gitStatus: workspace.gitStatus,
+                              items: workspace.extensions.statusItems) { workspace.extensions.run($0) }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                NotificationsOverlay(workspace: workspace).padding(.bottom, 22)
             }
         }
         .sheet(item: $workspace.pendingEdit) { preview in
