@@ -114,7 +114,7 @@ extension Workspace {
                     errorMessage = "\(document.fileName) changed while renaming. Try again."
                     return
                 }
-                try apply(edit, actionName: "Rename")
+                review(try preview(edit, title: "Rename “\(current)” to “\(newName)”", actionName: "Rename"))
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -136,46 +136,31 @@ extension Workspace {
         return field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Applies a workspace edit: open documents are edited in memory (one undo step each,
-    /// left unsaved); other files are rewritten on disk. Everything is validated first, so a
-    /// bad edit changes nothing. Returns the number of files changed.
-    @discardableResult
-    func apply(_ edit: WorkspaceEdit, actionName: String) throws -> Int {
-        var openEdits: [(EditorDocument, [TextReplacement])] = []
-        var diskEdits: [(URL, String)] = []
+    /// A reviewable preview of a language server's workspace edit. Edits that don't fit their
+    /// file (out of range, overlapping) fail here, before anything is changed.
+    func preview(_ edit: WorkspaceEdit, title: String, actionName: String) throws -> EditPreview {
+        // Servers may name one file by several URIs (e.g. through /var and /private/var):
+        // merge by the symlink-resolved path, dropping edits sent twice.
+        var byPath: [String: (url: URL, edits: [LSPTextEdit])] = [:]
         for (serverURL, edits) in edit.changes where !edits.isEmpty {
             let url = workspaceURL(for: serverURL)
-            if let document = document(matching: url) {
-                let replacements = edits.map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) }
-                _ = try TextReplacement.validated(replacements, length: document.textStorage.length)
-                openEdits.append((document, replacements))
-            } else {
-                let text = try String(contentsOf: url, encoding: .utf8)
-                let index = LineIndex(string: text as NSString)
-                let length = (text as NSString).length
-                let replacements = edits.map { TextReplacement(range: index.range(for: $0.range, length: length), text: $0.newText) }
-                let updated = try TextReplacement.apply(replacements, to: text)
-                if updated != text { diskEdits.append((url, updated)) }
-            }
+            let key = FileWatcher.canonicalPath(url)
+            var entry = byPath[key] ?? (url, [])
+            for edit in edits where !entry.edits.contains(edit) { entry.edits.append(edit) }
+            byPath[key] = entry
         }
-        var changed = 0
-        for (document, replacements) in openEdits where try document.apply(replacements, actionName: actionName) {
-            changed += 1
+        var files: [EditPreview.FileEdit] = []
+        for (url, edits) in byPath.values {
+            guard let text = currentText(of: url) else { throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: url.path]) }
+            let index = document(matching: url)?.lineIndex ?? LineIndex(string: text as NSString)
+            let length = (text as NSString).length
+            let replacements = edits.map { TextReplacement(range: index.range(for: $0.range, length: length), text: $0.newText) }
+            files.append(EditPreview.FileEdit(url: url, path: relativePath(of: url) ?? url.path,
+                                              edits: try TextReplacement.validated(replacements, length: length),
+                                              baseText: text))
         }
-        for (url, text) in diskEdits {
-            try Self.write(text, to: url)
-            changed += 1
-        }
-        return changed
-    }
-
-    /// Atomic write that keeps the file's permissions (e.g. executable scripts).
-    nonisolated static func write(_ text: String, to url: URL) throws {
-        let permissions = try? FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions]
-        try text.write(to: url, atomically: true, encoding: .utf8)
-        if let permissions {
-            try? FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: url.path)
-        }
+        files.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        return EditPreview(title: title, actionName: actionName, files: files)
     }
 
     // MARK: Formatting

@@ -63,6 +63,8 @@ final class Workspace {
     }
 
     var sidebarMode = SidebarMode.files
+    /// Multi-file edits waiting for review (rename, replace all), shown as a sheet.
+    var pendingEdit: EditPreview?
     /// Last Find All References result, shown in the sidebar.
     var references: ReferenceList?
     /// Replaces the rename dialog (tests): gets the current name, returns the new one or nil.

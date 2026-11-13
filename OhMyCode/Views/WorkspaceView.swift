@@ -52,6 +52,9 @@ struct WorkspaceView: View {
                 StatusBarView(document: workspace.activeDocument, gitStatus: workspace.gitStatus)
             }
         }
+        .sheet(item: $workspace.pendingEdit) { preview in
+            EditPreviewView(preview: preview, workspace: workspace)
+        }
         .navigationTitle(workspace.displayName)
         .navigationSubtitle(workspace.activeDocument?.fileName ?? "")
     }

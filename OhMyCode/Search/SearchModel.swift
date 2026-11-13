@@ -18,8 +18,6 @@ final class SearchModel {
     var replacement = ""
     var showsReplace = false
     private(set) var isReplacing = false
-    /// Replaces the Replace All confirmation (tests): gets match and file counts.
-    @ObservationIgnored var confirmReplaceAll: ((Int, Int) -> Bool)?
     @ObservationIgnored private var previewRegex: (SearchOptions, NSRegularExpression)?
 
     @ObservationIgnored private unowned let workspace: Workspace
@@ -112,105 +110,74 @@ final class SearchModel {
         return regex.replacementString(for: found, in: match.preview, offset: 0, template: template)
     }
 
-    /// Replaces every match in every result file (after confirming).
+    /// Replace All: computes every replacement and shows them for review before applying.
     @discardableResult
     func replaceAll() -> Task<Void, Never>? {
         guard !results.isEmpty else { return nil }
-        let files = results.count, matches = matchCount
-        let confirmed = confirmReplaceAll.map { $0(matches, files) } ?? {
-            let alert = NSAlert()
-            alert.messageText = "Replace \(matches) occurrence\(matches == 1 ? "" : "s") across \(files) file\(files == 1 ? "" : "s") with “\(replacement)”?"
-            alert.informativeText = "Open files can be restored with Undo. Files that aren't open are changed on disk."
-            alert.addButton(withTitle: "Replace")
-            alert.addButton(withTitle: "Cancel")
-            return alert.runModal() == .alertFirstButtonReturn
-        }()
-        guard confirmed else { return nil }
-        return replace(in: results, only: nil)
+        return buildPreview(for: results, only: nil) { [weak self] preview in self?.workspace.review(preview) }
     }
 
-    /// Replaces all matches in one file.
+    /// Replaces all matches in one file (no review: it's what the button says).
     @discardableResult
     func replace(in result: SearchFileResult) -> Task<Void, Never>? {
-        replace(in: [result], only: nil)
+        buildPreview(for: [result], only: nil) { [weak self] preview in self?.workspace.apply(preview) }
     }
 
     /// Replaces a single match.
     @discardableResult
     func replace(_ match: SearchMatch, in result: SearchFileResult) -> Task<Void, Never>? {
-        replace(in: [result], only: match)
+        buildPreview(for: [result], only: match) { [weak self] preview in self?.workspace.apply(preview) }
     }
 
-    /// Matches are found again in each file's current text (the results may be stale), so
-    /// only text that still matches is replaced.
-    private func replace(in files: [SearchFileResult], only match: SearchMatch?) -> Task<Void, Never>? {
+    /// Finds the matches again in each file's current text (results may be stale), so only
+    /// text that still matches is replaced. Files on disk are read and matched off the main thread.
+    private func buildPreview(for files: [SearchFileResult], only match: SearchMatch?,
+                              then handle: @escaping @MainActor (EditPreview) -> Void) -> Task<Void, Never>? {
         guard !isReplacing else { return nil }
         let options = options
+        let replacement = replacement
         let template = TextSearch.template(replacement, regex: options.regex)
-        let regex: NSRegularExpression
         do {
-            regex = try TextSearch.replacementRegex(options)
+            _ = try TextSearch.replacementRegex(options)
         } catch {
             errorMessage = error.localizedDescription
             return nil
         }
-        task?.cancel()
         isReplacing = true
-
-        var closedFiles: [URL] = []
-        var failures: [String] = []
-        for file in files {
-            guard let document = workspace.document(matching: file.url) else {
-                closedFiles.append(file.url)
-                continue
-            }
-            let text = document.textStorage.mutableString as String
-            var edits = TextSearch.replacements(in: text, regex: regex, template: template)
-            if let match {
-                let start = document.offset(for: LSPPosition(line: match.line, character: match.column))
-                edits = edits.filter { $0.range.location == start }
-            }
-            do {
-                try document.apply(edits, actionName: "Replace")
-            } catch {
-                failures.append(file.path)
-            }
+        // Open documents are read here, as they are on screen; other files in the background.
+        let inputs: [(url: URL, path: String, text: String?)] = files.map { file in
+            (file.url, file.path, workspace.document(matching: file.url).map { $0.textStorage.mutableString as String })
         }
-
-        let urls = closedFiles
         return Task {
-            let diskFailures = await Task.detached(priority: .userInitiated) {
-                SearchModel.replaceOnDisk(urls, options: options, template: template, only: match)
+            let computed = await Task.detached(priority: .userInitiated) {
+                SearchModel.replacements(inputs, options: options, template: template, only: match)
             }.value
-            failures += diskFailures.compactMap { workspace.relativePath(of: $0) }
+            let count = computed.reduce(0) { $0 + $1.edits.count }
+            let preview = EditPreview(
+                title: "Replace \(count) occurrence\(count == 1 ? "" : "s") of “\(options.query)” with “\(replacement)”",
+                actionName: "Replace",
+                files: computed.map { EditPreview.FileEdit(url: $0.url, path: $0.path, edits: $0.edits, baseText: $0.text) })
+            preview.onApplied = { [weak self] in self?.refresh() }
             isReplacing = false
-            if !failures.isEmpty { errorMessage = "Couldn't replace in \(failures.joined(separator: ", "))" }
-            refresh()
-            await self.task?.value
+            handle(preview)
+            await self.task?.value // the search refreshed by an immediate apply
         }
     }
 
-    /// Rewrites files that aren't open. Returns the files that failed.
-    nonisolated private static func replaceOnDisk(_ urls: [URL], options: SearchOptions, template: String,
-                                                  only match: SearchMatch?) -> [URL] {
-        guard !urls.isEmpty, let regex = try? TextSearch.replacementRegex(options) else { return urls }
-        var failed: [URL] = []
-        for url in urls {
-            do {
-                let text = try String(contentsOf: url, encoding: .utf8)
-                var edits = TextSearch.replacements(in: text, regex: regex, template: template)
-                if let match {
-                    let start = LineIndex(string: text as NSString).offset(
-                        for: LSPPosition(line: match.line, character: match.column), length: (text as NSString).length)
-                    edits = edits.filter { $0.range.location == start }
-                }
-                let updated = try TextReplacement.apply(edits, to: text)
-                if updated != text { try Workspace.write(updated, to: url) }
-            } catch {
-                failed.append(url)
+    nonisolated private static func replacements(_ inputs: [(url: URL, path: String, text: String?)], options: SearchOptions,
+                                                 template: String, only match: SearchMatch?)
+        -> [(url: URL, path: String, text: String, edits: [TextReplacement])] {
+        guard let regex = try? TextSearch.replacementRegex(options) else { return [] }
+        return inputs.compactMap { input in
+            guard let text = input.text ?? (try? String(contentsOf: input.url, encoding: .utf8)) else { return nil }
+            var edits = TextSearch.replacements(in: text, regex: regex, template: template)
+            if let match {
+                let start = LineIndex(string: text as NSString).offset(
+                    for: LSPPosition(line: match.line, character: match.column), length: (text as NSString).length)
+                edits = edits.filter { $0.range.location == start }
             }
+            return edits.isEmpty ? nil : (input.url, input.path, text, edits)
         }
-        return failed
     }
 
     /// Waits for the current search (tests).

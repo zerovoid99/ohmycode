@@ -256,8 +256,11 @@ struct SourceKitLSPTests {
 
         workspace.renamePrompt = { _ in "total" }
         await workspace.renameSymbol()?.value
+        #expect(workspace.pendingEdit?.files.count == 2)
+        workspace.applyPendingEdit()
         #expect(document.textStorage.string == "/// Number of apples.\nlet total: Int = 3\nprint(total)\nfunc   f( ) {print(total) }\n")
-        #expect(try String(contentsOf: sources.appending(path: "other.swift"), encoding: .utf8) == "func other() { print(total) }\n")
+        #expect(workspace.document(matching: sources.appending(path: "other.swift"))?.textStorage.string
+                == "func other() { print(total) }\n")
 
         await workspace.formatDocument()?.value
         #expect(document.textStorage.string == "/// Number of apples.\nlet total: Int = 3\nprint(total)\nfunc f() { print(total) }\n")
