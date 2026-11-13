@@ -162,6 +162,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.gitStatus?.hasCommits == true }, perform: { workspace in
                            Task { @MainActor in await workspace.createWorktree(for: nil) }
                        }),
+        PaletteCommand(id: "git.updateSubmodules", title: "Git: Update Submodules", icon: "shippingbox", shortcut: nil,
+                       isAvailable: { !$0.submodules.isEmpty }, perform: { $0.updateSubmodules() }),
         PaletteCommand(id: "git.compare", title: "Git: Compare Branches…", icon: "arrow.left.arrow.right", shortcut: nil,
                        isAvailable: { $0.gitStatus?.hasCommits == true }, perform: { workspace in
                            workspace.sidebarMode = .history

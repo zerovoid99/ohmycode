@@ -77,10 +77,23 @@ struct SourceControlView: View {
                     } header: {
                         sectionHeader("Changes", count: status.unstagedChanges.count) {
                             Button("Discard All", systemImage: "arrow.uturn.backward") {
-                                workspace.discard(status.unstagedChanges.filter { !$0.isConflicted })
+                                workspace.discard(status.unstagedChanges.filter { !$0.isConflicted && !$0.isSubmodule })
                             }
                             Button("Stage All", systemImage: "plus") {
                                 workspace.stage(status.unstagedChanges.map(\.path))
+                            }
+                        }
+                    }
+                    if !workspace.submodules.isEmpty {
+                        Section {
+                            ForEach(workspace.submodules) { submodule in
+                                SubmoduleRow(workspace: workspace, submodule: submodule)
+                            }
+                        } header: {
+                            sectionHeader("Submodules", count: workspace.submodules.count) {
+                                Button("Update All", systemImage: "arrow.down.circle") { workspace.updateSubmodules() }
+                                    .help("Check out the recorded commits, cloning submodules not initialized yet")
+                                    .disabled(workspace.isRunningGitCommand)
                             }
                         }
                     }
@@ -162,7 +175,7 @@ private struct ChangeRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "doc.text").foregroundStyle(.secondary)
+            Image(systemName: change.isSubmodule ? "shippingbox" : "doc.text").foregroundStyle(.secondary)
             Text(name)
                 .strikethrough(status == .deleted)
                 .lineLimit(1)
@@ -177,7 +190,7 @@ private struct ChangeRow: View {
                     if staged {
                         Button("Unstage", systemImage: "minus") { workspace.unstage([change.path]) }
                     } else {
-                        if !change.isConflicted {
+                        if !change.isConflicted && !change.isSubmodule {
                             Button("Discard", systemImage: "arrow.uturn.backward") { workspace.discard([change]) }
                         }
                         Button("Stage", systemImage: "plus") { workspace.stage([change.path]) }
@@ -196,7 +209,8 @@ private struct ChangeRow: View {
         .onHover { isHovering = $0 }
         // Like VS Code: a click shows the changes; the context menu opens the file.
         .onTapGesture {
-            guard status != .deleted, let root = workspace.rootURL else { return }
+            // A submodule has no text diff: its menu opens or updates it.
+            guard status != .deleted, !change.isSubmodule, let root = workspace.rootURL else { return }
             if change.isUntracked {
                 workspace.open(fileAt: root.appending(path: change.path))
             } else {
@@ -204,14 +218,86 @@ private struct ChangeRow: View {
             }
         }
         .contextMenu {
-            if status != .deleted, let root = workspace.rootURL {
+            if let submodule = workspace.submodule(for: change) {
+                Button("Open Submodule in New Window") { workspace.openSubmodule(submodule) }
+                    .disabled(submodule.state == .notInitialized)
+                Button("Update Submodule") { workspace.updateSubmodules([submodule]) }
+                    .help("Check out the commit the repository records for it")
+            } else if status != .deleted, let root = workspace.rootURL {
                 if !change.isUntracked {
                     Button("Open Changes") { workspace.openChanges(for: root.appending(path: change.path), staged: staged) }
                 }
                 Button("Open File") { workspace.open(fileAt: root.appending(path: change.path)) }
             }
         }
-        .help("\(change.path) — \(status?.label ?? "")")
+        .help(change.isSubmodule ? "\(change.path) — submodule: its commit changed or it has changes inside"
+                                 : "\(change.path) — \(status?.label ?? "")")
+    }
+}
+
+/// A submodule: its commit and state; update it or open it in its own window.
+private struct SubmoduleRow: View {
+    let workspace: Workspace
+    let submodule: GitSubmodule
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "shippingbox").foregroundStyle(submodule.state == .notInitialized ? .tertiary : .secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(submodule.name).lineLimit(1)
+                HStack(spacing: 4) {
+                    Text(submodule.shortSHA).monospaced()
+                    if let describe = submodule.describe { Text("·"); Text(describe) }
+                    if submodule.path != submodule.name { Text("·"); Text(submodule.path).truncationMode(.head) }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if isHovering {
+                Group {
+                    Button("Update", systemImage: "arrow.down.circle") { workspace.updateSubmodules([submodule]) }
+                        .help(submodule.state == .notInitialized ? "Clone and check out the recorded commit"
+                                                                 : "Check out the recorded commit")
+                    Button("Open", systemImage: "macwindow") { workspace.openSubmodule(submodule) }
+                        .help("Open in a new window")
+                        .disabled(submodule.state == .notInitialized)
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .disabled(workspace.isRunningGitCommand)
+            }
+            if let badge {
+                Text(badge.letter)
+                    .font(.caption.weight(.semibold).monospaced())
+                    .foregroundStyle(badge.color)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("Update Submodule") { workspace.updateSubmodules([submodule]) }
+            Button("Open in New Window") { workspace.openSubmodule(submodule) }
+                .disabled(submodule.state == .notInitialized)
+            if let url = submodule.url {
+                Button("Copy URL") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url, forType: .string)
+                }
+            }
+        }
+        .help("\(submodule.path) — \(submodule.stateDescription)" + (submodule.url.map { "\n\(GitRemote.display($0))" } ?? ""))
+    }
+
+    private var badge: (letter: String, color: Color)? {
+        switch submodule.state {
+        case .upToDate: nil
+        case .notInitialized: ("–", .secondary)
+        case .otherCommit: ("+", .orange)
+        case .conflicted: ("!", .red)
+        }
     }
 }
 

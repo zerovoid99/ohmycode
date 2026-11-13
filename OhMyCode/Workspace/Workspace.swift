@@ -117,6 +117,8 @@ final class Workspace {
     private(set) var stashFiles: [String: [StashFile]] = [:]
     /// Local and remote branches, read when the branch picker opens.
     private(set) var branches: [GitBranch]?
+    /// The repository's submodules (paths from its top folder), read with the status.
+    private(set) var submodules: [GitSubmodule] = []
     /// The repository's worktrees, once read (see `loadWorktrees`).
     private(set) var worktrees: [GitWorktree]?
     /// Tests answer this instead of the worktree dialog: given the branch (nil: a new branch
@@ -200,6 +202,7 @@ final class Workspace {
         gitRepository = nil
         remotes = nil
         worktrees = nil
+        submodules = []
         refreshGit()
         languageClients.values.forEach { $0.shutdown() }
         languageClients.removeAll()
@@ -367,15 +370,16 @@ final class Workspace {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
             }
-            let result = await Task.detached(priority: .utility) { () -> (Git.Repository, GitStatus, [GitStash])? in
+            let result = await Task.detached(priority: .utility) { () -> (Git.Repository, GitStatus, [GitStash], [GitSubmodule])? in
                 guard let repository = knownRepository ?? Git.repository(at: rootURL),
                       let status = Git.status(of: repository) else { return nil }
-                return (repository, status, Git.stashes(in: repository) ?? [])
+                return (repository, status, Git.stashes(in: repository) ?? [], Git.submodules(in: repository) ?? [])
             }.value
             guard !Task.isCancelled, self.rootURL == rootURL else { return }
             self.gitRepository = result?.0
             if self.gitStatus != result?.1 { self.gitStatus = result?.1 }
             if self.stashes != result?.2 ?? [] { self.stashes = result?.2 ?? [] }
+            if self.submodules != result?.3 ?? [] { self.submodules = result?.3 ?? [] }
             for document in self.documents { self.loadDiffBase(for: document) }
             for session in self.diffSessions where session.mode == .staged { self.loadStaged(session) }
             // A commit may have added to the file's history.
@@ -845,17 +849,42 @@ final class Workspace {
     }
 
     /// The repository's top folder (the workspace folder may be inside it).
-    var repositoryRootURL: URL? {
-        guard let repository = gitRepository else { return nil }
-        let depth = repository.prefix.split(separator: "/").count
-        return (0..<depth).reduce(repository.root) { url, _ in url.deletingLastPathComponent() }
-    }
+    var repositoryRootURL: URL? { gitRepository?.top }
 
     /// A commit's change to one file, as a diff tab.
     @discardableResult
     func openCommit(_ commit: RepoCommit, file: CommitFile) -> DiffSession? {
         guard let top = repositoryRootURL else { return nil }
         return openCommit(commit.change(to: file), for: top.appending(path: file.path))
+    }
+
+    // MARK: Submodules
+
+    /// The submodule at a file tree folder, if it is one.
+    func submodule(at url: URL) -> GitSubmodule? {
+        guard !submodules.isEmpty, let top = repositoryRootURL else { return nil }
+        let path = url.standardizedFileURL.path, topPath = top.standardizedFileURL.path
+        guard path.hasPrefix(topPath + "/") else { return nil }
+        let relative = String(path.dropFirst(topPath.count + 1)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return submodules.first { $0.path == relative }
+    }
+
+    /// The submodule a Source Control change is about (its path is from the workspace folder).
+    func submodule(for change: GitChange) -> GitSubmodule? {
+        guard change.isSubmodule, let prefix = gitRepository?.prefix else { return nil }
+        return submodules.first { $0.path == prefix + change.path }
+    }
+
+    /// Checks out the recorded commits of the submodules (all when empty), cloning any not
+    /// initialized yet.
+    func updateSubmodules(_ submodules: [GitSubmodule] = []) {
+        let paths = submodules.map(\.path)
+        runGit { try Git.updateSubmodules(paths, in: $0) }
+    }
+
+    func openSubmodule(_ submodule: GitSubmodule) {
+        guard submodule.state != .notInitialized, let top = repositoryRootURL else { NSSound.beep(); return }
+        openInNewWindow?(top.appending(path: submodule.path, directoryHint: .isDirectory))
     }
 
     // MARK: Worktrees

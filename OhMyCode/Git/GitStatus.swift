@@ -57,6 +57,8 @@ struct GitChange: Sendable, Equatable, Identifiable, Hashable {
     let index: Character
     let worktree: Character
     var originalPath: String?
+    /// A submodule: its recorded commit changed, or it has changes inside.
+    var isSubmodule = false
 
     var id: String { path }
     var isUntracked: Bool { index == "?" }
@@ -119,14 +121,15 @@ struct GitStatus: Sendable, Equatable {
         let records = output.split(separator: 0, omittingEmptySubsequences: false)
             .map { String(decoding: $0, as: UTF8.self) }
         var i = 0
-        func add(_ path: String, _ fileStatus: GitFileStatus, xy: String, original: String? = nil) {
+        func add(_ path: String, _ fileStatus: GitFileStatus, xy: String, original: String? = nil, submodule: Bool = false) {
             guard path.hasPrefix(prefix) else { return }
             let relative = String(path.dropFirst(prefix.count))
             guard !relative.isEmpty else { return }
             let codes = Array(xy)
             if codes.count == 2 {
                 status.changes.append(GitChange(path: relative, index: codes[0], worktree: codes[1],
-                                                originalPath: original.map { String($0.dropFirst(prefix.count)) }))
+                                                originalPath: original.map { String($0.dropFirst(prefix.count)) },
+                                                isSubmodule: submodule))
             }
             if relative.hasSuffix("/") {
                 status.untrackedDirectories.append(relative)
@@ -135,7 +138,7 @@ struct GitStatus: Sendable, Equatable {
             }
             // Mark every ancestor folder (the directory itself, for an untracked folder).
             var components = relative.split(separator: "/").map(String.init)
-            if !relative.hasSuffix("/") { components.removeLast() }
+            if !relative.hasSuffix("/") && !submodule { components.removeLast() } // a submodule is a folder too
             var current = ""
             for component in components {
                 current = current.isEmpty ? component : current + "/" + component
@@ -165,14 +168,14 @@ struct GitStatus: Sendable, Equatable {
             case "1":
                 let fields = record.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: false)
                 if fields.count == 9, let fileStatus = GitFileStatus(xy: String(fields[1])) {
-                    add(String(fields[8]), fileStatus, xy: String(fields[1]))
+                    add(String(fields[8]), fileStatus, xy: String(fields[1]), submodule: fields[2].hasPrefix("S"))
                 }
             case "2":
                 let fields = record.split(separator: " ", maxSplits: 9, omittingEmptySubsequences: false)
                 let original = i < records.count ? records[i] : nil
                 if fields.count == 10 {
                     add(String(fields[9]), GitFileStatus(xy: String(fields[1])) ?? .renamed, xy: String(fields[1]),
-                        original: original)
+                        original: original, submodule: fields[2].hasPrefix("S"))
                 }
                 i += 1 // with -z the original path follows as its own record
             case "u":
@@ -192,6 +195,7 @@ struct GitStatus: Sendable, Equatable {
 /// .git/index, which would otherwise trigger the file watcher and refresh in a loop.
 enum Git {
     struct Repository: Sendable {
+        /// The workspace folder (git runs here).
         let root: URL
         /// Workspace folder's path inside the repository ("" at the top level, else "sub/dir/").
         let prefix: String
@@ -593,6 +597,23 @@ enum Git {
         return RepoCommit.parseLog(output).first
     }
 
+    // MARK: Submodules
+
+    /// The repository's submodules (none without a .gitmodules file); nil if git failed.
+    static func submodules(in repository: Repository) -> [GitSubmodule]? {
+        let top = repository.top
+        guard FileManager.default.fileExists(atPath: top.appending(path: ".gitmodules").path) else { return [] }
+        guard let status = run(["submodule", "status"], in: top) else { return nil }
+        let config = run(["config", "--file", ".gitmodules", "--get-regexp", "^submodule\\..*\\.(path|url)$"], in: top) ?? Data()
+        return GitSubmodule.parse(status: status, config: config)
+    }
+
+    /// Checks out the commits the repository records for the submodules (all when `paths` is
+    /// empty), cloning ones not initialized yet, and theirs in turn.
+    static func updateSubmodules(_ paths: [String], in repository: Repository) throws {
+        try check(["submodule", "update", "--init", "--recursive", "--"] + paths, in: repository.top)
+    }
+
     // MARK: Worktrees
 
     static func worktrees(in repository: Repository) -> [GitWorktree]? {
@@ -734,6 +755,82 @@ enum Git {
     }
 }
 
+
+extension Git.Repository {
+    /// The repository's top folder (the workspace folder may be inside it).
+    var top: URL {
+        (0..<prefix.split(separator: "/").count).reduce(root) { url, _ in url.deletingLastPathComponent() }
+    }
+}
+
+/// A repository inside the repository, at a commit the outer one records.
+struct GitSubmodule: Sendable, Hashable, Identifiable {
+    enum State: Sendable, Hashable {
+        case upToDate
+        /// Not cloned yet (`git submodule update --init` does).
+        case notInitialized
+        /// Checked out at another commit than the one recorded.
+        case otherCommit
+        case conflicted
+    }
+
+    /// Its path from the repository's top folder.
+    let path: String
+    let url: String?
+    /// The commit checked out (or recorded, when not initialized).
+    let sha: String
+    let state: State
+    /// `git describe` of the commit, when there is one ("v1.2-3-gabc").
+    let describe: String?
+
+    var id: String { path }
+    var name: String { (path as NSString).lastPathComponent }
+    var shortSHA: String { String(sha.prefix(7)) }
+
+    var stateDescription: String {
+        switch state {
+        case .upToDate: "At the recorded commit"
+        case .notInitialized: "Not initialized"
+        case .otherCommit: "At another commit than recorded"
+        case .conflicted: "Merge conflict"
+        }
+    }
+
+    /// Parses `git submodule status` (" <sha> path (describe)", "-" not initialized, "+" at
+    /// another commit, "U" conflicted) with the URLs from
+    /// `git config --file .gitmodules --get-regexp '^submodule\..*\.(path|url)$'`.
+    static func parse(status: Data, config: Data) -> [GitSubmodule] {
+        var paths: [String: String] = [:], urls: [String: String] = [:] // by submodule name
+        for line in String(decoding: config, as: UTF8.self).split(separator: "\n") {
+            let parts = line.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2, parts[0].hasPrefix("submodule.") else { continue }
+            let key = parts[0].dropFirst("submodule.".count)
+            if key.hasSuffix(".path") { paths[String(key.dropLast(5))] = String(parts[1]) }
+            if key.hasSuffix(".url") { urls[String(key.dropLast(4))] = String(parts[1]) }
+        }
+        let urlByPath = Dictionary(paths.compactMap { name, path in urls[name].map { (path, $0) } }) { first, _ in first }
+        return String(decoding: status, as: UTF8.self).split(separator: "\n").compactMap { line in
+            guard let flag = line.first else { return nil }
+            let fields = line.dropFirst().split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
+            guard fields.count == 2 else { return nil }
+            let sha = String(fields[0])
+            guard sha.count >= 40, sha.allSatisfy(\.isHexDigit) else { return nil }
+            var path = String(fields[1])
+            var describe: String?
+            if path.hasSuffix(")"), let open = path.range(of: " (", options: .backwards) {
+                describe = String(path[open.upperBound..<path.index(before: path.endIndex)])
+                path = String(path[..<open.lowerBound])
+            }
+            let state: State = switch flag {
+            case "-": .notInitialized
+            case "+": .otherCommit
+            case "U": .conflicted
+            default: .upToDate
+            }
+            return GitSubmodule(path: path, url: urlByPath[path], sha: sha, state: state, describe: describe)
+        }
+    }
+}
 
 /// A working tree of the repository (`git worktree list`): the main one and any added.
 struct GitWorktree: Sendable, Hashable, Identifiable {

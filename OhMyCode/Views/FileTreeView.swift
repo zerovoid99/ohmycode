@@ -7,7 +7,8 @@ struct FileTreeView: View {
 
     var body: some View {
         List(root.children ?? [], children: \.children, selection: $selection) { node in
-            FileRow(node: node, status: workspace.gitStatus(for: node.url, isDirectory: node.isDirectory))
+            FileRow(node: node, status: workspace.gitStatus(for: node.url, isDirectory: node.isDirectory),
+                    submodule: node.isDirectory ? workspace.submodule(at: node.url) : nil)
         }
         .listStyle(.sidebar)
         .onChange(of: selection) { _, url in
@@ -24,6 +25,7 @@ struct FileTreeView: View {
 private struct FileRow: View {
     let node: FileNode
     let status: GitFileStatus?
+    let submodule: GitSubmodule?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -32,7 +34,7 @@ private struct FileRow: View {
                     .foregroundStyle(status.map { Color(nsColor: $0.color) } ?? .primary)
                     .strikethrough(status == .deleted)
             } icon: {
-                Image(systemName: node.isDirectory ? "folder" : "doc.text")
+                Image(systemName: submodule != nil ? "shippingbox" : node.isDirectory ? "folder" : "doc.text")
             }
             .lineLimit(1)
             .truncationMode(.middle)
@@ -49,6 +51,7 @@ private struct FileRow: View {
                 }
             }
         }
-        .help(status.map { "\(node.name): \($0.label)" } ?? node.name)
+        .help(submodule.map { "\(node.name): submodule at \($0.shortSHA) — \($0.stateDescription)" }
+              ?? status.map { "\(node.name): \($0.label)" } ?? node.name)
     }
 }
