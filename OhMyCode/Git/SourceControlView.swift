@@ -8,6 +8,11 @@ struct SourceControlView: View {
     var body: some View {
         if let status = workspace.gitStatus {
             VStack(spacing: 8) {
+                BranchBar(workspace: workspace, status: status)
+                if let operation = status.operation {
+                    OperationBanner(workspace: workspace, operation: operation,
+                                    conflicts: status.changes.filter(\.isConflicted).count)
+                }
                 TextField("Message (⌘↩ to commit on \(status.branch ?? "HEAD"))", text: $message, axis: .vertical)
                     .lineLimit(1...6)
                     .textFieldStyle(.roundedBorder)

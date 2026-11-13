@@ -97,6 +97,12 @@ final class Workspace {
     /// whether to check out a commit.
     @ObservationIgnored var branchNamePrompt: ((RepoCommit) -> String?)?
     @ObservationIgnored var checkoutConfirmation: ((RepoCommit) -> Bool)?
+    /// Local and remote branches, read when the branch picker opens.
+    private(set) var branches: [GitBranch]?
+    /// Tests answer these instead of dialogs: a name typed for a new or renamed branch (given
+    /// the dialog's title), and yes/no questions (given the question).
+    @ObservationIgnored var textPrompt: ((String) -> String?)?
+    @ObservationIgnored var confirmation: ((String) -> Bool)?
     /// Replaces server discovery per language (tests point a workspace at a fake server).
     @ObservationIgnored var languageServerOverrides: [SourceLanguage: LanguageServerConfig] = [:]
     /// One client per language server, shared by all documents it handles.
@@ -531,6 +537,7 @@ final class Workspace {
             }
             isRunningGitCommand = false
             refreshGit()
+            if branches != nil { await loadBranches() }
         }
     }
 
@@ -759,6 +766,146 @@ final class Workspace {
         alert.window.initialFirstResponder = field
         guard alert.runModal() == .alertFirstButtonReturn else { return nil }
         return field.stringValue
+    }
+
+    // MARK: Branches
+
+    func loadBranches() async {
+        guard let repository = gitRepository else { branches = nil; return }
+        branches = await Task.detached(priority: .userInitiated) { Git.branches(in: repository) }.value
+    }
+
+    /// Switches branches; a remote branch gets a local one tracking it (or switches to the
+    /// local one of that name). Unsaved edits are asked about first: git changes files on disk.
+    func switchBranch(_ branch: GitBranch) {
+        guard !branch.isCurrent, confirmUnsavedBeforeCheckout() else { return }
+        let hasLocal = branches?.contains { !$0.isRemote && $0.name == branch.localName } ?? false
+        if branch.isRemote && !hasLocal {
+            runGit { try Git.switchToRemote(branch.name, as: branch.localName, in: $0) }
+        } else {
+            runGit { try Git.switchBranch(branch.localName, in: $0) }
+        }
+    }
+
+    /// Git: Create Branch — from the current commit, then switches to it.
+    func createBranchFromCurrent() {
+        guard let name = ask("New Branch", message: "Create a branch from \(gitStatus?.branch ?? "HEAD") and switch to it.",
+                             placeholder: "branch-name") else { return }
+        runGit { try Git.createBranch(name, at: "HEAD", in: $0) }
+    }
+
+    func renameBranch(_ branch: GitBranch) {
+        guard !branch.isRemote,
+              let name = ask("Rename Branch", message: "New name for \(branch.name):", placeholder: branch.name, initial: branch.name),
+              name != branch.name else { return }
+        runGit { try Git.renameBranch(branch.name, to: name, in: $0) }
+    }
+
+    /// Deletes a local branch; one with unmerged commits only after a second confirmation.
+    func deleteBranch(_ branch: GitBranch) {
+        guard !branch.isRemote, !branch.isCurrent, let repository = gitRepository else { return }
+        isRunningGitCommand = true
+        Task {
+            do {
+                try await Task.detached { try Git.deleteBranch(branch.name, force: false, in: repository) }.value
+            } catch {
+                // Not merged anywhere: deleting would lose its commits (they stay in the reflog for a while).
+                if confirm("Delete \(branch.name)? It has commits that aren't merged into any other branch; they'll be lost.") {
+                    do {
+                        try await Task.detached { try Git.deleteBranch(branch.name, force: true, in: repository) }.value
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                }
+            }
+            isRunningGitCommand = false
+            refreshGit()
+            await loadBranches()
+        }
+    }
+
+    /// Merges `branch` into the current one. Conflicts leave a merge in progress (see `gitStatus.operation`).
+    func mergeIntoCurrent(_ branch: GitBranch) {
+        guard !branch.isCurrent, confirmUnsavedBeforeCheckout() else { return }
+        runGit { try Git.merge(branch.name, in: $0) }
+    }
+
+    /// Replays the current branch's commits on top of `branch`.
+    func rebaseCurrent(onto branch: GitBranch) {
+        guard !branch.isCurrent, confirmUnsavedBeforeCheckout() else { return }
+        runGit { try Git.rebase(onto: branch.name, in: $0) }
+    }
+
+    /// Continue, skip or abort the merge or rebase in progress.
+    func resolveOperation(_ action: GitOperation.Action) {
+        guard let operation = gitStatus?.operation else { return }
+        if action == .abort, !confirm("Abort the \(operation.rawValue)? Changes it made so far are undone.") { return }
+        runGit { try Git.resolve(operation, action, in: $0) }
+    }
+
+    func fetch() { runGit { try Git.fetch(in: $0) } }
+
+    func pull() {
+        guard confirmUnsavedBeforeCheckout() else { return }
+        runGit { try Git.pull(in: $0) }
+    }
+
+    /// Pushes the current branch; the first push of a branch sets its upstream (on "origin",
+    /// or the only remote).
+    func push() {
+        guard let branch = gitStatus?.branch else { errorMessage = "Not on a branch (detached HEAD): nothing to push."; return }
+        let hasUpstream = gitStatus?.upstream != nil
+        runGit { repository in
+            var remote: String?
+            if !hasUpstream {
+                let remotes = Git.remotes(in: repository)
+                guard let chosen = remotes.contains("origin") ? "origin" : remotes.first else {
+                    throw Git.CommandError(message: "This repository has no remote to push to.")
+                }
+                remote = chosen
+            }
+            try Git.push(branch: branch, settingUpstreamTo: remote, in: repository)
+        }
+    }
+
+    /// Checking out rewrites files on disk; edits not saved yet would then be out of date.
+    private func confirmUnsavedBeforeCheckout() -> Bool {
+        let unsaved = documents.filter(\.isDirty)
+        guard !unsaved.isEmpty else { return true }
+        let names = unsaved.prefix(3).map(\.fileName).joined(separator: ", ") + (unsaved.count > 3 ? ", …" : "")
+        return confirm("\(unsaved.count) file\(unsaved.count == 1 ? " has" : "s have") unsaved changes (\(names)). "
+                       + "Files git changes on disk won't match them. Continue anyway?")
+    }
+
+    private func confirm(_ question: String) -> Bool {
+        if let confirmation { return confirmation(question) }
+        let alert = NSAlert()
+        alert.messageText = question
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    /// A name typed in a dialog (trimmed; nil if cancelled or empty).
+    private func ask(_ title: String, message: String, placeholder: String, initial: String = "") -> String? {
+        let answer: String?
+        if let textPrompt {
+            answer = textPrompt(title)
+        } else {
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = message
+            let field = NSTextField(string: initial)
+            field.placeholderString = placeholder
+            field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
+            alert.accessoryView = field
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Cancel")
+            alert.window.initialFirstResponder = field
+            answer = alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
+        }
+        let trimmed = answer?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     // MARK: Terminal

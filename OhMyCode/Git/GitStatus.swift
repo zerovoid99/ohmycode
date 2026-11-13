@@ -84,8 +84,12 @@ struct GitChange: Sendable, Equatable, Identifiable, Hashable {
 /// A snapshot of `git status`, with paths relative to the workspace folder.
 struct GitStatus: Sendable, Equatable {
     var branch: String?
+    /// The branch's upstream ("origin/main"), if it has one.
+    var upstream: String?
     var ahead = 0
     var behind = 0
+    /// A merge or rebase stopped midway (conflicts, or waiting to continue).
+    var operation: GitOperation?
     private(set) var files: [String: GitFileStatus] = [:]
     /// Untracked folders git reports as a whole ("dir/"), without listing their contents.
     private(set) var untrackedDirectories: [String] = []
@@ -147,6 +151,8 @@ struct GitStatus: Sendable, Equatable {
                 if header.hasPrefix("branch.head ") {
                     let name = String(header.dropFirst("branch.head ".count))
                     status.branch = name == "(detached)" ? nil : name
+                } else if header.hasPrefix("branch.upstream ") {
+                    status.upstream = String(header.dropFirst("branch.upstream ".count))
                 } else if header.hasPrefix("branch.ab ") {
                     let parts = header.dropFirst("branch.ab ".count).split(separator: " ")
                     status.ahead = parts.first.flatMap { Int($0.dropFirst()) } ?? 0
@@ -185,18 +191,99 @@ enum Git {
         let root: URL
         /// Workspace folder's path inside the repository ("" at the top level, else "sub/dir/").
         let prefix: String
+        /// The .git directory (elsewhere for worktrees and submodules).
+        var gitDirectory: URL?
     }
 
     static func repository(at folder: URL) -> Repository? {
-        guard let output = run(["rev-parse", "--show-prefix"], in: folder) else { return nil }
-        let prefix = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        return Repository(root: folder, prefix: prefix)
+        // `--show-prefix` prints an empty line at the top level, so keep empty lines.
+        guard let output = run(["rev-parse", "--show-prefix", "--absolute-git-dir"], in: folder) else { return nil }
+        let lines = String(decoding: output, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false)
+        let prefix = lines.first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
+        let gitDirectory = lines.count > 1 && !lines[1].isEmpty ? URL(filePath: String(lines[1])) : nil
+        return Repository(root: folder, prefix: prefix, gitDirectory: gitDirectory)
     }
 
     static func status(of repository: Repository) -> GitStatus? {
         guard let output = run(["status", "--porcelain=v2", "-z", "--branch", "--untracked-files=normal"],
                                in: repository.root) else { return nil }
-        return GitStatus.parse(output, prefix: repository.prefix)
+        var status = GitStatus.parse(output, prefix: repository.prefix)
+        status.operation = operation(in: repository)
+        return status
+    }
+
+    /// A merge or rebase in progress, from the files git keeps while it waits.
+    static func operation(in repository: Repository) -> GitOperation? {
+        guard let directory = repository.gitDirectory else { return nil }
+        let exists = { (name: String) in FileManager.default.fileExists(atPath: directory.appending(path: name).path) }
+        if exists("rebase-merge") || exists("rebase-apply") { return .rebase }
+        if exists("MERGE_HEAD") { return .merge }
+        return nil
+    }
+
+    // MARK: Branches
+
+    /// Local and remote branches (not remotes' HEAD aliases), local first, most recent first.
+    static func branches(in repository: Repository) -> [GitBranch]? {
+        guard let output = run(["for-each-ref", "--sort=-committerdate",
+                                "--format=%(refname)%1f%(refname:short)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(HEAD)%1f%(committerdate:unix)%1f%(subject)",
+                                "refs/heads", "refs/remotes"], in: repository.root) else { return nil }
+        return GitBranch.parse(output)
+    }
+
+    static func switchBranch(_ name: String, in repository: Repository) throws {
+        try check(["switch", name], in: repository.root)
+    }
+
+    /// Switches to a local branch tracking `remote` ("origin/feature" → "feature").
+    static func switchToRemote(_ remote: String, as local: String, in repository: Repository) throws {
+        try check(["switch", "-c", local, "--track", remote], in: repository.root)
+    }
+
+    static func deleteBranch(_ name: String, force: Bool, in repository: Repository) throws {
+        try check(["branch", force ? "-D" : "-d", name], in: repository.root)
+    }
+
+    static func renameBranch(_ name: String, to newName: String, in repository: Repository) throws {
+        try check(["branch", "-m", name, newName], in: repository.root)
+    }
+
+    static func merge(_ branch: String, in repository: Repository) throws {
+        try check(["merge", "--no-edit", branch], in: repository.root)
+    }
+
+    static func rebase(onto branch: String, in repository: Repository) throws {
+        try check(["rebase", branch], in: repository.root)
+    }
+
+    /// `--continue`, `--skip` or `--abort` for the merge or rebase in progress.
+    static func resolve(_ operation: GitOperation, _ action: GitOperation.Action, in repository: Repository) throws {
+        switch operation {
+        case .merge: try check(["merge", "--\(action.rawValue)"], in: repository.root)
+        case .rebase: try check(["rebase", "--\(action.rawValue)"], in: repository.root)
+        }
+    }
+
+    static func fetch(in repository: Repository) throws {
+        try check(["fetch", "--all", "--prune"], in: repository.root)
+    }
+
+    static func pull(in repository: Repository) throws {
+        try check(["pull"], in: repository.root)
+    }
+
+    /// Pushes the current branch; one without an upstream gets `remote`/`branch` as its upstream.
+    static func push(branch: String, settingUpstreamTo remote: String?, in repository: Repository) throws {
+        if let remote {
+            try check(["push", "--set-upstream", remote, branch], in: repository.root)
+        } else {
+            try check(["push"], in: repository.root)
+        }
+    }
+
+    static func remotes(in repository: Repository) -> [String] {
+        guard let output = run(["remote"], in: repository.root) else { return [] }
+        return String(decoding: output, as: UTF8.self).split(separator: "\n").map(String.init)
     }
 
     // MARK: Changing the repository
@@ -233,7 +320,9 @@ enum Git {
     private static func check(_ arguments: [String], in directory: URL, input: Data? = nil) throws -> Data {
         let result = execute(arguments, in: directory, input: input)
         guard result.status == 0 else {
-            let message = String(decoding: result.error, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            // Most commands explain failures on stderr; merge reports conflicts on stdout.
+            let text = { (data: Data) in String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) }
+            let message = [text(result.output), text(result.error)].filter { !$0.isEmpty }.joined(separator: "\n")
             throw CommandError(message: message.isEmpty ? "git \(arguments.first ?? "") failed" : message)
         }
         return result.output
@@ -321,7 +410,7 @@ enum Git {
         return BlameLine.parse(output)
     }
 
-    private static func run(_ arguments: [String], in directory: URL, input: Data? = nil) -> Data? {
+    static func run(_ arguments: [String], in directory: URL, input: Data? = nil) -> Data? {
         let result = execute(arguments, in: directory, input: input)
         return result.status == 0 ? result.output : nil
     }
@@ -334,6 +423,12 @@ enum Git {
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_OPTIONAL_LOCKS"] = "0"
         environment["LC_ALL"] = "C"
+        // Nothing can answer a prompt here: fail instead of waiting forever for a password,
+        // a host key or an editor (merge and rebase messages keep git's defaults).
+        environment["GIT_TERMINAL_PROMPT"] = "0"
+        environment["GIT_EDITOR"] = "true"
+        environment["GIT_SEQUENCE_EDITOR"] = "true"
+        if environment["GIT_SSH_COMMAND"] == nil { environment["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes" }
         process.environment = environment
         let output = Pipe(), errorOutput = Pipe()
         process.standardOutput = output
@@ -558,4 +653,45 @@ struct RepoHistory: Equatable {
     var graph: [CommitGraphRow] = []
     /// The most lanes any row uses (the graph column's width).
     var graphWidth: Int { graph.map(\.width).max() ?? 1 }
+}
+
+/// A merge or rebase that stopped and waits (for conflicts to be resolved).
+enum GitOperation: String, Sendable, Equatable {
+    case merge, rebase
+
+    enum Action: String, Sendable { case `continue`, skip, abort }
+}
+
+/// A local or remote branch.
+struct GitBranch: Sendable, Hashable, Identifiable {
+    /// "refs/heads/main", "refs/remotes/origin/main".
+    let ref: String
+    /// "main", "origin/main".
+    let name: String
+    let upstream: String?
+    /// "ahead 1, behind 2", "gone", or "" when in sync.
+    let tracking: String
+    let isCurrent: Bool
+    let date: Date
+    let subject: String
+
+    var id: String { ref }
+    var isRemote: Bool { ref.hasPrefix("refs/remotes/") }
+    /// For a remote branch, the local name it would get ("origin/feature/x" → "feature/x").
+    var localName: String {
+        guard isRemote, let slash = name.firstIndex(of: "/") else { return name }
+        return String(name[name.index(after: slash)...])
+    }
+
+    /// Parses `git for-each-ref --format=%(refname)%1f%(refname:short)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(HEAD)%1f%(committerdate:unix)%1f%(subject)`.
+    static func parse(_ data: Data) -> [GitBranch] {
+        let branches = String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { line -> GitBranch? in
+            let fields = line.split(separator: "\u{1f}", maxSplits: 6, omittingEmptySubsequences: false).map(String.init)
+            guard fields.count == 7, !fields[0].hasSuffix("/HEAD") else { return nil } // origin/HEAD is an alias
+            return GitBranch(ref: fields[0], name: fields[1], upstream: fields[2].isEmpty ? nil : fields[2],
+                             tracking: fields[3], isCurrent: fields[4] == "*",
+                             date: Date(timeIntervalSince1970: TimeInterval(fields[5]) ?? 0), subject: fields[6])
+        }
+        return branches.filter { !$0.isRemote } + branches.filter(\.isRemote)
+    }
 }
