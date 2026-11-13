@@ -32,6 +32,7 @@
 		3A5FD50EF98D72A2334F36D5 /* HoverController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE8B7417AC9A29F14098B2F /* HoverController.swift */; };
 		3BCB6570189F96FF5FC255C1 /* InteractiveRebaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DAEC2C15EA27BFE7D293E0E /* InteractiveRebaseView.swift */; };
 		44F88C3D502540F06F587353 /* LSPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD379088235C2421A7031BC4 /* LSPTests.swift */; };
+		46AB56208F370EA5D1265CC3 /* CommitSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1564029D78A9D5DCDEF90529 /* CommitSearchTests.swift */; };
 		476F1A5E9F55BE3672D79298 /* RepoHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC60C7DA7C4B6252ACD6263F /* RepoHistoryTests.swift */; };
 		4893BA1A0390AF8B354EEF0B /* TreeSitterTypeScript in Frameworks */ = {isa = PBXBuildFile; productRef = 6073D10D5264C2569088CB60 /* TreeSitterTypeScript */; };
 		4A4BE889BC87DAF28B42A1C2 /* SourceControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14A7EFABD0BFC396322A78C /* SourceControlView.swift */; };
@@ -137,6 +138,7 @@
 		0DE8B7417AC9A29F14098B2F /* HoverController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoverController.swift; sourceTree = "<group>"; };
 		0E90646D54E679A22AC13D7A /* GhosttyVt */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GhosttyVt; path = Packages/GhosttyVt; sourceTree = SOURCE_ROOT; };
 		0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchOperationTests.swift; sourceTree = "<group>"; };
+		1564029D78A9D5DCDEF90529 /* CommitSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommitSearchTests.swift; sourceTree = "<group>"; };
 		16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorChromeTests.swift; sourceTree = "<group>"; };
 		192E117635DB667FA34217E9 /* TagTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagTests.swift; sourceTree = "<group>"; };
 		19E162875BB553F73A23130F /* PaletteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaletteView.swift; sourceTree = "<group>"; };
@@ -334,6 +336,7 @@
 				0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */,
 				CD1EE59BB50DF03FDACEC29F /* CherryPickRevertTests.swift */,
 				914B50B9C32C4D129975E6BF /* CommitGraphTests.swift */,
+				1564029D78A9D5DCDEF90529 /* CommitSearchTests.swift */,
 				2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */,
 				16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */,
 				63C0BDA667585BA6CF3CCCE0 /* FileWatchingTests.swift */,
@@ -694,6 +697,7 @@
 				CCF3FEB6ABD8D4B06EE01189 /* BranchOperationTests.swift in Sources */,
 				020BDA84409FA41D7BA2F892 /* CherryPickRevertTests.swift in Sources */,
 				70BE660B9B25C427A5DE8207 /* CommitGraphTests.swift in Sources */,
+				46AB56208F370EA5D1265CC3 /* CommitSearchTests.swift in Sources */,
 				AAB71F6BE2CE7E5D5864EADF /* DiffHighlightTests.swift in Sources */,
 				E1AD3FCB68345C20CCD3CAC5 /* EditorChromeTests.swift in Sources */,
 				AE3ECD7BB4950C7B8C99D795 /* FileWatchingTests.swift in Sources */,

@@ -551,10 +551,18 @@ enum Git {
     /// The repository's commits, newest first, from `skip` on: every branch's, tag's and remote
     /// branch's (and a detached HEAD's), not just this folder's. `--date-order` keeps children
     /// before their parents when dates tie across branches. Nil if git failed.
-    static func log(in repository: Repository, limit: Int = 200, skip: Int = 0) -> [RepoCommit]? {
+    static func log(in repository: Repository, limit: Int = 200, skip: Int = 0, filter: LogFilter? = nil) -> [RepoCommit]? {
         guard let output = run(["log", "--branches", "--tags", "--remotes", "HEAD", "--date-order", "-n", String(limit), "--skip", String(skip),
-                                "--format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s"], in: repository.root) else { return nil }
+                                "--format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s"] + (filter?.arguments ?? []),
+                               in: repository.root) else { return nil }
         return RepoCommit.parseLog(output)
+    }
+
+    /// The commit a name (hash prefix, branch, tag) resolves to, if any.
+    static func commit(named name: String, in repository: Repository) -> RepoCommit? {
+        guard let output = run(["log", "-1", "--format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s", name + "^{commit}", "--"],
+                               in: repository.root) else { return nil }
+        return RepoCommit.parseLog(output).first
     }
 
     /// The files a commit changed against its first parent (everything, for a root commit).
@@ -834,6 +842,8 @@ struct RepoHistory: Equatable {
     let hasMore: Bool
     /// The commit graph, one row per commit.
     var graph: [CommitGraphRow] = []
+    /// A commit found by its hash, listed first, that isn't part of the log's pages.
+    var pinned: RepoCommit? = nil
     /// The most lanes any row uses (the graph column's width).
     var graphWidth: Int { graph.map(\.width).max() ?? 1 }
 }
@@ -1023,5 +1033,37 @@ struct RebasePlan: Identifiable {
             case .squash, .fixup, .drop: true
             }
         }
+    }
+}
+
+/// What the repository log is narrowed to.
+struct LogFilter: Equatable, Sendable {
+    enum Kind: String, CaseIterable, Sendable {
+        case message = "Message", author = "Author", code = "Code"
+
+        var help: String {
+            switch self {
+            case .message: "Commits whose message contains the text"
+            case .author: "Commits by an author whose name or email contains the text"
+            case .code: "Commits that added or removed the text"
+            }
+        }
+    }
+
+    var kind: Kind
+    var text: String
+
+    /// `git log` options; the text is matched as is (not a pattern), ignoring case where git can.
+    var arguments: [String] {
+        switch kind {
+        case .message: ["--fixed-strings", "--regexp-ignore-case", "--grep=\(text)"]
+        case .author: ["--fixed-strings", "--regexp-ignore-case", "--author=\(text)"]
+        case .code: ["-S\(text)"]
+        }
+    }
+
+    /// The text, if it could be (the start of) a commit hash.
+    var hashPrefix: String? {
+        (4...40).contains(text.count) && text.allSatisfy(\.isHexDigit) ? text.lowercased() : nil
     }
 }

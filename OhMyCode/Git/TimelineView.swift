@@ -126,12 +126,68 @@ private struct CommitRow: View {
 private struct RepositoryLogView: View {
     let workspace: Workspace
     @State private var expanded: Set<String> = []
+    @State private var query: String
+    @State private var kind: LogFilter.Kind
+
+    /// Starts from the search the log is filtered by: the panel is rebuilt when switching
+    /// sidebar tabs, and an empty box would clear the search.
+    init(workspace: Workspace) {
+        self.workspace = workspace
+        _query = State(initialValue: workspace.repoHistoryFilter?.text ?? "")
+        _kind = State(initialValue: workspace.repoHistoryFilter?.kind ?? .message)
+    }
 
     var body: some View {
+        VStack(spacing: 0) {
+            searchBar
+            content
+        }
+        // Debounced: searching code (-S) reads every commit's changes.
+        .task(id: "\(kind.rawValue)\u{1f}\(query)") {
+            let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let filter = text.isEmpty ? nil : LogFilter(kind: kind, text: text)
+            guard filter != workspace.repoHistoryFilter else { return }
+            if filter != nil { try? await Task.sleep(for: .milliseconds(300)) }
+            guard !Task.isCancelled else { return }
+            workspace.repoHistoryFilter = filter
+        }
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search commits", text: $query)
+                .textFieldStyle(.plain)
+            if !query.isEmpty {
+                Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Clear the search")
+            }
+            Picker("Search in", selection: $kind) {
+                ForEach(LogFilter.Kind.allCases, id: \.self) { Text($0.rawValue).tag($0).help($0.help) }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
+            .help(kind.help)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+    }
+
+    private var content: some View {
         Group {
             if let history = workspace.repoHistory {
                 if history.commits.isEmpty && !history.isLoading {
-                    ContentUnavailableView("No Commits", systemImage: "clock", description: Text("Nothing has been committed yet."))
+                    if workspace.repoHistoryFilter != nil {
+                        ContentUnavailableView.search(text: query)
+                    } else {
+                        ContentUnavailableView("No Commits", systemImage: "clock", description: Text("Nothing has been committed yet."))
+                    }
                 } else {
                     // Rows touch (no list insets), so each row's piece of the graph joins the next.
                     ScrollView {

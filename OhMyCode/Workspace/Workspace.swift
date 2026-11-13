@@ -87,8 +87,16 @@ final class Workspace {
     /// What the Timeline panel lists: the active file's commits or the whole repository's.
     enum HistoryScope: String, CaseIterable { case file = "File", repository = "Repository" }
     var historyScope: HistoryScope = .file
-    /// The repository log (pages of `repoHistoryPageSize`).
+    /// The repository log (pages of `repoHistoryPageSize`), narrowed by `repoHistoryFilter`.
     private(set) var repoHistory: RepoHistory?
+    /// A search in the repository log; setting it reads the log again.
+    var repoHistoryFilter: LogFilter? {
+        didSet {
+            guard repoHistoryFilter != oldValue else { return }
+            repoHistory = nil // a different list: no paging or graph from the old one
+            loadRepoHistory()
+        }
+    }
     @ObservationIgnored private var repoHistoryTask: Task<Void, Never>?
     @ObservationIgnored var repoHistoryPageSize = 200
     /// Files each commit changed, read when the commit is expanded.
@@ -763,21 +771,30 @@ final class Workspace {
         guard let repository = gitRepository else { repoHistory = nil; return }
         if more, repoHistory?.isLoading == true { return }
         repoHistoryTask?.cancel()
-        let existing = repoHistory?.commits ?? []
+        let pinned = more ? repoHistory?.pinned : nil
+        // Pages count from the log itself, not the hash match listed first.
+        let existing = (repoHistory?.commits ?? []).filter { $0 != pinned }
         let pageSize = repoHistoryPageSize
+        let filter = repoHistoryFilter
         let skip = more ? existing.count : 0
         let limit = more ? pageSize : max(pageSize, existing.count)
-        repoHistory = RepoHistory(commits: existing, isLoading: true, hasMore: repoHistory?.hasMore ?? false,
-                                  graph: repoHistory?.graph ?? [])
+        repoHistory = RepoHistory(commits: repoHistory?.commits ?? [], isLoading: true, hasMore: repoHistory?.hasMore ?? false,
+                                  graph: repoHistory?.graph ?? [], pinned: pinned)
         repoHistoryTask = Task {
             // The graph is laid out again for the whole list: a new page can end lanes above it.
-            let (page, commits, graph) = await Task.detached(priority: .utility) {
-                let page = Git.log(in: repository, limit: limit, skip: skip)
+            let (page, commits, graph, found) = await Task.detached(priority: .utility) {
+                let page = Git.log(in: repository, limit: limit, skip: skip, filter: filter)
                 let commits = more ? existing + (page ?? []) : page ?? []
-                return (page, commits, CommitGraph.layout(commits.map { ($0.sha, $0.parents) }))
+                // Search results skip commits between them: lines there would be wrong.
+                let graph = filter == nil ? CommitGraph.layout(commits.map { ($0.sha, $0.parents) }) : []
+                // A search that looks like a hash also finds that commit.
+                let found = more ? pinned : filter?.hashPrefix.flatMap { Git.commit(named: $0, in: repository) }
+                return (page, commits, graph, found)
             }.value
             guard !Task.isCancelled else { return }
-            repoHistory = RepoHistory(commits: commits, isLoading: false, hasMore: (page?.count ?? 0) == limit, graph: graph)
+            let extra = found.flatMap { commits.contains($0) ? nil : $0 }
+            repoHistory = RepoHistory(commits: (extra.map { [$0] } ?? []) + commits, isLoading: false,
+                                      hasMore: (page?.count ?? 0) == limit, graph: graph, pinned: extra)
         }
     }
 
