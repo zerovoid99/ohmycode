@@ -1,4 +1,6 @@
 import AppKit
+import Metal
+import QuartzCore
 import Foundation
 import GhosttyVt
 import Testing
@@ -109,11 +111,12 @@ struct TerminalViewTests {
         for _ in 0..<100 where !(session.text(selectionOnly: false) ?? "").contains("plain") {
             try await Task.sleep(for: .milliseconds(20))
         }
-        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-        view.cacheDisplay(in: view.bounds, to: bitmap)
+        // What the GPU actually drew (rendered offscreen, read back).
+        let bitmap = try #require(view.snapshot(scale: 2))
+        #expect(bitmap.pixelsWide == 1000)
         var red = 0, light = 0
         for x in 0..<bitmap.pixelsWide {
-            for y in 0..<min(bitmap.pixelsHigh, 60) {
+            for y in 0..<min(bitmap.pixelsHigh, 120) {
                 guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
                 if c.redComponent > 0.6 && c.greenComponent < 0.45 && c.blueComponent < 0.45 { red += 1 }
                 if c.brightnessComponent > 0.7 && c.saturationComponent < 0.2 { light += 1 }
@@ -121,6 +124,80 @@ struct TerminalViewTests {
         }
         #expect(red > 50, "red SGR text not drawn")
         #expect(light > 50, "default foreground text not drawn")
+    }
+
+    /// Backgrounds, a block cursor, emoji in color, and rows surviving an atlas reset.
+    @Test func drawsBackgroundsCursorAndColorGlyphs() async throws {
+        let session = try TerminalSession(directory: FileManager.default.temporaryDirectory, command: [
+            "/bin/sh", "-c", #"printf '\033[44m  BLUE  \033[0m \360\237\230\200 \033[4munder\033[0m\n> '; sleep 5"#,
+        ])
+        defer { session.terminate() }
+        let view = TerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 120))
+        let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = view
+        view.session = session
+        for _ in 0..<250 where !(session.text(selectionOnly: false) ?? "").contains("under") {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try await Task.sleep(for: .milliseconds(100)) // the prompt after it
+
+        func count(_ bitmap: NSBitmapImageRep, rows: Range<Int>, columns: Range<Int>,
+                   _ match: (NSColor) -> Bool) -> Int {
+            var total = 0
+            let scale = CGFloat(bitmap.pixelsWide) / view.bounds.width
+            let y0 = Int((TerminalView.padding + CGFloat(rows.lowerBound) * view.cellHeight) * scale)
+            let y1 = Int((TerminalView.padding + CGFloat(rows.upperBound) * view.cellHeight) * scale)
+            let x0 = Int((TerminalView.padding + CGFloat(columns.lowerBound) * view.cellWidth) * scale)
+            let x1 = Int((TerminalView.padding + CGFloat(columns.upperBound) * view.cellWidth) * scale)
+            for y in y0..<y1 { for x in x0..<x1 {
+                if let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), match(c) { total += 1 }
+            } }
+            return total
+        }
+        let isBlue: (NSColor) -> Bool = { $0.blueComponent > $0.redComponent + 0.15 && $0.saturationComponent > 0.25 }
+        let isEmojiYellow: (NSColor) -> Bool = { $0.redComponent > 0.8 && $0.greenComponent > 0.6 && $0.blueComponent < 0.4 }
+        let isLight: (NSColor) -> Bool = { $0.brightnessComponent > 0.7 && $0.saturationComponent < 0.2 }
+
+        for pass in 0..<2 {
+            if pass == 1 {
+                // Cached rows must be rebuilt: after a reset, other glyphs reuse the atlas space.
+                let atlas = try #require(TerminalRenderer.shared?.atlas)
+                atlas.reset()
+                for scalar in UnicodeScalar("A").value...UnicodeScalar("z").value {
+                    _ = atlas.glyph(String(UnicodeScalar(scalar)!), font: .boldSystemFont(ofSize: 30), fontIndex: 9, scale: 2)
+                }
+            }
+            let bitmap = try #require(view.snapshot(scale: 2))
+            let cellArea = Int(view.cellWidth * view.cellHeight * 4)
+            #expect(count(bitmap, rows: 0..<1, columns: 0..<8, isBlue) > cellArea * 4, "background run not filled (pass \(pass))")
+            #expect(count(bitmap, rows: 0..<1, columns: 9..<11, isEmojiYellow) > 20, "emoji not drawn in color (pass \(pass))")
+            #expect(count(bitmap, rows: 0..<1, columns: 12..<17, isLight) > 20, "underlined text missing (pass \(pass))")
+            // Unfocused: a hollow cursor after "> " (an outline, not a filled cell).
+            let cursorPixels = count(bitmap, rows: 1..<2, columns: 2..<3, isLight)
+            #expect(cursorPixels > 40 && cursorPixels < cellArea / 2, "hollow cursor not drawn (pass \(pass)): \(cursorPixels) px, cell \(cellArea)")
+        }
+
+        // Focused: a filled block.
+        view.focusOverride = true
+        let focused = try #require(view.snapshot(scale: 2))
+        let cellArea = Int(view.cellWidth * view.cellHeight * 4)
+        #expect(count(focused, rows: 1..<2, columns: 2..<3, isLight) > cellArea * 3 / 4, "block cursor not drawn")
+
+        // On screen, the display link renders into the view's Metal layer at the window's scale,
+        // once per change: new output wakes it, an idle terminal draws nothing.
+        window.orderFront(nil)
+        for _ in 0..<50 where view.presentedFrames == 0 { try await Task.sleep(for: .milliseconds(20)) }
+        let framesWhenIdle = view.presentedFrames
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(view.presentedFrames == framesWhenIdle, "an idle terminal keeps rendering")
+        session.feed(Data("more output\r\n".utf8))
+        for _ in 0..<50 where view.presentedFrames == framesWhenIdle { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(view.presentedFrames == framesWhenIdle + 1, "frames: \(framesWhenIdle) → \(view.presentedFrames)")
+        let layer = try #require(view.layer as? CAMetalLayer)
+        #expect(view.presentedFrames >= 1)
+        #expect(layer.drawableSize.width == (view.bounds.width * window.backingScaleFactor).rounded())
+        window.orderOut(nil)
     }
 }
 
@@ -168,17 +245,28 @@ struct TerminalPerformanceTests {
         let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = view
         view.session = session
-        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
-        view.cacheDisplay(in: view.bounds, to: bitmap) // warm up
+        _ = view.makeFrame(scale: 2) // warm up the glyph atlas
         session.feed(chunk) // every row dirty
-        let fullFrame = clock.measure { view.cacheDisplay(in: view.bounds, to: bitmap) }
-        let cleanFrame = clock.measure { view.cacheDisplay(in: view.bounds, to: bitmap) }
+        // CPU cost on the main thread: rebuild every row's geometry. Then the GPU's part.
+        var frame = TerminalFrame()
+        let fullFrame = clock.measure { frame = view.makeFrame(scale: 2) }
+        let cleanFrame = clock.measure { frame = view.makeFrame(scale: 2) }
+        let renderer = try #require(TerminalRenderer.shared)
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: TerminalRenderer.pixelFormat,
+                                                                  width: 3200, height: 2000, mipmapped: false)
+        descriptor.usage = .renderTarget
+        descriptor.storageMode = .private
+        let texture = try #require(renderer.device.makeTexture(descriptor: descriptor))
+        renderer.render(frame, to: texture)?.waitUntilCompleted() // warm up
+        let gpu = clock.measure { renderer.render(frame, to: texture)?.waitUntilCompleted() }
 
         print("PERF terminal parse=\(Int(megabytesPerSecond)) MB/s (\(bytes / 1024) KB in \(parse)), "
-              + "full-dirty frame \(session.columns)x\(session.rows)=\(fullFrame), clean frame=\(cleanFrame)")
+              + "\(session.columns)x\(session.rows) full-dirty frame (CPU)=\(fullFrame), clean frame (CPU)=\(cleanFrame), "
+              + "GPU encode+render 3200x2000=\(gpu), glyphs=\(frame.glyphs.count) rects=\(frame.rects.count)")
         #if !DEBUG
         #expect(megabytesPerSecond > 50)
-        #expect(fullFrame < .milliseconds(16))
+        #expect(fullFrame < .milliseconds(4))
+        #expect(gpu < .milliseconds(8))
         #endif
     }
 }

@@ -1,11 +1,14 @@
 import AppKit
 import CoreText
+import Metal
+import QuartzCore
 import GhosttyVt
 
-/// Draws a `TerminalSession` with CoreText and forwards keyboard, mouse and clipboard input.
+/// Draws a `TerminalSession` with Metal and forwards keyboard, mouse and clipboard input.
 ///
-/// Rendering reads Ghostty's render state and rebuilds cached text runs only for rows it marks
-/// dirty; AppKit coalesces redraws to the display refresh, so bursts of output cost one frame.
+/// Rendering reads Ghostty's render state and rebuilds GPU geometry only for rows it marks dirty;
+/// frames are drawn with Metal (see TerminalRenderer) at most once per display refresh, so bursts
+/// of output cost one frame.
 @MainActor
 final class TerminalView: NSView {
     var session: TerminalSession? {
@@ -34,25 +37,25 @@ final class TerminalView: NSView {
     private var rowIterator: GhosttyRenderStateRowIterator?
     private var rowCells: GhosttyRenderStateRowCells?
 
-    private struct Run {
-        var column: Int
-        var span: Int
-        var line: CTLine?
-        var background: CGColor?
-        var foreground: CGColor
-        var underline = false
-        var strikethrough = false
-    }
-
+    /// GPU geometry for one row, rebuilt only when Ghostty marks the row dirty.
     private struct RowRender {
-        var runs: [Run] = []
-        /// Text per column, for redrawing the character under a block cursor.
+        var rects: [RectInstance] = []
+        var glyphs: [GlyphInstance] = []
+        /// Text and font per column, for redrawing the character under a block cursor.
         var cells: [String] = []
+        var fonts: [Int] = []
     }
 
     private var rowCache: [RowRender] = []
+    /// Scale and atlas generation the cached rows were built for.
+    private var rowCacheScale: CGFloat = 0
+    private var rowCacheAtlasGeneration = -1
     private var colors = GhosttyRenderStateColors()
-    private var colorCache: [UInt32: CGColor] = [:]
+    private let renderer = TerminalRenderer.shared
+    /// Forces the focused/unfocused cursor look (tests; offscreen windows never become key).
+    var focusOverride: Bool?
+    /// Frames sent to the screen (tests).
+    private(set) var presentedFrames = 0
     private var scrollAccumulator: CGFloat = 0
     /// A button press went to the program (mouse tracking), so drags/release follow it there.
     private var mouseCapturedByProgram = false
@@ -66,6 +69,8 @@ final class TerminalView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         measureFont()
         ghostty_render_state_row_iterator_new(nil, &rowIterator)
         ghostty_render_state_row_cells_new(nil, &rowCells)
@@ -82,6 +87,18 @@ final class TerminalView: NSView {
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { true }
+    override var wantsUpdateLayer: Bool { true }
+
+    override func makeBackingLayer() -> CALayer {
+        let layer = CAMetalLayer()
+        layer.device = renderer?.device
+        layer.pixelFormat = TerminalRenderer.pixelFormat
+        layer.framebufferOnly = true
+        layer.isOpaque = true
+        layer.colorspace = CGColorSpace(name: CGColorSpace.sRGB)
+        layer.needsDisplayOnBoundsChange = true
+        return layer
+    }
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool { needsDisplay = true; return true }
@@ -108,6 +125,8 @@ final class TerminalView: NSView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         updateGridSize()
+        // During live resize, draw right away so the content keeps up with the frame.
+        if inLiveResize { renderFrame() } else { scheduleRender() }
     }
 
     private func updateGridSize() {
@@ -152,83 +171,174 @@ final class TerminalView: NSView {
                                b: UInt8(c.blueComponent * 255))
     }
 
-    private func cgColor(_ rgb: GhosttyColorRgb, alpha: CGFloat = 1) -> CGColor {
-        let key = UInt32(rgb.r) << 24 | UInt32(rgb.g) << 16 | UInt32(rgb.b) << 8 | UInt32(alpha * 255)
-        if let cached = colorCache[key] { return cached }
-        let color = CGColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255,
-                            blue: CGFloat(rgb.b) / 255, alpha: alpha)
-        colorCache[key] = color
-        return color
+    private static func color(_ rgb: GhosttyColorRgb, alpha: Float = 1) -> SIMD4<Float> {
+        SIMD4(Float(rgb.r) / 255, Float(rgb.g) / 255, Float(rgb.b) / 255, alpha)
     }
 
-    // MARK: Drawing
+    private var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
+    // MARK: Drawing (Metal)
+
+    /// AppKit calls this once per display refresh at most when `needsDisplay` is set.
+    // CAMetalLayer never asks its delegate to draw (no `updateLayer`), so frames are driven by
+    // a display link: `needsDisplay` schedules one, it renders once on the next screen refresh
+    // (ProMotion rate included) and stops. Idle terminals cost nothing.
+    private var displayLink: CADisplayLink?
+    private var renderPending = false
+
+    override var needsDisplay: Bool {
+        // The new value, not a read-back: for this layer AppKit reports false once shown.
+        willSet { if newValue { scheduleRender() } }
+    }
+
+    private func scheduleRender() {
+        renderPending = true
+        guard window != nil, displayLink == nil else { return }
+        // One-shot: a paused display link doesn't reliably resume, so each frame gets a new one.
+        let link = displayLink(target: self, selector: #selector(displayLinkFired))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    @objc private func displayLinkFired(_ link: CADisplayLink) {
+        link.invalidate()
+        if displayLink === link { displayLink = nil }
+        guard renderPending else { return }
+        renderPending = false
+        renderFrame()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        displayLink?.invalidate()
+        displayLink = nil
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
+        guard let window else { return }
+        // The cursor is drawn hollow while the window isn't key.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(windowKeyStateChanged), name: name, object: window)
+        }
+        scheduleRender()
+    }
+
+    @objc private func windowKeyStateChanged() {
+        needsDisplay = true
+    }
+
+    /// Draws the current state into the next drawable and presents it.
+    func renderFrame() {
+        guard let layer = layer as? CAMetalLayer, let renderer, window != nil else { return }
+        let scale = scale
+        layer.contentsScale = scale
+        let size = CGSize(width: (bounds.width * scale).rounded(), height: (bounds.height * scale).rounded())
+        guard size.width > 0, size.height > 0 else { return }
+        if layer.drawableSize != size { layer.drawableSize = size }
+        let frame = makeFrame(scale: scale)
+        guard let drawable = layer.nextDrawable() else { return }
+        if renderer.render(frame, to: drawable.texture, drawable: drawable) != nil { presentedFrames += 1 }
+    }
+
+    /// Renders the current state offscreen and returns the pixels (tests, screenshots).
+    func snapshot(scale: CGFloat = 2) -> NSBitmapImageRep? {
+        guard let renderer else { return nil }
+        return renderer.snapshot(makeFrame(scale: scale), width: Int((bounds.width * scale).rounded()),
+                                 height: Int((bounds.height * scale).rounded()))
+    }
+
+    /// Everything to draw this frame, in pixels at `scale`.
+    func makeFrame(scale: CGFloat) -> TerminalFrame {
         guard let session else {
-            NSColor.textBackgroundColor.setFill()
-            bounds.fill()
-            return
-        }
-        let cursor = updateRows(session)
-
-        context.setFillColor(cgColor(colors.background))
-        context.fill(bounds)
-
-        let pad = Self.padding
-        for (row, render) in rowCache.enumerated() {
-            let y = pad + CGFloat(row) * cellHeight
-            for run in render.runs {
-                guard let background = run.background else { continue }
-                context.setFillColor(background)
-                context.fill(CGRect(x: pad + CGFloat(run.column) * cellWidth, y: y,
-                                    width: CGFloat(run.span) * cellWidth, height: cellHeight))
+            var background = SIMD4<Float>(1, 1, 1, 1)
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                background = Self.color(Self.rgb(NSColor.textBackgroundColor))
             }
+            return TerminalFrame(clearColor: background)
         }
-
-        context.textMatrix = CGAffineTransform(scaleX: 1, y: -1) // CoreText in a flipped view
-        for (row, render) in rowCache.enumerated() {
-            let y = pad + CGFloat(row) * cellHeight
-            for run in render.runs {
-                let x = pad + CGFloat(run.column) * cellWidth
-                if let line = run.line {
-                    context.textPosition = CGPoint(x: x, y: y + baseline)
-                    CTLineDraw(line, context)
-                }
-                if run.underline || run.strikethrough {
-                    context.setFillColor(run.foreground)
-                    let width = CGFloat(run.span) * cellWidth
-                    if run.underline { context.fill(CGRect(x: x, y: y + baseline + 2, width: width, height: 1)) }
-                    if run.strikethrough {
-                        context.fill(CGRect(x: x, y: y + baseline - font.xHeight / 2, width: width, height: 1))
-                    }
-                }
-            }
+        if scale != rowCacheScale {
+            rowCache.removeAll()
+            rowCacheScale = scale
         }
+        var cursor = updateRows(session, scale: scale)
+        if renderer?.atlas.generation != rowCacheAtlasGeneration {
+            // The atlas was cleared (it filled up, possibly while building these rows): cached
+            // rows point at glyphs that are gone, so rebuild all of them.
+            rowCache.removeAll()
+            cursor = updateRows(session, scale: scale, forceFull: true)
+        }
+        rowCacheAtlasGeneration = renderer?.atlas.generation ?? 0
 
-        drawCursor(cursor, in: context)
-        drawMarkedText(in: context)
+        var frame = TerminalFrame(clearColor: Self.color(colors.background))
+        frame.rects.reserveCapacity(rowCache.reduce(0) { $0 + $1.rects.count })
+        frame.glyphs.reserveCapacity(rowCache.reduce(0) { $0 + $1.glyphs.count })
+        for row in rowCache {
+            frame.rects += row.rects
+            frame.glyphs += row.glyphs
+        }
+        addCursor(cursor, to: &frame, scale: scale)
+        addMarkedText(to: &frame, scale: scale)
+        return frame
+    }
+
+    private func font(_ index: Int) -> NSFont {
+        switch index {
+        case 1: boldFont
+        case 2: italicFont
+        case 3: boldItalicFont
+        default: font
+        }
+    }
+
+    /// A glyph instance for `text` drawn in the cell at (column, row).
+    private func glyphInstance(_ text: String, fontIndex: Int, column: CGFloat, row: Int, color: SIMD4<Float>,
+                               scale: CGFloat) -> GlyphInstance? {
+        guard let renderer,
+              let glyph = renderer.atlas.glyph(text, font: font(fontIndex), fontIndex: fontIndex, scale: scale)
+        else { return nil }
+        let x = Float(((Self.padding + column * cellWidth) * scale).rounded())
+        let baselineY = Float(((Self.padding + CGFloat(row) * cellHeight + baseline) * scale).rounded())
+        return GlyphInstance(origin: SIMD2(x, baselineY) + glyph.offset, size: glyph.size, uvOrigin: glyph.uvOrigin,
+                             uvSize: glyph.size, color: color, isColor: glyph.isColor)
+    }
+
+    private func rectInstance(_ rect: CGRect, color: SIMD4<Float>, scale: CGFloat) -> RectInstance {
+        let minX = (rect.minX * scale).rounded(), minY = (rect.minY * scale).rounded()
+        return RectInstance(origin: SIMD2(Float(minX), Float(minY)),
+                            size: SIMD2(Float((rect.maxX * scale).rounded() - minX), Float((rect.maxY * scale).rounded() - minY)),
+                            color: color)
+    }
+
+    private func cellRect(column: Int, row: Int, span: Int = 1) -> CGRect {
+        CGRect(x: Self.padding + CGFloat(column) * cellWidth, y: Self.padding + CGFloat(row) * cellHeight,
+               width: CGFloat(span) * cellWidth, height: cellHeight)
     }
 
     /// Text being composed by an input method (e.g. Japanese, dead keys), drawn over the cursor.
-    private func drawMarkedText(in context: CGContext) {
+    private func addMarkedText(to frame: inout TerminalFrame, scale: CGFloat) {
         guard !markedText.isEmpty else { return }
-        let attributed = NSAttributedString(string: markedText, attributes: [
-            .font: font, .foregroundColor: NSColor(cgColor: cgColor(colors.foreground)) ?? .textColor,
-        ])
-        let line = CTLineCreateWithAttributedString(attributed)
-        let width = max(cellWidth, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-        let rect = CGRect(x: cursorRect.minX, y: cursorRect.minY, width: width, height: cellHeight)
-        context.setFillColor(cgColor(colors.background))
-        context.fill(rect)
-        context.textPosition = CGPoint(x: rect.minX, y: rect.minY + baseline)
-        CTLineDraw(line, context)
-        context.setFillColor(cgColor(colors.foreground))
-        context.fill(CGRect(x: rect.minX, y: rect.minY + baseline + 2, width: width, height: 1))
+        let foreground = Self.color(colors.foreground)
+        var advance: CGFloat = 0
+        var glyphs: [GlyphInstance] = []
+        let row = Int(((cursorRect.minY - Self.padding) / cellHeight).rounded())
+        let startColumn = (cursorRect.minX - Self.padding) / cellWidth
+        for character in markedText {
+            let text = String(character)
+            if let glyph = glyphInstance(text, fontIndex: 0, column: startColumn + advance / cellWidth, row: row,
+                                         color: foreground, scale: scale) {
+                glyphs.append(glyph)
+            }
+            let width = (text as NSString).size(withAttributes: [.font: font]).width
+            advance += max(cellWidth, (width / cellWidth).rounded() * cellWidth)
+        }
+        let rect = CGRect(x: cursorRect.minX, y: cursorRect.minY, width: max(cellWidth, advance), height: cellHeight)
+        frame.overlayRects.append(rectInstance(rect, color: Self.color(colors.background), scale: scale))
+        frame.overlayRects.append(rectInstance(CGRect(x: rect.minX, y: rect.minY + baseline + 2, width: rect.width, height: 1),
+                                               color: foreground, scale: scale))
+        frame.overlayGlyphs += glyphs
     }
 
     /// Pulls the latest state from the terminal and rebuilds cached rows Ghostty marks dirty.
-    private func updateRows(_ session: TerminalSession) -> GhosttyRenderStateCursor {
+    private func updateRows(_ session: TerminalSession, scale: CGFloat, forceFull: Bool = false) -> GhosttyRenderStateCursor {
         let state = session.renderState
         ghostty_render_state_update(state, session.terminal)
 
@@ -241,7 +351,7 @@ final class TerminalView: NSView {
         cursor.size = MemoryLayout<GhosttyRenderStateCursor>.size
         ghostty_render_state_get(state, GHOSTTY_RENDER_STATE_DATA_CURSOR, &cursor)
 
-        let full = dirty == GHOSTTY_RENDER_STATE_DIRTY_FULL || rowCache.count != Int(rows)
+        let full = forceFull || dirty == GHOSTTY_RENDER_STATE_DIRTY_FULL || rowCache.count != Int(rows)
         if full { rowCache = Array(repeating: RowRender(), count: Int(rows)) }
 
         if full || dirty != GHOSTTY_RENDER_STATE_DIRTY_FALSE {
@@ -250,7 +360,7 @@ final class TerminalView: NSView {
             while ghostty_render_state_row_iterator_next(rowIterator), row < rowCache.count {
                 var rowDirty = false
                 ghostty_render_state_row_get(rowIterator, GHOSTTY_RENDER_STATE_ROW_DATA_DIRTY, &rowDirty)
-                if full || rowDirty { rowCache[row] = buildRow() }
+                if full || rowDirty { rowCache[row] = buildRow(row, scale: scale) }
                 row += 1
             }
             ghostty_render_state_clean(state)
@@ -272,7 +382,9 @@ final class TerminalView: NSView {
         }
     }
 
-    private func buildRow() -> RowRender {
+    /// Geometry for the row the iterator is on: one rect per run of equal background, one
+    /// glyph per non-blank cell, and rects for underlines and strikethroughs.
+    private func buildRow(_ row: Int, scale: CGFloat) -> RowRender {
         var render = RowRender()
         ghostty_render_state_row_get(rowIterator, GHOSTTY_RENDER_STATE_ROW_DATA_CELLS, &rowCells)
 
@@ -281,19 +393,20 @@ final class TerminalView: NSView {
         let hasSelection = ghostty_render_state_row_get(
             rowIterator, GHOSTTY_RENDER_STATE_ROW_DATA_SELECTION, &selection) == GHOSTTY_SUCCESS
 
-        var runStart = 0, runText = "", runStyle: RunStyle?
         var column = 0
         var utf8 = [UInt8](repeating: 0, count: 64)
+        // Pending background run.
+        var backgroundStart = 0
+        var backgroundColor: GhosttyColorRgb?
 
-        func flush(endingAt end: Int) {
-            defer { runText = ""; runStyle = nil }
-            guard let style = runStyle, end > runStart else { return }
-            let isBlank = runText.allSatisfy { $0 == " " }
-            if isBlank && style.background == nil && !style.underline && !style.strikethrough { return }
-            render.runs.append(makeRun(column: runStart, span: end - runStart, text: runText, style: style,
-                                       skipText: isBlank || style.invisible))
+        func flushBackground(endingAt end: Int) {
+            defer { backgroundColor = nil }
+            guard let color = backgroundColor, end > backgroundStart else { return }
+            render.rects.append(rectInstance(cellRect(column: backgroundStart, row: row, span: end - backgroundStart),
+                                             color: Self.color(color), scale: scale))
         }
 
+        var decorations: [RectInstance] = []
         while ghostty_render_state_row_cells_next(rowCells) {
             defer { column += 1 }
             var raw = GhosttyCell()
@@ -302,7 +415,8 @@ final class TerminalView: NSView {
             ghostty_cell_get(raw, GHOSTTY_CELL_DATA_WIDE, &wide)
             if wide == GHOSTTY_CELL_WIDE_SPACER_TAIL || wide == GHOSTTY_CELL_WIDE_SPACER_HEAD {
                 render.cells.append("")
-                continue
+                render.fonts.append(0)
+                continue // covered by the wide cell before it
             }
 
             var text = " "
@@ -316,28 +430,43 @@ final class TerminalView: NSView {
                 return buffer.len
             }
             if written > 0 { text = String(decoding: utf8[..<written], as: UTF8.self) }
-            render.cells.append(text)
 
             var style = cellStyle()
             if hasSelection, column >= Int(selection.start_x), column <= Int(selection.end_x) {
                 style.background = selectionColor
             }
+            let span = wide == GHOSTTY_CELL_WIDE_WIDE ? 2 : 1
+            let fontIndex = (style.bold ? 1 : 0) + (style.italic ? 2 : 0)
+            render.cells.append(text)
+            render.fonts.append(fontIndex)
 
-            if wide == GHOSTTY_CELL_WIDE_WIDE {
-                flush(endingAt: column)
-                runStart = column; runText = text; runStyle = style
-                flush(endingAt: column + 2)
-                runStart = column + 2
-                continue
+            let sameBackground = backgroundColor.map { current in
+                style.background.map { $0.r == current.r && $0.g == current.g && $0.b == current.b } ?? false
+            } ?? (style.background == nil)
+            if !sameBackground {
+                flushBackground(endingAt: column)
+                backgroundStart = column
+                backgroundColor = style.background
             }
-            if runStyle != style {
-                flush(endingAt: column)
-                runStart = column
-                runStyle = style
+
+            let foreground = Self.color(style.foreground, alpha: style.faint ? 0.5 : 1)
+            if !style.invisible, !text.allSatisfy({ $0 == " " }),
+               let glyph = glyphInstance(text, fontIndex: fontIndex, column: CGFloat(column), row: row,
+                                         color: foreground, scale: scale) {
+                render.glyphs.append(glyph)
             }
-            runText += text
+            let cell = cellRect(column: column, row: row, span: span)
+            if style.underline {
+                decorations.append(rectInstance(CGRect(x: cell.minX, y: cell.minY + baseline + 2, width: cell.width, height: 1),
+                                                color: foreground, scale: scale))
+            }
+            if style.strikethrough {
+                decorations.append(rectInstance(CGRect(x: cell.minX, y: cell.minY + baseline - font.xHeight / 2,
+                                                       width: cell.width, height: 1), color: foreground, scale: scale))
+            }
         }
-        flush(endingAt: column)
+        flushBackground(endingAt: column)
+        render.rects += decorations // over the backgrounds
         return render
     }
 
@@ -381,54 +510,41 @@ final class TerminalView: NSView {
         return style
     }
 
-    private func makeRun(column: Int, span: Int, text: String, style: RunStyle, skipText: Bool) -> Run {
-        let foreground = cgColor(style.foreground, alpha: style.faint ? 0.5 : 1)
-        var line: CTLine?
-        if !skipText {
-            let runFont = style.bold ? (style.italic ? boldItalicFont : boldFont) : (style.italic ? italicFont : font)
-            let attributed = NSAttributedString(string: text, attributes: [
-                .font: runFont, .foregroundColor: NSColor(cgColor: foreground) ?? .textColor,
-            ])
-            line = CTLineCreateWithAttributedString(attributed)
-        }
-        return Run(column: column, span: span, line: line, background: style.background.map { cgColor($0) },
-                   foreground: foreground, underline: style.underline, strikethrough: style.strikethrough)
-    }
-
-    private func drawCursor(_ cursor: GhosttyRenderStateCursor, in context: CGContext) {
+    private func addCursor(_ cursor: GhosttyRenderStateCursor, to frame: inout TerminalFrame, scale: CGFloat) {
         guard cursor.visible, cursor.viewport_has_value, Int(cursor.viewport_y) < rowCache.count else { return }
-        let color = cgColor(colors.cursor_has_value ? colors.cursor : colors.foreground)
-        let rect = CGRect(x: Self.padding + CGFloat(cursor.viewport_x) * cellWidth,
-                          y: Self.padding + CGFloat(cursor.viewport_y) * cellHeight,
-                          width: cellWidth, height: cellHeight)
+        let color = Self.color(colors.cursor_has_value ? colors.cursor : colors.foreground)
+        let row = Int(cursor.viewport_y), column = Int(cursor.viewport_x)
+        let rect = cellRect(column: column, row: row)
         cursorRect = rect
         if !markedText.isEmpty { return } // the composition is drawn there instead
-        let focused = window?.firstResponder === self && window?.isKeyWindow == true
-        context.setFillColor(color)
-        context.setStrokeColor(color)
+        let focused = focusOverride ?? (window?.firstResponder === self && window?.isKeyWindow == true)
 
-        if !focused {
-            context.stroke(rect.insetBy(dx: 0.5, dy: 0.5), width: 1)
-            return
+        func outline() {
+            for edge in [CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: 1),
+                         CGRect(x: rect.minX, y: rect.maxY - 1, width: rect.width, height: 1),
+                         CGRect(x: rect.minX, y: rect.minY, width: 1, height: rect.height),
+                         CGRect(x: rect.maxX - 1, y: rect.minY, width: 1, height: rect.height)] {
+                frame.overlayRects.append(rectInstance(edge, color: color, scale: scale))
+            }
         }
+        guard focused else { outline(); return }
         switch cursor.visual_style {
         case GHOSTTY_CURSOR_STYLE_BAR:
-            context.fill(CGRect(x: rect.minX, y: rect.minY, width: 2, height: rect.height))
+            frame.overlayRects.append(rectInstance(CGRect(x: rect.minX, y: rect.minY, width: 2, height: rect.height),
+                                                   color: color, scale: scale))
         case GHOSTTY_CURSOR_STYLE_UNDERLINE:
-            context.fill(CGRect(x: rect.minX, y: rect.maxY - 2, width: rect.width, height: 2))
+            frame.overlayRects.append(rectInstance(CGRect(x: rect.minX, y: rect.maxY - 2, width: rect.width, height: 2),
+                                                   color: color, scale: scale))
         case GHOSTTY_CURSOR_STYLE_BLOCK_HOLLOW:
-            context.stroke(rect.insetBy(dx: 0.5, dy: 0.5), width: 1)
+            outline()
         default:
-            context.fill(rect)
-            // Redraw the character under the block in the background color.
-            let cells = rowCache[Int(cursor.viewport_y)].cells
-            let column = Int(cursor.viewport_x)
-            if column < cells.count, !cells[column].trimmingCharacters(in: .whitespaces).isEmpty {
-                let attributed = NSAttributedString(string: cells[column], attributes: [
-                    .font: font, .foregroundColor: NSColor(cgColor: cgColor(colors.background)) ?? .black,
-                ])
-                context.textPosition = CGPoint(x: rect.minX, y: rect.minY + baseline)
-                CTLineDraw(CTLineCreateWithAttributedString(attributed), context)
+            frame.overlayRects.append(rectInstance(rect, color: color, scale: scale))
+            // The character under the block, in the background color.
+            let cells = rowCache[row].cells
+            if column < cells.count, !cells[column].trimmingCharacters(in: .whitespaces).isEmpty,
+               let glyph = glyphInstance(cells[column], fontIndex: rowCache[row].fonts[column], column: CGFloat(column),
+                                         row: row, color: Self.color(colors.background), scale: scale) {
+                frame.overlayGlyphs.append(glyph)
             }
         }
     }
