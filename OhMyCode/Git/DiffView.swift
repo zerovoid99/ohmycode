@@ -26,6 +26,14 @@ final class DiffSession: Identifiable {
     /// HEAD had no such file (a newly added one).
     private(set) var isNewFile = false
     private(set) var isLoaded = false
+    /// Bumped when the staged mode's HEAD or index text changes.
+    private(set) var stagedVersion = 0
+
+    /// Syntax colors per line of each side, and the content versions they were made for.
+    private(set) var baseSpans: [[LineSpan]]?
+    private(set) var currentSpans: [[LineSpan]]?
+    private var baseSpansVersion: Int?
+    private var currentSpansVersion: Int?
 
     init(document: EditorDocument, ownsDocument: Bool) {
         mode = .workingTree
@@ -52,11 +60,41 @@ final class DiffSession: Identifiable {
     var currentLines: [Substring] {
         if mode == .staged { return indexLines ?? [] }
         guard let document else { return [] }
-        _ = document.diffHunks // re-read the text when the hunks change
+        _ = document.diffTextVersion // re-read the text when it was diffed again
         return LineDiff.lines(document.textStorage.mutableString as String)
     }
 
     var hunks: [DiffHunk] { mode == .staged ? stagedHunks : document?.diffHunks ?? [] }
+
+    var baseVersion: Int { mode == .staged ? stagedVersion : document?.diffBaseVersion ?? 0 }
+    var currentVersion: Int { mode == .staged ? stagedVersion : document?.diffTextVersion ?? 0 }
+
+    /// Colors the sides whose text changed since they were last colored. Old colors stay up
+    /// until the new ones are ready (spans past a line's end are skipped when drawing).
+    func refreshHighlights() async {
+        let language = SourceLanguage(fileExtension: url.pathExtension)
+        let base = baseVersion, current = currentVersion
+        if baseSpansVersion != base, let lines = baseLines {
+            let spans = await DiffSyntax.highlight(lines.joined(separator: "\n"), language: language)
+            guard !Task.isCancelled, base == baseVersion else { return }
+            baseSpans = spans
+            baseSpansVersion = base
+        }
+        if currentSpansVersion != current {
+            let text: String
+            if mode == .staged {
+                guard let lines = indexLines else { return }
+                text = lines.joined(separator: "\n")
+            } else {
+                guard let document else { return }
+                text = document.textStorage.mutableString as String
+            }
+            let spans = await DiffSyntax.highlight(text, language: language)
+            guard !Task.isCancelled, current == currentVersion else { return }
+            currentSpans = spans
+            currentSpansVersion = current
+        }
+    }
 
     func setStaged(head: String?, index: String?) {
         isNewFile = head == nil && index != nil
@@ -66,6 +104,7 @@ final class DiffSession: Identifiable {
         guard headLines != self.headLines || indexLines != self.indexLines else { return }
         self.headLines = headLines
         self.indexLines = indexLines
+        stagedVersion += 1
         stagedHunks = headLines.flatMap { head in indexLines.map { LineDiff.hunks(base: head, current: $0) } } ?? []
     }
 }
@@ -163,7 +202,8 @@ struct DiffView: View {
                                        hunks.indices.contains(hunk) {
                                         hunkBar(hunks[hunk])
                                     }
-                                    DiffRowView(row: row, base: base, current: current, onExpand: {
+                                    DiffRowView(row: row, base: base, current: current,
+                                                baseSpans: session.baseSpans, currentSpans: session.currentSpans, onExpand: {
                                         if let old = row.old { expanded.insert(old) }
                                     })
                                 }
@@ -179,6 +219,9 @@ struct DiffView: View {
             }
         }
         .background(Color(nsColor: EditorTheme.observed.background))
+        .task(id: [session.baseVersion, session.currentVersion]) {
+            await session.refreshHighlights()
+        }
     }
 
     /// Actions for one change, above its lines.
@@ -255,6 +298,8 @@ private struct DiffRowView: View {
     let row: DiffRow
     let base: [Substring]
     let current: [Substring]
+    let baseSpans: [[LineSpan]]?
+    let currentSpans: [[LineSpan]]?
     let onExpand: () -> Void
 
     var body: some View {
@@ -269,26 +314,37 @@ private struct DiffRowView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
         } else {
+            let oldText = text(row.old, base), newText = text(row.new, current)
+            // A changed line pair: mark the words that differ, more strongly than the line.
+            let words = row.kind == .changed ? WordDiff.changes(old: oldText ?? "", new: newText ?? "") : (old: [], new: [])
             HStack(spacing: 0) {
-                side(line: row.old, lines: base, tint: row.kind == .removed || row.kind == .changed ? .red : nil)
+                side(line: row.old, text: oldText, spans: baseSpans, words: words.old,
+                     tint: row.kind == .removed || row.kind == .changed ? .red : nil)
                 Divider()
-                side(line: row.new, lines: current, tint: row.kind == .added || row.kind == .changed ? .green : nil)
+                side(line: row.new, text: newText, spans: currentSpans, words: words.new,
+                     tint: row.kind == .added || row.kind == .changed ? .green : nil)
             }
+            // Long lines wrap (so every change is visible); both sides take the taller height.
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func side(line: Int?, lines: [Substring], tint: Color?) -> some View {
-        HStack(spacing: 6) {
+    private func text(_ line: Int?, _ lines: [Substring]) -> String? {
+        line.flatMap { lines.indices.contains($0) ? String(lines[$0]) : nil }
+    }
+
+    private func side(line: Int?, text: String?, spans: [[LineSpan]]?, words: [NSRange], tint: Color?) -> some View {
+        let lineSpans = line.flatMap { spans?.indices.contains($0) == true ? spans?[$0] : nil }
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(line.map { String($0 + 1) } ?? "")
                 .foregroundStyle(.secondary)
                 .frame(width: 44, alignment: .trailing)
-            Text(line.flatMap { lines.indices.contains($0) ? String(lines[$0]) : nil } ?? "")
-                .foregroundStyle(Color(nsColor: EditorTheme.observed.foreground))
-                .lineLimit(1)
+            Text(DiffLineStyle.attributed(text ?? "", spans: lineSpans, words: words, wordTint: tint?.opacity(0.4)))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .font(Font(EditorTheme.font))
         .padding(.vertical, 1)
-        .background(line == nil ? Color.secondary.opacity(0.06) : (tint?.opacity(0.18) ?? .clear))
+        .background(line == nil ? Color.secondary.opacity(0.06) : (tint?.opacity(0.15) ?? .clear))
     }
 }

@@ -97,6 +97,9 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored private(set) var diffBaseLines: [Substring]?
     /// Bumped when the diff base changes (staging, committing), for the diff view.
     private(set) var diffBaseVersion = 0
+    /// Bumped with every diff of new text (even when the hunks come out the same, e.g. after
+    /// typing inside an already changed line), so diff views re-read the text.
+    private(set) var diffTextVersion = 0
     @ObservationIgnored private var diffTask: Task<Void, Never>?
     /// Set when the file changed on disk while there were unsaved edits.
     private(set) var hasExternalChanges = false
@@ -311,7 +314,8 @@ final class EditorDocument: Identifiable {
                 LineDiff.hunks(base: base, current: LineDiff.lines(text))
             }.value
             guard !Task.isCancelled else { return }
-            diffHunks = hunks
+            if diffHunks != hunks { diffHunks = hunks }
+            diffTextVersion += 1
             diffMarkers = LineDiff.markers(for: hunks)
             redrawGutters()
         }
