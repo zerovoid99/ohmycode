@@ -117,6 +117,13 @@ final class Workspace {
     private(set) var stashFiles: [String: [StashFile]] = [:]
     /// Local and remote branches, read when the branch picker opens.
     private(set) var branches: [GitBranch]?
+    /// The repository's worktrees, once read (see `loadWorktrees`).
+    private(set) var worktrees: [GitWorktree]?
+    /// Tests answer this instead of the worktree dialog: given the branch (nil: a new branch
+    /// from HEAD) and the suggested folder, the folder and the new branch's name (nil cancels).
+    @ObservationIgnored var worktreePrompt: ((GitBranch?, String) -> (path: String, newBranch: String?)?)?
+    /// Opens a folder in a new window (set by the window; tests record the folder).
+    @ObservationIgnored var openInNewWindow: ((URL) -> Void)?
     /// The repository's remotes, once read (see `loadRemotes`).
     private(set) var remotes: [GitRemote]?
     /// Tests answer this instead of the remote dialog: a name and URL, given the remote being
@@ -192,6 +199,7 @@ final class Workspace {
         gitStatus = nil
         gitRepository = nil
         remotes = nil
+        worktrees = nil
         refreshGit()
         languageClients.values.forEach { $0.shutdown() }
         languageClients.removeAll()
@@ -601,19 +609,30 @@ final class Workspace {
     }
 
     private func runGit(_ operation: @escaping @Sendable (Git.Repository) throws -> Void) {
-        guard let repository = gitRepository else { return }
+        guard gitRepository != nil else { return }
         isRunningGitCommand = true
-        Task {
-            do {
-                try await Task.detached { try operation(repository) }.value
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-            isRunningGitCommand = false
-            refreshGit()
-            if branches != nil { await loadBranches() }
-            if remotes != nil { await loadRemotes() }
+        Task { await performGit(operation) }
+    }
+
+    /// Runs a git command off the main thread, shows its error, then reads the state again.
+    /// Returns whether it succeeded.
+    @discardableResult
+    private func performGit(_ operation: @escaping @Sendable (Git.Repository) throws -> Void) async -> Bool {
+        guard let repository = gitRepository else { return false }
+        isRunningGitCommand = true
+        var succeeded = true
+        do {
+            try await Task.detached { try operation(repository) }.value
+        } catch {
+            errorMessage = error.localizedDescription
+            succeeded = false
         }
+        isRunningGitCommand = false
+        refreshGit()
+        if branches != nil { await loadBranches() }
+        if remotes != nil { await loadRemotes() }
+        if worktrees != nil { await loadWorktrees() }
+        return succeeded
     }
 
     func gitStatus(for url: URL, isDirectory: Bool) -> GitFileStatus? {
@@ -837,6 +856,103 @@ final class Workspace {
     func openCommit(_ commit: RepoCommit, file: CommitFile) -> DiffSession? {
         guard let top = repositoryRootURL else { return nil }
         return openCommit(commit.change(to: file), for: top.appending(path: file.path))
+    }
+
+    // MARK: Worktrees
+
+    func loadWorktrees() async {
+        guard let repository = gitRepository else { worktrees = nil; return }
+        worktrees = await Task.detached(priority: .userInitiated) { Git.worktrees(in: repository) }.value ?? []
+    }
+
+    /// Whether a worktree is the one this window shows.
+    func isCurrent(_ worktree: GitWorktree) -> Bool {
+        repositoryRootURL.map(worktree.isAt) ?? false
+    }
+
+    /// Checks `branch` out in a new worktree (nil: a new branch from HEAD), asking where, then
+    /// opens it in a new window. A remote branch gets a local branch tracking it.
+    func createWorktree(for branch: GitBranch?) async {
+        guard let top = repositoryRootURL else { return }
+        let suggestedBranch = branch?.localName ?? ""
+        let folderName = top.lastPathComponent + "-" + (suggestedBranch.isEmpty ? "worktree" : suggestedBranch)
+            .replacingOccurrences(of: "/", with: "-")
+        let suggested = top.deletingLastPathComponent().appending(path: folderName).path
+        guard let answer = worktreePrompt.map({ $0(branch, suggested) }) ?? promptForWorktree(branch, suggestedPath: suggested)
+        else { return }
+        let path = (answer.path.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).expandingTildeInPath
+        let newBranch = answer.newBranch?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty, newBranch?.isEmpty != true else { return }
+        let hasLocal = branch.map { b in !b.isRemote || (branches ?? []).contains { !$0.isRemote && $0.name == b.localName } } ?? false
+        let succeeded = await performGit { repository in
+            if let branch, hasLocal {
+                try Git.addWorktree(at: path, branch: branch.isRemote ? branch.localName : branch.name, newBranch: nil,
+                                    track: false, in: repository)
+            } else if let branch {
+                try Git.addWorktree(at: path, branch: branch.name, newBranch: branch.localName, track: true, in: repository)
+            } else {
+                try Git.addWorktree(at: path, branch: nil, newBranch: newBranch, track: false, in: repository)
+            }
+        }
+        if succeeded { openInNewWindow?(URL(filePath: path, directoryHint: .isDirectory)) }
+    }
+
+    func openWorktree(_ worktree: GitWorktree) {
+        openInNewWindow?(worktree.url)
+    }
+
+    /// Removes a worktree and its folder (the branch stays). Changes not committed there are
+    /// asked about before they're thrown away.
+    func removeWorktree(_ worktree: GitWorktree) async {
+        guard !isCurrent(worktree), !worktree.isBare,
+              confirm("Remove the worktree “\(worktree.name)”? Its folder is deleted; "
+                      + (worktree.branch.map { "the branch \($0) stays." } ?? "its detached commit stays in the history."))
+        else { return }
+        guard let repository = gitRepository else { return }
+        isRunningGitCommand = true
+        do {
+            try await Task.detached { try Git.removeWorktree(at: worktree.path, force: false, in: repository) }.value
+            isRunningGitCommand = false
+            refreshGit()
+            await loadWorktrees()
+        } catch {
+            isRunningGitCommand = false
+            // Uncommitted changes (or a lock) stop git: ask before forcing.
+            if confirm("“\(worktree.name)” has changes that aren't committed (or is locked). Remove it anyway? "
+                       + "Those changes are lost.") {
+                await performGit { try Git.removeWorktree(at: worktree.path, force: true, in: $0) }
+            }
+        }
+    }
+
+    private func promptForWorktree(_ branch: GitBranch?, suggestedPath: String) -> (path: String, newBranch: String?)? {
+        let alert = NSAlert()
+        alert.messageText = branch.map { "Open \($0.name) in a New Worktree" } ?? "New Worktree"
+        alert.informativeText = (branch == nil ? "A new branch from the current commit, " : "The branch ")
+            + "checked out in its own folder and opened in a new window."
+        let name = NSTextField(string: "")
+        name.placeholderString = "new-branch"
+        let path = NSTextField(string: suggestedPath)
+        path.placeholderString = "Folder"
+        let fields = branch == nil ? [name, path] : [path]
+        let stack = NSStackView(views: fields)
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.frame = NSRect(x: 0, y: 0, width: 360, height: CGFloat(fields.count) * 24 + CGFloat(fields.count - 1) * 8)
+        for field in fields { field.widthAnchor.constraint(equalToConstant: 360).isActive = true }
+        alert.accessoryView = stack
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = fields[0]
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        guard branch == nil else { return (path.stringValue, nil) }
+        // Left as suggested: name the folder after the new branch.
+        var folder = path.stringValue
+        let branchName = name.stringValue.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-")
+        if folder == suggestedPath, !branchName.isEmpty, folder.hasSuffix("-worktree") {
+            folder = String(folder.dropLast("worktree".count)) + branchName
+        }
+        return (folder, name.stringValue)
     }
 
     // MARK: Comparing refs

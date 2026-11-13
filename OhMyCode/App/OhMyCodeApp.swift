@@ -16,6 +16,15 @@ struct OhMyCodeApp: App {
             WorkspaceCommands()
         }
 
+        // A folder opened from inside a window (a worktree, a submodule). Not restored at
+        // launch, like the windows above.
+        WindowGroup("Folder", id: RootView.folderWindowID, for: URL.self) { $folder in
+            RootView(folder: folder)
+                .frame(minWidth: 800, minHeight: 500)
+        }
+        .windowToolbarStyle(.unified(showsTitle: true))
+        .restorationBehavior(.disabled)
+
         Settings {
             SettingsView()
         }
@@ -24,7 +33,11 @@ struct OhMyCodeApp: App {
 
 /// One `Workspace` per window, like a VS Code window.
 struct RootView: View {
+    static let folderWindowID = "folder"
+    /// The folder to open (a window opened for one).
+    var folder: URL?
     @State private var workspace = Workspace()
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Group {
@@ -46,6 +59,10 @@ struct RootView: View {
             }
         }
         .focusedSceneValue(\.workspace, workspace)
+        .task {
+            workspace.openInNewWindow = { url in openWindow(id: RootView.folderWindowID, value: url) }
+            if let folder, workspace.rootURL == nil { workspace.openFolder(folder) }
+        }
         .alert(
             "Error",
             isPresented: Binding(

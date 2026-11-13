@@ -158,6 +158,10 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.gitRepository != nil }, perform: { workspace in
                            Task { @MainActor in await workspace.loadRemotes(); workspace.addRemote() }
                        }),
+        PaletteCommand(id: "git.createWorktree", title: "Git: Create Worktree…", icon: "folder.badge.plus", shortcut: nil,
+                       isAvailable: { $0.gitStatus?.hasCommits == true }, perform: { workspace in
+                           Task { @MainActor in await workspace.createWorktree(for: nil) }
+                       }),
         PaletteCommand(id: "git.compare", title: "Git: Compare Branches…", icon: "arrow.left.arrow.right", shortcut: nil,
                        isAvailable: { $0.gitStatus?.hasCommits == true }, perform: { workspace in
                            workspace.sidebarMode = .history

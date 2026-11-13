@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Source Control sidebar: commit message, staged and unstaged changes with per-file actions.
@@ -83,6 +84,19 @@ struct SourceControlView: View {
                             }
                         }
                     }
+                    if let worktrees = workspace.worktrees, worktrees.count > 1 {
+                        Section {
+                            ForEach(worktrees) { worktree in
+                                WorktreeRow(workspace: workspace, worktree: worktree)
+                            }
+                        } header: {
+                            sectionHeader("Worktrees", count: worktrees.count) {
+                                Button("New Worktree…", systemImage: "plus") { Task { await workspace.createWorktree(for: nil) } }
+                                    .help("A new branch from the current commit, in its own folder")
+                                    .disabled(workspace.isRunningGitCommand)
+                            }
+                        }
+                    }
                     if !workspace.stashes.isEmpty || !status.changes.isEmpty {
                         Section {
                             ForEach(workspace.stashes) { stash in
@@ -115,6 +129,7 @@ struct SourceControlView: View {
             }
             .padding(.horizontal, 8)
             .padding(.top, 4)
+            .task(id: workspace.rootURL) { await workspace.loadWorktrees() }
         } else {
             ContentUnavailableView("No Repository", systemImage: "arrow.triangle.branch",
                                    description: Text("This folder isn't in a git repository."))
@@ -197,6 +212,60 @@ private struct ChangeRow: View {
             }
         }
         .help("\(change.path) — \(status?.label ?? "")")
+    }
+}
+
+/// A worktree: its branch and folder; open it in its own window or remove it.
+private struct WorktreeRow: View {
+    let workspace: Workspace
+    let worktree: GitWorktree
+    @State private var isHovering = false
+
+    var body: some View {
+        let isCurrent = workspace.isCurrent(worktree)
+        HStack(spacing: 6) {
+            Image(systemName: isCurrent ? "checkmark.circle.fill" : "folder")
+                .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(worktree.branch ?? (worktree.isBare ? "(bare)" : "Detached \(worktree.head.map { String($0.prefix(7)) } ?? "")"))
+                    .fontWeight(isCurrent ? .semibold : .regular)
+                    .lineLimit(1)
+                Text((worktree.path as NSString).abbreviatingWithTildeInPath)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+            Spacer(minLength: 4)
+            if worktree.isPrunable {
+                Text("missing").font(.caption2).foregroundStyle(.red)
+            } else if worktree.isLocked {
+                Image(systemName: "lock").font(.caption).foregroundStyle(.secondary)
+            }
+            if isHovering && !isCurrent && !worktree.isBare {
+                Button("Open", systemImage: "macwindow") { workspace.openWorktree(worktree) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("Open in a new window")
+                    .disabled(worktree.isPrunable)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("Open in New Window") { workspace.openWorktree(worktree) }
+                .disabled(isCurrent || worktree.isBare || worktree.isPrunable)
+            Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([worktree.url]) }
+                .disabled(worktree.isPrunable)
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(worktree.path, forType: .string)
+            }
+            Divider()
+            Button("Remove Worktree…", role: .destructive) { Task { await workspace.removeWorktree(worktree) } }
+                .disabled(isCurrent || worktree.isBare)
+        }
+        .help(isCurrent ? "\(worktree.path) — this window" : worktree.path)
     }
 }
 

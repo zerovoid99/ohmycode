@@ -593,6 +593,28 @@ enum Git {
         return RepoCommit.parseLog(output).first
     }
 
+    // MARK: Worktrees
+
+    static func worktrees(in repository: Repository) -> [GitWorktree]? {
+        guard let output = run(["worktree", "list", "--porcelain"], in: repository.root) else { return nil }
+        return GitWorktree.parse(output)
+    }
+
+    /// A worktree at `path` on `branch` (a local branch); with `newBranch`, a new branch made
+    /// from `branch` (any commit-ish, or HEAD when nil), tracking it if it's a remote branch.
+    static func addWorktree(at path: String, branch: String?, newBranch: String?, track: Bool, in repository: Repository) throws {
+        var arguments = ["worktree", "add"]
+        if let newBranch { arguments += (track ? ["--track"] : []) + ["-b", newBranch] }
+        arguments.append(path)
+        if let branch { arguments.append(branch) }
+        try check(arguments, in: repository.root)
+    }
+
+    /// Removes a worktree and its folder; `force` also throws away its uncommitted changes.
+    static func removeWorktree(at path: String, force: Bool, in repository: Repository) throws {
+        try check(["worktree", "remove"] + (force ? ["--force"] : []) + [path], in: repository.root)
+    }
+
     // MARK: Comparing
 
     /// The commit a name (branch, tag, hash) resolves to.
@@ -712,6 +734,51 @@ enum Git {
     }
 }
 
+
+/// A working tree of the repository (`git worktree list`): the main one and any added.
+struct GitWorktree: Sendable, Hashable, Identifiable {
+    let path: String
+    let head: String?
+    /// The branch checked out ("main"); nil when detached or bare.
+    let branch: String?
+    let isBare: Bool
+    let isLocked: Bool
+    /// Its folder is gone: `git worktree prune` would forget it.
+    let isPrunable: Bool
+
+    var id: String { path }
+    var url: URL { URL(filePath: path, directoryHint: .isDirectory) }
+    var name: String { (path as NSString).lastPathComponent }
+
+    /// Whether this is the worktree at `url` (symlinks resolved: /var is /private/var).
+    func isAt(_ url: URL) -> Bool {
+        URL(filePath: path).resolvingSymlinksInPath().standardizedFileURL.path
+            == url.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    /// Parses `git worktree list --porcelain`: blocks of "worktree <path>", "HEAD <sha>",
+    /// "branch refs/heads/<name>" or "detached", "bare", "locked", "prunable".
+    static func parse(_ data: Data) -> [GitWorktree] {
+        String(decoding: data, as: UTF8.self).components(separatedBy: "\n\n").compactMap { block in
+            var path: String?, head: String?, branch: String?
+            var bare = false, locked = false, prunable = false
+            for line in block.split(separator: "\n") {
+                let parts = line.split(separator: " ", maxSplits: 1)
+                let value = parts.count > 1 ? String(parts[1]) : ""
+                switch parts.first {
+                case "worktree": path = value
+                case "HEAD": head = value
+                case "branch": branch = value.hasPrefix("refs/heads/") ? String(value.dropFirst(11)) : value
+                case "bare": bare = true
+                case "locked": locked = true
+                case "prunable": prunable = true
+                default: break
+                }
+            }
+            return path.map { GitWorktree(path: $0, head: head, branch: branch, isBare: bare, isLocked: locked, isPrunable: prunable) }
+        }
+    }
+}
 
 /// Two commits (or branches, tags) compared: the files that differ and how far apart they are.
 struct RefComparison: Sendable, Equatable {

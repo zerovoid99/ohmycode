@@ -198,6 +198,12 @@ struct BranchPicker: View {
         }
         .disabled(branch.isCurrent)
         .help("What \(branch.name) changed since it diverged from \(current)")
+        Button("Open in New Worktree…") {
+            dismiss()
+            Task { await workspace.createWorktree(for: branch) }
+        }
+        .disabled(branch.isCurrent)
+        .help("Check \(branch.name) out in its own folder and open it in a new window")
         if !branch.isRemote {
             Divider()
             Button("Rename…") { dismiss(); workspace.renameBranch(branch) }
