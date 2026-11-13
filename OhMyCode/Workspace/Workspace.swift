@@ -1596,6 +1596,36 @@ final class Workspace {
         }
     }
 
+    /// Tests answer this instead of the folder dialog: where the new extension's folder goes.
+    @ObservationIgnored var extensionFolderChooser: (() -> URL?)?
+
+    /// Asks for a name and a place, writes a Hello World extension there, installs it for
+    /// development and opens its folder in a new window.
+    @discardableResult
+    func createExtension() async -> URL? {
+        guard let name = await showInputBox(prompt: "Name of the new extension", value: "", placeholder: "My Extension"),
+              !ExtensionScaffold.slug(name).isEmpty else { return nil }
+        let parent = extensionFolderChooser.map { $0() } ?? {
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = true
+            panel.canChooseFiles = false
+            panel.canCreateDirectories = true
+            panel.message = "Choose where to create the “\(ExtensionScaffold.slug(name))” folder"
+            panel.prompt = "Create Here"
+            return panel.runModal() == .OK ? panel.url : nil
+        }()
+        guard let parent else { return nil }
+        do {
+            let folder = try ExtensionScaffold.create(named: name, in: parent)
+            try extensions.store.install(from: folder, development: true)
+            openInNewWindow?(folder)
+            return folder
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     func uninstallExtension(_ instance: ExtensionInstance) {
         guard confirm("Uninstall \(instance.manifest.name)? Its settings and stored data are removed too.") else { return }
         do { try extensions.uninstall(instance) } catch { errorMessage = error.localizedDescription }

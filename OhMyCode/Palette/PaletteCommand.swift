@@ -169,6 +169,10 @@ struct PaletteCommand: Identifiable {
                            workspace.sidebarMode = .history
                            workspace.historyScope = .compare
                        }),
+        PaletteCommand(id: "extensions.new", title: "Extensions: New Extension…", icon: "puzzlepiece.extension", shortcut: nil,
+                       isAvailable: { _ in true }, perform: { workspace in Task { @MainActor in await workspace.createExtension() } }),
+        PaletteCommand(id: "extensions.reload", title: "Extensions: Reload", icon: "arrow.clockwise", shortcut: nil,
+                       isAvailable: { $0.rootURL != nil }, perform: { $0.extensions.reload(restart: true) }),
         PaletteCommand(id: "git.toggleBlameColumn", title: "Git: Toggle Blame Column", icon: "sidebar.leading", shortcut: nil,
                        isAvailable: { $0.activeDocument?.canBlame == true },
                        perform: { $0.activeDocument?.editor?.toggleBlameColumn() }),

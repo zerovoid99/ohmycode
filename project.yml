@@ -46,6 +46,9 @@ targets:
     platform: macOS
     sources:
       - OhMyCode
+      # The API's types, copied into new extensions.
+      - path: ExtensionAPI/omc.d.ts
+        buildPhase: resources
     dependencies:
       - package: SwiftTreeSitter
       - package: TreeSitterSwift

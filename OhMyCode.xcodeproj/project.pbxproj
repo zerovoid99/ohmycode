@@ -70,6 +70,7 @@
 		8C1C0AAC96AD09D8A39F1550 /* FileTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEDEE1E43EDF21D7D2A5757E /* FileTreeView.swift */; };
 		8D626050E0C9D815F9FE72AA /* TerminalShaders.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80C26D0340BB82FFDA82C16 /* TerminalShaders.swift */; };
 		8DE8BE5D6654BDB6C1BF6D03 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A7C9D84FAB6E84ED23CE13AC /* Assets.xcassets */; };
+		8F15DEE9ADBD6D20F2519CE7 /* ExtensionScaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A5EC602708D880A16A0DF15 /* ExtensionScaffold.swift */; };
 		9267627B8BA1FD9BF76D5390 /* GrammarRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56E3DC7C8474D02E52D8006C /* GrammarRegistry.swift */; };
 		942585BEE4EEF986E5D90309 /* SearchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66612AF9070152598AA4295F /* SearchModel.swift */; };
 		97FF6B5EE2650B9504A36866 /* ExtensionRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA039A5FEC0049694AC90B8 /* ExtensionRuntime.swift */; };
@@ -95,6 +96,7 @@
 		BFE8B79D8DAF88B2D284AAD6 /* LineStagingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD30FD882FC57FFB419BED7E /* LineStagingTests.swift */; };
 		C035FCB4F4837E34C99D2CC5 /* EditorGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AEAB765B3B3760AB3F50FEB /* EditorGroup.swift */; };
 		C071EC4F829C75825451FE4E /* EditorTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2206FF6013AF555A1FBEA43 /* EditorTheme.swift */; };
+		C076F2FE5746C22E917921F1 /* omc.d.ts in Resources */ = {isa = PBXBuildFile; fileRef = 7672D1FC4CF85357F7A1742C /* omc.d.ts */; };
 		C11A915502F00B69F6404D82 /* GhosttyVt in Frameworks */ = {isa = PBXBuildFile; productRef = BF9B24B704EAD6FBB80164E7 /* GhosttyVt */; };
 		C14352D19633B543E83FAF76 /* HunkPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8E5167B549E6D5354AE1D47 /* HunkPopoverView.swift */; };
 		C1B812E94CAE7B6150426CB0 /* TerminalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 062545FE7797841B1F4B7A4A /* TerminalTests.swift */; };
@@ -195,9 +197,11 @@
 		71D369325866CC9B5DF7B9EA /* TabDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabDrag.swift; sourceTree = "<group>"; };
 		73427E6EBCAD9D4E1BB0530F /* InteractiveRebaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveRebaseTests.swift; sourceTree = "<group>"; };
 		761D7DD6B19C1B92A0D77DE6 /* SplitEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitEditorTests.swift; sourceTree = "<group>"; };
+		7672D1FC4CF85357F7A1742C /* omc.d.ts */ = {isa = PBXFileReference; path = omc.d.ts; sourceTree = "<group>"; };
 		7828EF22F88C26490D76FA27 /* BlameCommitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlameCommitTests.swift; sourceTree = "<group>"; };
 		796D31D35763D8DDD9A8020B /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
 		7A2EB4BF7034731316A9A0A0 /* LanguageFeatureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageFeatureTests.swift; sourceTree = "<group>"; };
+		7A5EC602708D880A16A0DF15 /* ExtensionScaffold.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionScaffold.swift; sourceTree = "<group>"; };
 		7AA039A5FEC0049694AC90B8 /* ExtensionRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionRuntime.swift; sourceTree = "<group>"; };
 		7AEAB765B3B3760AB3F50FEB /* EditorGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGroup.swift; sourceTree = "<group>"; };
 		7BEF6C21AB1D74F6DA6032B5 /* LSPTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LSPTypes.swift; sourceTree = "<group>"; };
@@ -337,6 +341,14 @@
 			path = Workspace;
 			sourceTree = "<group>";
 		};
+		5DDF5B6E6CF490D4707B9B57 /* ExtensionAPI */ = {
+			isa = PBXGroup;
+			children = (
+				7672D1FC4CF85357F7A1742C /* omc.d.ts */,
+			);
+			path = ExtensionAPI;
+			sourceTree = "<group>";
+		};
 		61EE32452D48C8EBCC38D724 /* Views */ = {
 			isa = PBXGroup;
 			children = (
@@ -403,6 +415,7 @@
 				ACE819C92FADAF8803791321 /* ExtensionManifest.swift */,
 				EE14ACC547EA46A5D0C27730 /* ExtensionPrelude.swift */,
 				7AA039A5FEC0049694AC90B8 /* ExtensionRuntime.swift */,
+				7A5EC602708D880A16A0DF15 /* ExtensionScaffold.swift */,
 				05B54BDB4196B0B5897248E3 /* ExtensionStore.swift */,
 				517F578F30739DC0F6EBB92B /* ExtensionsView.swift */,
 				A8ACE079A3D04529E9DC8892 /* KeyChord.swift */,
@@ -533,6 +546,7 @@
 		FB980F88BABEF891A007B8A8 = {
 			isa = PBXGroup;
 			children = (
+				5DDF5B6E6CF490D4707B9B57 /* ExtensionAPI */,
 				7FCCF6589EF07CA1B2FD72E9 /* OhMyCode */,
 				62E936D0F14C621F151D072E /* OhMyCodeTests */,
 				7F5FBE36E48D92A4B5105133 /* Packages */,
@@ -645,6 +659,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8DE8BE5D6654BDB6C1BF6D03 /* Assets.xcassets in Resources */,
+				C076F2FE5746C22E917921F1 /* omc.d.ts in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -683,6 +698,7 @@
 				C605FBDEEB43981B3A7A0ADF /* ExtensionManifest.swift in Sources */,
 				684EB2B2828E911ABEFCE121 /* ExtensionPrelude.swift in Sources */,
 				97FF6B5EE2650B9504A36866 /* ExtensionRuntime.swift in Sources */,
+				8F15DEE9ADBD6D20F2519CE7 /* ExtensionScaffold.swift in Sources */,
 				E6450141B38687382E810996 /* ExtensionStore.swift in Sources */,
 				B59360C3BEA98B86EBA39D08 /* ExtensionsView.swift in Sources */,
 				995F8CE75A54484EF2A4A79B /* FileIndex.swift in Sources */,

@@ -139,6 +139,8 @@ struct ExtensionsView: View {
                 Text("\(host.extensions.count)").foregroundStyle(.secondary)
                 Spacer()
                 Menu {
+                    Button("New Extension…") { Task { await workspace.createExtension() } }
+                    Divider()
                     Button("Install from Folder…") { install(development: false) }
                     Button("Install for Development…") { install(development: true) }
                         .help("Link the folder instead of copying it: rebuild, then Reload, to try changes")

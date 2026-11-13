@@ -584,3 +584,51 @@ struct ExtensionKeybindingTests {
         withExtendedLifetime((workspace, window)) {}
     }
 }
+
+@MainActor
+struct ExtensionScaffoldTests {
+    @Test func namesFoldersAndCommands() {
+        #expect(ExtensionScaffold.slug("My Tool!") == "my-tool")
+        #expect(ExtensionScaffold.slug("  Ünïcode  & Co ") == "unicode-co")
+        #expect(ExtensionScaffold.slug("!!!") == "")
+        #expect(ExtensionScaffold.camel("my-cool-tool") == "myCoolTool")
+        #expect(ExtensionScaffold.typesURL != nil) // bundled with the app
+    }
+
+    @Test func createsInstallsAndRunsANewExtension() async throws {
+        let store = makeStore()
+        let (workspace, _) = try makeWorkspace(store: store)
+        let parent = FileManager.default.temporaryDirectory.appending(path: "omc-new-ext-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        workspace.extensionFolderChooser = { parent }
+        var opened: [URL] = []
+        workspace.openInNewWindow = { opened.append($0) }
+
+        let creating = Task { await workspace.createExtension() }
+        #expect(try await eventually { workspace.palette?.mode == .prompt })
+        workspace.palette?.query = "My \"Quoted\" Tool"
+        workspace.palette?.acceptSelection()
+        let folder = try #require(await creating.value)
+        #expect(folder.lastPathComponent == "my-quoted-tool" && opened == [folder])
+        for file in ["extension.json", "src/extension.ts", "dist/extension.js", "tsconfig.json", "package.json", "omc.d.ts", "README.md"] {
+            #expect(FileManager.default.fileExists(atPath: folder.appending(path: file).path), "\(file)")
+        }
+        let manifest = try ExtensionManifest.load(from: folder)
+        #expect(manifest.id == "local.my-quoted-tool" && manifest.name == "My \"Quoted\" Tool")
+        #expect(manifest.commands.first?.command == "myQuotedTool.helloWorld")
+
+        // Installed as a link, and it runs as written.
+        #expect(try await eventually { workspace.extensions.extensions.first?.installed.isDevelopment == true })
+        let run = Task { try await workspace.extensions.executeCommand("myQuotedTool.helloWorld") }
+        #expect(try await eventually { workspace.notifications.first?.message == "Hello from My \"Quoted\" Tool!" })
+        workspace.dismissNotification(try #require(workspace.notifications.first).id)
+        _ = try await run.value
+
+        // The same name again: the folder exists.
+        let again = Task { await workspace.createExtension() }
+        #expect(try await eventually { workspace.palette?.mode == .prompt })
+        workspace.palette?.query = "My Quoted Tool"
+        workspace.palette?.acceptSelection()
+        #expect(await again.value == nil && workspace.errorMessage?.contains("already exists") == true)
+    }
+}

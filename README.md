@@ -63,6 +63,9 @@ An extension is a folder with an `extension.json` and its compiled main file:
 - **Permissions:** the extension can always use the editor and files in the open folder. It needs
   `process` to run programs, `network` to make requests, and `fileSystem` for files elsewhere. The
   permissions are shown before installing.
+- **New extension:** *Extensions: New Extension…* (palette, or **+** in the Extensions sidebar)
+  writes a Hello World in TypeScript, already compiled, installs it for development and opens it
+  in a new window. `npm install && npm run build` compiles changes.
 - **Installing:** Extensions sidebar → **+** → *Install from Folder…* copies the folder into
   `~/Library/Application Support/OhMyCode/Extensions`. *Install for Development…* links it
   instead: rebuild, then use *Reload Extensions* to try changes. Each extension's log
