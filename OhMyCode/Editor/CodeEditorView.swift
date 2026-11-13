@@ -129,6 +129,10 @@ final class EditorController: NSObject {
         textView.onKeyDown = { [weak self] in self?.hover.dismiss(); self?.blameHover.dismiss() }
         gutter.onLineClick = { [weak self] line, rect in self?.showHunk(atLine: line, rect: rect) }
         gutter.onFoldClick = { [weak self] line in self?.document.toggleFold(atLine: line) }
+        gutter.onBlameHover = { [weak self] line, rect in self?.blameHover.gutterMouseMoved(line: line, rect: rect) }
+        gutter.onBlameExited = { [weak self] in self?.blameHover.mouseExited() }
+        gutter.onBlameClick = { [weak self] line in self?.handleBlameColumnClick(line: line) }
+        gutter.menuForLine = { [weak self] line in self?.gutterMenu(line: line) }
         textView.onLayout = { [weak self, weak gutter, weak overlay] in
             gutter?.needsDisplay = true
             overlay?.needsDisplay = true

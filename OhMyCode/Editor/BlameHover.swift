@@ -13,14 +13,16 @@ struct BlameAnnotation {
     var origin: NSPoint { rect.origin }
 }
 
-/// Hovering the blame annotation shows its commit (whole message, author, email, date) with
-/// actions; clicking it opens what the commit changed in the file.
+/// Hovering the blame annotation (or a line in the blame column) shows its commit (whole
+/// message, author, email, date) with actions; clicking opens what the commit changed in the file.
 @MainActor
-final class BlameHoverController {
+final class BlameHoverController: NSObject, NSPopoverDelegate {
     nonisolated(unsafe) static var delay: Duration = .milliseconds(350)
 
     private unowned let editor: EditorController
     private var task: Task<Void, Never>?
+    /// The commit waiting for the delay to show.
+    private var pendingCommit: String?
     private var popover: NSPopover?
     private(set) var isMouseOnAnnotation = false
     /// The commit the popover shows (tests).
@@ -30,12 +32,18 @@ final class BlameHoverController {
         self.editor = editor
     }
 
+    /// Closed by a click elsewhere (transient): forget it, so hovering shows it again.
+    func popoverDidClose(_ notification: Notification) {
+        guard notification.object as? NSPopover === popover else { return }
+        popover = nil
+        shownCommit = nil
+    }
+
     var isShown: Bool { popover?.isShown == true || shownCommit != nil }
 
-    /// Returns true while the mouse is on a committed line's annotation (other hovers wait).
+    /// The text view: returns true while the mouse is on a committed line's annotation (other
+    /// hovers wait).
     func mouseMoved(to point: NSPoint) -> Bool {
-        // Closed by a click elsewhere (transient): forget it, so hovering shows it again.
-        if let popover, !popover.isShown, editor.textView.window != nil { self.popover = nil; shownCommit = nil }
         let annotation = editor.blameAnnotation()
         let isOn = annotation.map { !$0.blame.isUncommitted && $0.rect.insetBy(dx: -2, dy: 0).contains(point) } ?? false
         if isOn != isMouseOnAnnotation {
@@ -43,24 +51,42 @@ final class BlameHoverController {
             editor.diagnosticsOverlay?.needsDisplay = true
         }
         guard isOn, let annotation else {
-            if isShown || task != nil { dismiss() }
+            if isShown || pendingCommit != nil { dismiss() }
             return false
         }
         NSCursor.pointingHand.set()
-        guard shownCommit != annotation.blame.commit, task == nil else { return true }
-        task = Task { [weak self] in
-            try? await Task.sleep(for: Self.delay)
-            guard !Task.isCancelled, let self else { return }
-            await self.show(annotation)
-            self.task = nil
-        }
+        let blame = annotation.blame
+        hover(blame, rect: annotation.rect, in: editor.textView) { [weak editor] in editor?.blameAnnotation()?.blame == blame }
         return true
     }
 
-    /// Leaving the text view: keep the popover only if the mouse went into it.
+    /// The blame column: the hovered line (nil: none) and its rect in the gutter.
+    func gutterMouseMoved(line: Int?, rect: NSRect) {
+        guard let line, let blame = (editor.document.blame?[safe: line] ?? nil), !blame.isUncommitted else {
+            if isShown || pendingCommit != nil { dismiss() }
+            return
+        }
+        hover(blame, rect: rect, in: editor.gutterView) { [weak editor] in editor?.document.showsBlameColumn == true }
+    }
+
+    /// Shows `blame`'s commit after the delay, unless it's shown or about to be.
+    private func hover(_ blame: BlameLine, rect: NSRect, in view: NSView, stillWanted: @escaping @MainActor () -> Bool) {
+        guard shownCommit != blame.commit, pendingCommit != blame.commit else { return }
+        dismiss()
+        pendingCommit = blame.commit
+        task = Task { [weak self] in
+            try? await Task.sleep(for: Self.delay)
+            guard !Task.isCancelled, let self else { return }
+            await self.show(blame, rect: rect, in: view, stillWanted: stillWanted)
+            if self.pendingCommit == blame.commit { self.pendingCommit = nil; self.task = nil }
+        }
+    }
+
+    /// Leaving the text view or the gutter: keep the popover only if the mouse went into it.
     func mouseExited() {
         task?.cancel()
         task = nil
+        pendingCommit = nil
         if isMouseOnAnnotation {
             isMouseOnAnnotation = false
             editor.diagnosticsOverlay?.needsDisplay = true
@@ -78,27 +104,25 @@ final class BlameHoverController {
     func dismiss() {
         task?.cancel()
         task = nil
-        popover?.close()
-        popover = nil
+        pendingCommit = nil
+        let popover = self.popover
+        self.popover = nil
         shownCommit = nil
+        popover?.close()
     }
 
-    /// Shows the commit of `annotation`'s line, once its details are read.
-    func show(_ annotation: BlameAnnotation) async {
+    /// Shows `blame`'s commit once its details are read, if still wanted then.
+    private func show(_ blame: BlameLine, rect: NSRect, in view: NSView, stillWanted: @MainActor () -> Bool) async {
         guard let actions = editor.document.blameActions else { return }
-        let blame = annotation.blame
         let details = await actions.details(blame)
-        // The cursor may have moved to another line meanwhile.
-        guard !Task.isCancelled, let details, editor.blameAnnotation()?.blame == blame else { return }
+        guard !Task.isCancelled, let details, stillWanted() else { return }
         popover?.close()
         let content = BlameCommitView(details: details, path: blame.path) { [weak self] action in
             self?.dismiss()
             switch action {
             case .openChanges: actions.openChanges(blame)
             case .showInTimeline: actions.showInTimeline(blame)
-            case .copyHash:
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(details.sha, forType: .string)
+            case .copyHash: Self.copy(details.sha)
             }
         }
         let controller = NSHostingController(rootView: content)
@@ -107,12 +131,22 @@ final class BlameHoverController {
         popover.behavior = .transient
         popover.animates = false
         popover.contentViewController = controller
+        popover.delegate = self
         self.popover = popover
         shownCommit = blame.commit
-        if editor.textView.window != nil {
-            popover.show(relativeTo: annotation.rect, of: editor.textView, preferredEdge: .minY)
+        if view.window != nil {
+            popover.show(relativeTo: rect, of: view, preferredEdge: view === editor.gutterView ? .maxX : .minY)
         }
     }
+
+    static func copy(_ sha: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(sha, forType: .string)
+    }
+}
+
+extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
 
 extension EditorController {
@@ -125,6 +159,53 @@ extension EditorController {
         actions.openChanges(annotation.blame)
         return true
     }
+
+    /// A click in the blame column: the line's commit changes (nothing for uncommitted lines).
+    func handleBlameColumnClick(line: Int) {
+        guard let blame = (document.blame?[safe: line] ?? nil), !blame.isUncommitted, let actions = document.blameActions else { return }
+        blameHover.dismiss()
+        actions.openChanges(blame)
+    }
+
+    /// Shows or hides the blame column; beeps for files git doesn't know.
+    func toggleBlameColumn() {
+        guard document.canBlame || document.showsBlameColumn else { NSSound.beep(); return }
+        blameHover.dismiss()
+        document.showsBlameColumn.toggle()
+    }
+
+    /// The gutter's context menu: the blame column, and the line's commit.
+    func gutterMenu(line: Int?) -> NSMenu? {
+        guard document.canBlame else { return nil }
+        let menu = NSMenu()
+        menu.addItem(ClosureMenuItem(document.showsBlameColumn ? "Hide Blame" : "Show Blame") { [weak self] in
+            self?.toggleBlameColumn()
+        })
+        if let line, let blame = (document.blame?[safe: line] ?? nil), !blame.isUncommitted, let actions = document.blameActions {
+            menu.addItem(.separator())
+            let short = String(blame.commit.prefix(7))
+            menu.addItem(ClosureMenuItem("Open Changes of \(short)") { actions.openChanges(blame) })
+            menu.addItem(ClosureMenuItem("Show \(short) in Timeline") { actions.showInTimeline(blame) })
+            menu.addItem(ClosureMenuItem("Copy Commit Hash") { BlameHoverController.copy(blame.commit) })
+        }
+        return menu
+    }
+}
+
+/// A menu item that runs a closure.
+final class ClosureMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(_ title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(run), keyEquivalent: "")
+        target = self
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func run() { handler() }
 }
 
 /// The blame popover: the commit's message, author and date, and what to do with it.

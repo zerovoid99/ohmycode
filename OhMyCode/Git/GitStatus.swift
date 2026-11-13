@@ -690,6 +690,18 @@ struct BlameLine: Sendable, Equatable {
     /// Lines changed in the buffer (or in the working tree) and not committed yet.
     var isUncommitted: Bool { commit.allSatisfy { $0 == "0" } }
 
+    /// A line edited since the file was blamed.
+    static func uncommitted(at date: Date = Date()) -> BlameLine {
+        BlameLine(commit: String(repeating: "0", count: 40), author: "Not Committed Yet", date: date, summary: "")
+    }
+
+    /// Blame kept in step with an edit: `old` lines became `count` uncommitted ones.
+    static func shifted(_ blame: [BlameLine?], replacing old: Range<Int>, with count: Int) -> [BlameLine?] {
+        guard old.lowerBound <= blame.count else { return blame }
+        let edited = [BlameLine?](repeating: uncommitted(), count: count)
+        return Array(blame[..<old.lowerBound]) + edited + Array(blame[min(blame.count, old.upperBound)...])
+    }
+
     /// One entry per line of the blamed text (nil where git said nothing).
     static func parse(_ data: Data) -> [BlameLine?] {
         struct Info { var author = "", time: TimeInterval = 0, summary = "", path: String? }

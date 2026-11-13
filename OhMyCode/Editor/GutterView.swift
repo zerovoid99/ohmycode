@@ -16,6 +16,15 @@ final class GutterView: NSView {
     var onLineClick: ((Int, NSRect) -> Void)?
     /// Called with the zero-based line when its fold chevron is clicked.
     var onFoldClick: ((Int) -> Void)?
+    /// Hovering the blame column: the line and its rect there (nil: the mouse left it).
+    var onBlameHover: ((Int?, NSRect) -> Void)?
+    var onBlameExited: (() -> Void)?
+    /// A click in the blame column, with the line.
+    var onBlameClick: ((Int) -> Void)?
+    /// The context menu for a line (blame toggle and the line's commit).
+    var menuForLine: ((Int?) -> NSMenu?)?
+    /// Width of the blame column at the left edge (0 when hidden).
+    private(set) var blameWidth: CGFloat = 0
     /// Width of the fold chevron column at the right edge.
     static let foldColumnWidth: CGFloat = 14
     private var isHovering = false
@@ -24,7 +33,7 @@ final class GutterView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let hoverArea { removeTrackingArea(hoverArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
                                   owner: self, userInfo: nil)
         addTrackingArea(area)
         hoverArea = area
@@ -32,29 +41,53 @@ final class GutterView: NSView {
 
     // Chevrons for unfolded regions show while the pointer is over the gutter, as in VS Code.
     override func mouseEntered(with event: NSEvent) { isHovering = true; needsDisplay = true }
-    override func mouseExited(with event: NSEvent) { isHovering = false; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) {
+        isHovering = false
+        needsDisplay = true
+        onBlameExited?()
+    }
 
-    override func mouseDown(with event: NSEvent) {
-        guard let textView, let layoutManager = textView.textLayoutManager,
-              let contentManager = layoutManager.textContentManager else { return }
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
         let point = convert(event.locationInWindow, from: nil)
+        guard point.x < blameWidth, let (line, rect) = line(at: point) else { onBlameHover?(nil, .zero); return }
+        onBlameHover?(line, NSRect(x: 0, y: rect.minY, width: blameWidth, height: rect.height))
+    }
+
+    /// The line at a point in this view, and its rect.
+    func line(at point: NSPoint) -> (Int, NSRect)? {
+        guard let textView, let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager else { return nil }
         let inText = convert(point, to: textView)
         let origin = textView.textContainerOrigin
-        guard let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: inText.y - origin.y)) else { return }
+        guard let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: inText.y - origin.y)) else { return nil }
         let offset = contentManager.offset(from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
         var line = document.lineIndex.line(containing: offset)
         // The last fragment can also hold the empty line after a trailing newline.
         let frame = fragment.layoutFragmentFrame
+        var lineTop = frame.minY, lineHeight = frame.height
         for (i, lineFragment) in fragment.textLineFragments.enumerated()
         where inText.y - origin.y >= frame.minY + lineFragment.typographicBounds.minY {
             line = document.lineIndex.line(containing: offset) + i
+            lineTop = frame.minY + lineFragment.typographicBounds.minY
+            lineHeight = lineFragment.typographicBounds.height
         }
-        let top = convert(NSPoint(x: 0, y: frame.minY + origin.y), from: textView).y
+        let top = convert(NSPoint(x: 0, y: lineTop + origin.y), from: textView).y
+        return (line, NSRect(x: 0, y: top, width: width, height: lineHeight))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let (line, lineRect) = line(at: point) else { return }
+        if point.x < blameWidth {
+            onBlameClick?(line)
+            return
+        }
         if point.x >= width - Self.foldColumnWidth, document.isFolded(line: line) || document.isFoldable(line: line) {
             onFoldClick?(line)
             return
         }
-        onLineClick?(line, NSRect(x: 0, y: top, width: 8, height: frame.height))
+        onLineClick?(line, NSRect(x: blameWidth, y: lineRect.minY, width: 8, height: lineRect.height))
     }
 
     init(textView: NSTextView, document: EditorDocument) {
@@ -95,11 +128,17 @@ final class GutterView: NSView {
 
     func updateWidth() {
         let digits = max(3, String(document.lineCount).count)
-        guard digits != digitCount else { return }
-        digitCount = digits
         let digitWidth = ("8" as NSString).size(withAttributes: [.font: EditorTheme.gutterFont]).width
-        width = ceil(digitWidth * CGFloat(digits)) + 20 + Self.foldColumnWidth
+        let blame = document.showsBlameColumn ? ceil(digitWidth * 30) : 0
+        guard digits != digitCount || blame != blameWidth else { return }
+        digitCount = digits
+        blameWidth = blame
+        width = blame + ceil(digitWidth * CGFloat(digits)) + 20 + Self.foldColumnWidth
         onWidthChange?()
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        menuForLine?(line(at: convert(event.locationInWindow, from: nil))?.0)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -131,6 +170,12 @@ final class GutterView: NSView {
         // the gutter in sync.
         let viewport = layoutManager.textViewportLayoutController
         guard let viewportRange = viewport.viewportRange else { return }
+        let blame = blameWidth > 0 ? BlameColumn(document: document, width: blameWidth) : nil
+        if blame != nil {
+            theme.lineNumber.withAlphaComponent(0.06).setFill()
+            NSRect(x: 0, y: dirtyRect.minY, width: blameWidth, height: dirtyRect.height).fill(using: .sourceOver)
+        }
+        var firstDrawnLine: Int?
 
         layoutManager.enumerateTextLayoutFragments(from: viewportRange.location, options: []) { fragment in
             if fragment.rangeInElement.location.compare(viewportRange.endLocation) == .orderedDescending { return false }
@@ -150,8 +195,13 @@ final class GutterView: NSView {
                 let yInTextView = fragmentFrame.minY + containerOrigin.y + bounds.minY
                 let y = self.convert(NSPoint(x: 0, y: yInTextView), from: textView).y
 
+                if let blame {
+                    blame.draw(line: line, isFirstShown: firstDrawnLine == nil, y: y, height: bounds.height,
+                               isCurrent: line == currentLine)
+                }
+                if firstDrawnLine == nil { firstDrawnLine = line }
                 if let marker = self.document.diffMarkers[line] {
-                    self.drawDiffMarker(marker, y: y, height: bounds.height)
+                    self.drawDiffMarker(marker, x: self.blameWidth, y: y, height: bounds.height)
                 }
 
                 let label = String(line + 1) as NSString
@@ -169,20 +219,20 @@ final class GutterView: NSView {
 
 extension GutterView {
     /// VS Code-style change bar at the gutter's left edge.
-    fileprivate func drawDiffMarker(_ marker: DiffMarker, y: CGFloat, height: CGFloat) {
+    fileprivate func drawDiffMarker(_ marker: DiffMarker, x: CGFloat, y: CGFloat, height: CGFloat) {
         switch marker {
         case .added:
             NSColor.systemGreen.setFill()
-            NSRect(x: 2, y: y, width: 3, height: height).fill()
+            NSRect(x: x + 2, y: y, width: 3, height: height).fill()
         case .modified:
             NSColor.systemBlue.setFill()
-            NSRect(x: 2, y: y, width: 3, height: height).fill()
+            NSRect(x: x + 2, y: y, width: 3, height: height).fill()
         case .deletedAbove:
             NSColor.systemRed.setFill()
             let triangle = NSBezierPath()
-            triangle.move(to: NSPoint(x: 1, y: y - 4))
-            triangle.line(to: NSPoint(x: 7, y: y))
-            triangle.line(to: NSPoint(x: 1, y: y + 4))
+            triangle.move(to: NSPoint(x: x + 1, y: y - 4))
+            triangle.line(to: NSPoint(x: x + 7, y: y))
+            triangle.line(to: NSPoint(x: x + 1, y: y + 4))
             triangle.close()
             triangle.fill()
         }
@@ -229,5 +279,70 @@ final class EditorContainerView: NSView {
             stickyView.isHidden = height == 0
         }
         gutterView.needsDisplay = true
+    }
+}
+
+/// Draws the blame column: each run of lines from one commit starts with its author and age,
+/// and a bar on the right is brighter for newer commits.
+@MainActor
+struct BlameColumn {
+    let document: EditorDocument
+    let width: CGFloat
+    private let blame: [BlameLine?]
+    private let dates: ClosedRange<Date>?
+
+    init(document: EditorDocument, width: CGFloat) {
+        self.document = document
+        self.width = width
+        blame = document.blame ?? []
+        dates = document.blameDates
+    }
+
+    static var font: NSFont { EditorTheme.gutterFont }
+
+    func entry(_ line: Int) -> BlameLine? { line >= 0 && line < blame.count ? blame[line] : nil }
+
+    /// Whether a line starts a run of lines from one commit.
+    func startsRun(_ line: Int) -> Bool { entry(line - 1)?.commit != entry(line)?.commit }
+
+    /// How recent the commit is among the file's, from 0 (oldest) to 1 (newest).
+    func recency(_ entry: BlameLine) -> Double {
+        if entry.isUncommitted { return 1 }
+        guard let dates, dates.upperBound > dates.lowerBound else { return 1 }
+        return entry.date.timeIntervalSince(dates.lowerBound) / dates.upperBound.timeIntervalSince(dates.lowerBound)
+    }
+
+    func draw(line: Int, isFirstShown: Bool, y: CGFloat, height: CGFloat, isCurrent: Bool) {
+        guard let entry = entry(line) else { return }
+        let theme = EditorTheme.current
+        let bar = entry.isUncommitted ? NSColor.systemBlue : NSColor.systemOrange
+        bar.withAlphaComponent(0.2 + 0.8 * recency(entry)).setFill()
+        NSRect(x: width - 4, y: y, width: 2, height: height).fill()
+        let starts = startsRun(line)
+        if starts, line > 0 {
+            theme.lineNumber.withAlphaComponent(0.18).setFill()
+            NSRect(x: 0, y: y, width: width, height: 1).fill(using: .sourceOver)
+        }
+        guard starts || isFirstShown else { return }
+        let color = isCurrent ? theme.currentLineNumber : theme.lineNumber
+        let (author, age) = Self.texts(entry)
+        let ageAttributes: [NSAttributedString.Key: Any] = [.font: Self.font, .foregroundColor: color.withAlphaComponent(0.8)]
+        let ageSize = (age as NSString).size(withAttributes: ageAttributes)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let authorAttributes: [NSAttributedString.Key: Any] = [.font: Self.font, .foregroundColor: color, .paragraphStyle: paragraph]
+        let textY = y + (height - ageSize.height) / 2
+        let right = width - 10
+        (age as NSString).draw(at: NSPoint(x: right - ageSize.width, y: textY), withAttributes: ageAttributes)
+        (author as NSString).draw(with: NSRect(x: 6, y: textY, width: max(0, right - ageSize.width - 14), height: ageSize.height),
+                                  options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: authorAttributes)
+    }
+
+    /// The author and a short age ("3 days ago"); edited lines say so instead.
+    nonisolated static func texts(_ entry: BlameLine, now: Date = Date()) -> (author: String, age: String) {
+        if entry.isUncommitted { return ("Not committed", "") }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return (entry.author, formatter.localizedString(for: entry.date, relativeTo: now))
     }
 }

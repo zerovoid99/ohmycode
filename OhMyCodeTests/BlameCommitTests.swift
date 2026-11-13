@@ -177,3 +177,160 @@ struct BlameCommitTests {
         #expect(workspace.repoHistory?.pinned?.sha == bob)
     }
 }
+
+struct BlameShiftTests {
+    private func line(_ commit: Character) -> BlameLine {
+        BlameLine(commit: String(repeating: commit, count: 40), author: String(commit), date: Date(timeIntervalSince1970: 0), summary: "")
+    }
+
+    @Test func editedLinesBecomeUncommittedAndLaterOnesMove() {
+        let blame: [BlameLine?] = [line("a"), line("b"), line("c"), line("d")]
+        // Line 1 replaced by three lines.
+        let grown = BlameLine.shifted(blame, replacing: 1..<2, with: 3)
+        #expect(grown.map { $0?.author } == ["a", "Not Committed Yet", "Not Committed Yet", "Not Committed Yet", "c", "d"])
+        #expect(grown[1]?.isUncommitted == true)
+        // Lines 1 to 2 joined into one.
+        let joined = BlameLine.shifted(blame, replacing: 1..<3, with: 1)
+        #expect(joined.map { $0?.author } == ["a", "Not Committed Yet", "d"])
+        // A line added before line 2, and line 1 deleted.
+        #expect(BlameLine.shifted(blame, replacing: 2..<2, with: 1).map { $0?.author } == ["a", "b", "Not Committed Yet", "c", "d"])
+        #expect(BlameLine.shifted(blame, replacing: 1..<2, with: 0).map { $0?.author } == ["a", "c", "d"])
+        // Typing at the end.
+        #expect(BlameLine.shifted(blame, replacing: 3..<4, with: 1).map { $0?.author } == ["a", "b", "c", "Not Committed Yet"])
+    }
+
+    @Test func columnTextsAndRuns() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let entry = BlameLine(commit: String(repeating: "a", count: 40), author: "Alice", date: now.addingTimeInterval(-3 * 86400), summary: "")
+        let texts = BlameColumn.texts(entry, now: now)
+        #expect(texts.author == "Alice" && texts.age.contains("3"))
+        #expect(BlameColumn.texts(BlameLine.uncommitted(), now: now) == ("Not committed", ""))
+    }
+}
+
+@MainActor
+struct BlameColumnTests {
+    private func git(_ arguments: [String], author: String = "Alice", date: String, in directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path, "-c", "user.name=\(author)", "-c", "user.email=\(author.lowercased())@example.invalid",
+                             "-c", "commit.gpgsign=false"] + arguments
+        process.environment = ["GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    private func eventually(timeout: Duration = .seconds(5), _ condition: @MainActor () -> Bool) async throws -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            if ContinuousClock.now > deadline { return false }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return true
+    }
+
+    /// Alice writes four lines in 2020, Bob rewrites the middle two in 2024.
+    private func makeRepository() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-blame-column-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try git(["init", "-q"], date: "2020-01-01T00:00:00Z", in: root)
+        try "a\nb\nc\nd\n".write(to: root.appending(path: "f.txt"), atomically: true, encoding: .utf8)
+        try git(["add", "."], date: "2020-01-01T00:00:00Z", in: root)
+        try git(["commit", "-q", "-m", "Letters"], date: "2020-01-01T00:00:00Z", in: root)
+        try "a\nB\nC\nd\n".write(to: root.appending(path: "f.txt"), atomically: true, encoding: .utf8)
+        try git(["commit", "-q", "-am", "Capitals"], author: "Bob", date: "2024-01-01T00:00:00Z", in: root)
+        return root
+    }
+
+    @Test func showsEveryLinesCommitInTheGutter() async throws {
+        let root = try makeRepository()
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: root.appending(path: "f.txt"))
+        let document = try #require(workspace.activeDocument)
+        #expect(try await eventually { document.blame?.count == 4 })
+        BlameHoverController.delay = .zero
+        defer { BlameHoverController.delay = .milliseconds(350) }
+
+        let controller = EditorController(document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = controller.makeView()
+        window.layoutIfNeeded()
+        document.editor = controller
+        let gutter = controller.gutterView!
+        let narrow = gutter.width
+        #expect(gutter.blameWidth == 0)
+
+        controller.toggleBlameColumn()
+        #expect(document.showsBlameColumn && gutter.blameWidth > 100 && gutter.width == narrow + gutter.blameWidth)
+
+        // Runs: Alice's line, Bob's two, Alice's last; Bob's are the newest.
+        let column = BlameColumn(document: document, width: gutter.blameWidth)
+        #expect((0..<4).map(column.startsRun) == [true, true, false, true])
+        let bob = try #require(column.entry(1)), alice = try #require(column.entry(0))
+        #expect(bob.author == "Bob" && column.recency(bob) == 1 && column.recency(alice) == 0)
+
+        // Line 2 (Bob's) under the mouse in the column: hover shows Bob's commit, click opens it.
+        let lineRect = try #require(controller.rect(for: NSRange(location: 2, length: 1)))
+        let point = gutter.convert(NSPoint(x: 10, y: lineRect.midY), from: controller.textView)
+        let (line, rect) = try #require(gutter.line(at: point))
+        #expect(line == 1)
+        controller.blameHover.gutterMouseMoved(line: line, rect: rect)
+        #expect(try await eventually { controller.blameHover.shownCommit == bob.commit })
+        // Moving within Bob's run keeps it; Alice's line shows hers.
+        controller.blameHover.gutterMouseMoved(line: 2, rect: rect)
+        #expect(controller.blameHover.shownCommit == bob.commit)
+        controller.blameHover.gutterMouseMoved(line: 3, rect: rect)
+        #expect(try await eventually { controller.blameHover.shownCommit == alice.commit })
+        controller.blameHover.gutterMouseMoved(line: nil, rect: .zero)
+        #expect(controller.blameHover.shownCommit == nil)
+
+        controller.handleBlameColumnClick(line: 1)
+        #expect(try await eventually {
+            if case .commit(let commit) = workspace.diffSessions.first?.mode { commit.sha == bob.commit } else { false }
+        })
+
+        // The context menu toggles the column and offers the line's commit.
+        let menu = try #require(controller.gutterMenu(line: 1))
+        #expect(menu.items.map(\.title) == ["Hide Blame", "", "Open Changes of \(bob.commit.prefix(7))",
+                                            "Show \(bob.commit.prefix(7)) in Timeline", "Copy Commit Hash"])
+
+        // Typing keeps the column in step: the edited line isn't committed, later ones move.
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "new\n")
+        #expect(column.entry(0)?.author == "Alice") // the old snapshot
+        let shifted = BlameColumn(document: document, width: gutter.blameWidth)
+        // A whole line inserted: only it is new, "a" below it is still Alice's.
+        #expect(shifted.entry(0)?.isUncommitted == true && shifted.entry(1)?.author == "Alice")
+        #expect(shifted.entry(2)?.author == "Bob" && shifted.entry(4)?.author == "Alice")
+        // Typing within a line marks just that line; deleting a whole line removes its entry.
+        document.textStorage.replaceCharacters(in: NSRange(location: 4, length: 0), with: "x") // "xa"
+        #expect(BlameColumn(document: document, width: 1).entry(1)?.isUncommitted == true)
+        #expect(BlameColumn(document: document, width: 1).entry(2)?.author == "Bob")
+        document.textStorage.replaceCharacters(in: NSRange(location: 4, length: 3), with: "") // the "xa" line
+        let afterDelete = BlameColumn(document: document, width: 1)
+        #expect(afterDelete.entry(0)?.isUncommitted == true && afterDelete.entry(1)?.author == "Bob" && afterDelete.entry(3)?.author == "Alice")
+
+        controller.toggleBlameColumn()
+        #expect(!document.showsBlameColumn && gutter.width == narrow)
+        withExtendedLifetime((workspace, window)) {}
+    }
+
+    @Test func filesOutsideGitHaveNoBlameColumn() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-no-git-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "x\n".write(to: root.appending(path: "f.txt"), atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: root.appending(path: "f.txt"))
+        let document = try #require(workspace.activeDocument)
+        let controller = EditorController(document: document)
+        _ = controller.makeView()
+        controller.toggleBlameColumn()
+        #expect(!document.showsBlameColumn && controller.gutterView.blameWidth == 0)
+        #expect(controller.gutterMenu(line: 0) == nil)
+        withExtendedLifetime(workspace) {}
+    }
+}

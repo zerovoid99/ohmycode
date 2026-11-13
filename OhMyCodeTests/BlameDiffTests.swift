@@ -158,9 +158,11 @@ struct BlameDiffWorkspaceTests {
 
         // Unsaved edits are blamed as not committed, with line numbers matching the buffer.
         document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "zero\n")
-        #expect(document.blame == nil) // hidden while the numbers are stale
-        #expect(try await eventually { document.blame?.count == 4 })
-        #expect(document.blame?[0]?.isUncommitted == true && document.blame?[2]?.author == "Bob")
+        // Kept in step with the edit right away, then blamed again.
+        #expect(document.blame?.count == 4 && document.blame?[2]?.author == "Bob")
+        await document.waitForBlame()
+        #expect(document.blame?.count == 4)
+        #expect(document.blame?[0]?.isUncommitted == true && document.blame?[1]?.author == "Alice" && document.blame?[2]?.author == "Bob")
 
         AppSettings.shared.showsLineBlame = false
         defer { AppSettings.shared.showsLineBlame = true }

@@ -82,9 +82,25 @@ final class EditorDocument: Identifiable {
     var languageId: String { LanguageServerConfig.languageId(for: language) }
 
     /// Who last changed each line (git blame of the buffer); nil while unknown.
-    @ObservationIgnored private(set) var blame: [BlameLine?]?
+    @ObservationIgnored private(set) var blame: [BlameLine?]? {
+        didSet {
+            // The oldest and newest commit dates, for the blame column's age bar.
+            let dates = (blame ?? []).compactMap { $0 }.filter { !$0.isUncommitted }.map(\.date)
+            blameDates = dates.min().flatMap { min in dates.max().map { min...$0 } }
+        }
+    }
+    @ObservationIgnored private(set) var blameDates: ClosedRange<Date>?
     @ObservationIgnored var blameProvider: ((String) async -> [BlameLine?]?)?
     @ObservationIgnored private var blameTask: Task<Void, Never>?
+    /// Blame of every line beside the line numbers.
+    @ObservationIgnored var showsBlameColumn = false {
+        didSet {
+            guard showsBlameColumn != oldValue else { return }
+            for editor in editors { editor.gutterView.updateWidth(); editor.gutterView.needsDisplay = true }
+        }
+    }
+    /// Whether the file can be blamed (it's in a git repository).
+    var canBlame: Bool { blameProvider != nil }
     /// What the blame popover can do with a line's commit (set by the workspace).
     @ObservationIgnored var blameActions: BlameActions?
     /// Merge conflicts left in the text (`<<<<<<<` … `>>>>>>>`), re-read shortly after edits.
@@ -270,6 +286,8 @@ final class EditorDocument: Identifiable {
         let startPoint = point(at: start)
         let oldEndPoint = point(at: oldEnd)
         let lspRange = LSPRange(start: lspPosition(at: start), end: lspPosition(at: oldEnd))
+        let startLine = lineIndex.line(containing: start), oldEndLine = lineIndex.line(containing: oldEnd)
+        let oldEndsLine = oldEnd == lineIndex.lineStarts[oldEndLine]
 
         // `mutableString`, not `string`: bridging `string` to Swift copies the whole text.
         lineIndex.apply(editedRange: range, changeInLength: delta, in: textStorage.mutableString)
@@ -289,8 +307,23 @@ final class EditorDocument: Identifiable {
         if lineCount != lineIndex.lineCount { lineCount = lineIndex.lineCount }
         if !isDirty { isDirty = true }
         scheduleDiff(after: .milliseconds(200))
-        // Line numbers moved: hide blame until it's computed again for the new text.
-        if blame != nil { blame = nil; editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true } }
+        // Until blame runs again on the new text: edited lines aren't committed, lines after
+        // them move with the edit.
+        if let blame {
+            let newEndLine = lineIndex.line(containing: newEnd)
+            var old = startLine..<oldEndLine + 1, count = newEndLine - startLine + 1
+            // Whole lines added or removed (the edit ends where a line starts, before and
+            // after): the line after them is untouched.
+            let newEndsLine = newEnd == lineIndex.lineStarts[newEndLine]
+            if (oldEndsLine || oldEnd == start) && (newEndsLine || newEnd == start) && start == lineIndex.lineStarts[startLine]
+                && (oldEnd > start || newEnd > start) {
+                old = startLine..<old.upperBound - 1
+                count -= 1
+            }
+            self.blame = BlameLine.shifted(blame, replacing: old, with: count)
+            editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true }
+            redrawGutters()
+        }
         scheduleBlame(after: .milliseconds(800))
         scheduleConflictScan(after: .milliseconds(100))
     }
@@ -365,6 +398,7 @@ final class EditorDocument: Identifiable {
             guard !Task.isCancelled, version == editVersion else { return }
             blame = result
             editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true }
+            redrawGutters()
         }
     }
 
