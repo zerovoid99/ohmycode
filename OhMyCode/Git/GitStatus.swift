@@ -230,8 +230,8 @@ enum Git {
 
     /// Runs git and throws its stderr on failure.
     @discardableResult
-    private static func check(_ arguments: [String], in directory: URL) throws -> Data {
-        let result = execute(arguments, in: directory)
+    private static func check(_ arguments: [String], in directory: URL, input: Data? = nil) throws -> Data {
+        let result = execute(arguments, in: directory, input: input)
         guard result.status == 0 else {
             let message = String(decoding: result.error, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             throw CommandError(message: message.isEmpty ? "git \(arguments.first ?? "") failed" : message)
@@ -243,6 +243,33 @@ enum Git {
     static func indexContent(ofRelativePath path: String, in repository: Repository) -> String? {
         guard let output = run(["show", ":./" + path], in: repository.root) else { return nil }
         return String(data: output, encoding: .utf8)
+    }
+
+    /// The file's content in the last commit, or nil if HEAD doesn't have it (or there's no commit).
+    static func headContent(ofRelativePath path: String, in repository: Repository) -> String? {
+        guard let output = run(["show", "HEAD:./" + path], in: repository.root) else { return nil }
+        return String(data: output, encoding: .utf8)
+    }
+
+    /// Replaces what is staged for one file with `content` (staging or unstaging part of a
+    /// change). Fails, changing nothing, unless the index still holds `expected`: the change was
+    /// computed against that text.
+    static func setIndexContent(_ content: String, expected: String, relativePath path: String,
+                                in repository: Repository) throws {
+        let entry = String(decoding: try check(["ls-files", "-s", "--", path], in: repository.root), as: UTF8.self)
+        let fields = entry.split(separator: " ", maxSplits: 2)
+        // "<mode> <sha> <stage>\t<path>": one entry at stage 0 (not a conflict).
+        guard entry.split(separator: "\n").count == 1, fields.count == 3, fields[2].hasPrefix("0\t") else {
+            throw CommandError(message: "\(path) can't be staged in parts (it isn't in the index, or has a conflict).")
+        }
+        guard indexContent(ofRelativePath: path, in: repository) == expected else {
+            throw CommandError(message: "The staged version of \(path) changed. Try again.")
+        }
+        let object = String(decoding: try check(["hash-object", "-w", "--stdin", "--no-filters"], in: repository.root,
+                                                input: Data(content.utf8)), as: UTF8.self)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // --cacheinfo paths are relative to the repository root, not the working directory.
+        try check(["update-index", "--cacheinfo", "\(fields[0]),\(object),\(repository.prefix + path)"], in: repository.root)
     }
 
     /// Who last changed each line of `contents` (the buffer as it is, so unsaved lines show as

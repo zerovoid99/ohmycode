@@ -122,15 +122,17 @@ private struct ChangeRow: View {
         // Like VS Code: a click shows the changes; the context menu opens the file.
         .onTapGesture {
             guard status != .deleted, let root = workspace.rootURL else { return }
-            if staged || change.isUntracked {
+            if change.isUntracked {
                 workspace.open(fileAt: root.appending(path: change.path))
             } else {
-                workspace.openChanges(for: root.appending(path: change.path))
+                workspace.openChanges(for: root.appending(path: change.path), staged: staged)
             }
         }
         .contextMenu {
             if status != .deleted, let root = workspace.rootURL {
-                Button("Open Changes") { workspace.openChanges(for: root.appending(path: change.path)) }
+                if !change.isUntracked {
+                    Button("Open Changes") { workspace.openChanges(for: root.appending(path: change.path), staged: staged) }
+                }
                 Button("Open File") { workspace.open(fileAt: root.appending(path: change.path)) }
             }
         }

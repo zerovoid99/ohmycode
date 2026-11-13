@@ -109,6 +109,24 @@ enum LineDiff {
         return (NSRange(location: start, length: end - start), baseLines + (endsAtEnd ? "" : "\n"))
     }
 
+    /// `old` with the hunk's lines replaced by its lines in `new`: staging one change of
+    /// `old` (index) → `new` (working tree) gives the new index text.
+    static func applying(_ hunk: DiffHunk, old: [Substring], new: [Substring]) -> String {
+        var result = old
+        result.replaceSubrange(hunk.oldStart..<(hunk.oldStart + hunk.oldCount),
+                               with: new[hunk.newStart..<(hunk.newStart + hunk.newCount)])
+        return result.joined(separator: "\n")
+    }
+
+    /// `new` with the hunk's lines put back as they are in `old`: unstaging one change of
+    /// `old` (HEAD) → `new` (index) gives the new index text.
+    static func reverting(_ hunk: DiffHunk, old: [Substring], new: [Substring]) -> String {
+        var result = new
+        result.replaceSubrange(hunk.newStart..<(hunk.newStart + hunk.newCount),
+                               with: old[hunk.oldStart..<(hunk.oldStart + hunk.oldCount)])
+        return result.joined(separator: "\n")
+    }
+
     static func lines(_ text: String) -> [Substring] {
         text.split(separator: "\n", omittingEmptySubsequences: false)
     }

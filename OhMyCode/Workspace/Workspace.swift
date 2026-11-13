@@ -318,10 +318,62 @@ final class Workspace {
             self.gitRepository = result?.0
             if self.gitStatus != result?.1 { self.gitStatus = result?.1 }
             for document in self.documents { self.loadDiffBase(for: document) }
+            for session in self.diffSessions where session.mode == .staged { self.loadStaged(session) }
         }
     }
 
     func stage(_ paths: [String]) { runGit { try Git.stage(paths, in: $0) } }
+
+    /// Stages one change of the editor's text (unsaved edits included), leaving the rest of
+    /// the file unstaged.
+    func stageHunk(_ hunk: DiffHunk, of document: EditorDocument) {
+        guard let base = document.diffBaseLines, let path = relativePath(of: document.url),
+              hunk.oldStart + hunk.oldCount <= base.count else { NSSound.beep(); return }
+        let current = LineDiff.lines(document.textStorage.mutableString as String)
+        guard hunk.newStart + hunk.newCount <= current.count else { NSSound.beep(); return }
+        let expected = base.joined(separator: "\n")
+        let content = LineDiff.applying(hunk, old: base, new: current)
+        runGit { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
+    }
+
+    /// Git: Stage Change at Cursor.
+    func stageHunkAtCursor() {
+        guard let document = activeDocument,
+              let location = document.editor?.textView.selectedRange().location ?? document.viewState?.selection.location,
+              let hunk = document.hunk(atLine: document.lineIndex.line(containing: location)) else {
+            NSSound.beep()
+            return
+        }
+        stageHunk(hunk, of: document)
+    }
+
+    /// Removes one change from the staged version (the working tree keeps it).
+    func unstageHunk(_ hunk: DiffHunk, in session: DiffSession) {
+        guard session.mode == .staged, let head = session.headLines, let index = session.indexLines,
+              let path = relativePath(of: session.url),
+              hunk.oldStart + hunk.oldCount <= head.count, hunk.newStart + hunk.newCount <= index.count else {
+            NSSound.beep()
+            return
+        }
+        let expected = index.joined(separator: "\n")
+        let content = LineDiff.reverting(hunk, old: head, new: index)
+        if session.isNewFile && content.isEmpty {
+            // Unstaging all of a new file's content: drop it from the index rather than staging it empty.
+            runGit { try Git.unstage([path], in: $0) }
+        } else {
+            runGit { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
+        }
+    }
+
+    /// Reverts one change in the editor to the staged version, as an undoable edit.
+    func revertHunk(_ hunk: DiffHunk, in document: EditorDocument) {
+        guard let edit = document.revertEdit(for: hunk) else { return }
+        do {
+            _ = try document.apply([TextReplacement(range: edit.range, text: edit.replacement)], actionName: "Revert Change")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
     func unstage(_ paths: [String]) { runGit { try Git.unstage(paths, in: $0) } }
 
     /// Discards unstaged changes. Untracked files go to the Trash rather than being deleted.
@@ -412,6 +464,24 @@ final class Workspace {
             }.value
         }
         document.scheduleBlame(after: .zero)
+        document.stageHunkAction = { [weak self, weak document] hunk in
+            guard let self, let document else { return }
+            self.stageHunk(hunk, of: document)
+        }
+    }
+
+    /// Reads HEAD's and the index's version of a staged diff's file.
+    private func loadStaged(_ session: DiffSession) {
+        guard let repository = gitRepository, let path = relativePath(of: session.url) else {
+            session.setStaged(head: nil, index: nil)
+            return
+        }
+        Task {
+            let (head, index) = await Task.detached(priority: .utility) {
+                (Git.headContent(ofRelativePath: path, in: repository), Git.indexContent(ofRelativePath: path, in: repository))
+            }.value
+            session.setStaged(head: head, index: index)
+        }
     }
 
     // MARK: Terminal
@@ -566,19 +636,26 @@ final class Workspace {
     /// Title, tooltip and dirty state for a tab of any kind.
     func tabInfo(_ id: UUID) -> (title: String, help: String, isDirty: Bool, isDiff: Bool)? {
         if let document = document(id: id) { return (document.fileName, document.url.path, document.isDirty, false) }
-        if let session = diffSession(id: id) {
-            return (session.title, "\(session.document.url.path) — staged ↔ working tree", false, true)
-        }
+        if let session = diffSession(id: id) { return (session.title, session.help, false, true) }
         return nil
     }
 
-    /// Git: Open Changes — a side-by-side diff tab of the file against its staged version.
+    /// Git: Open Changes — a side-by-side diff tab: the editor's text against the staged
+    /// version, or (`staged`) the staged version against the last commit.
     @discardableResult
-    func openChanges(for url: URL) -> DiffSession? {
+    func openChanges(for url: URL, staged: Bool = false) -> DiffSession? {
         let canonical = FileWatcher.canonicalPath(url)
-        if let existing = diffSessions.first(where: { $0.document.canonicalPath == canonical }) {
+        let mode: DiffSession.Mode = staged ? .staged : .workingTree
+        if let existing = diffSessions.first(where: { $0.mode == mode && FileWatcher.canonicalPath($0.url) == canonical }) {
             activeGroup.show(existing.id)
             return existing
+        }
+        if staged {
+            let session = DiffSession(stagedChangesOf: url)
+            diffSessions.append(session)
+            loadStaged(session)
+            activeGroup.show(session.id)
+            return session
         }
         let wasOpen = document(matching: url) != nil
         guard let document = document(matching: url) ?? openWithoutTab(url) else { return nil }
@@ -593,8 +670,7 @@ final class Workspace {
         if !groups.contains(where: { $0.contains(session.id) }) {
             diffSessions.removeAll { $0.id == session.id }
             // A document opened just for the diff goes too, unless it got a tab meanwhile.
-            let document = session.document
-            if session.ownsDocument, !groups.contains(where: { $0.contains(document.id) }),
+            if let document = session.document, session.ownsDocument, !groups.contains(where: { $0.contains(document.id) }),
                !diffSessions.contains(where: { $0.document === document }), !document.isDirty {
                 documents.removeAll { $0.id == document.id }
                 document.languageClient?.didClose(url: document.url)

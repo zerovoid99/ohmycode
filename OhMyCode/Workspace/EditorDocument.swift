@@ -85,6 +85,8 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored private(set) var blame: [BlameLine?]?
     @ObservationIgnored var blameProvider: ((String) async -> [BlameLine?]?)?
     @ObservationIgnored private var blameTask: Task<Void, Never>?
+    /// Stages one hunk of this document (set by the workspace for files in a git repository).
+    @ObservationIgnored var stageHunkAction: ((DiffHunk) -> Void)?
 
     /// Gutter change markers against the git index, keyed by zero-based line.
     @ObservationIgnored private(set) var diffMarkers: [Int: DiffMarker] = [:]

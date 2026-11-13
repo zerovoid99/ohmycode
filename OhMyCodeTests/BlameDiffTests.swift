@@ -66,6 +66,28 @@ struct DiffRowTests {
     }
 }
 
+struct HunkPatchTests {
+    @Test func appliesAndRevertsOneHunkKeepingTheOthers() {
+        let old = LineDiff.lines("a\nb\nc\nd\ne\n")
+        let new = LineDiff.lines("a\nB\nc\nd\ne\nf\n")
+        let hunks = LineDiff.hunks(base: old, current: new)
+        #expect(hunks.count == 2)
+        // Staging only the first change; then only the second (an addition at the end of the file).
+        #expect(LineDiff.applying(hunks[0], old: old, new: new) == "a\nB\nc\nd\ne\n")
+        #expect(LineDiff.applying(hunks[1], old: old, new: new) == "a\nb\nc\nd\ne\nf\n")
+        // Unstaging takes the change back out of the new side only.
+        #expect(LineDiff.reverting(hunks[0], old: old, new: new) == "a\nb\nc\nd\ne\nf\n")
+        #expect(LineDiff.reverting(hunks[1], old: old, new: new) == "a\nB\nc\nd\ne\n")
+
+        // A deletion, and a missing final newline, round-trip exactly.
+        let noNewline = LineDiff.lines("a\nc")
+        let deletion = LineDiff.hunks(base: old, current: noNewline)
+        var staged = old
+        for hunk in deletion.reversed() { staged = LineDiff.lines(LineDiff.applying(hunk, old: staged, new: noNewline)) }
+        #expect(staged.joined(separator: "\n") == "a\nc")
+    }
+}
+
 @MainActor
 struct BlameDiffWorkspaceTests {
     private func git(_ arguments: [String], author: String = "Alice", in directory: URL) throws {
@@ -77,6 +99,18 @@ struct BlameDiffWorkspaceTests {
         process.standardError = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
+    }
+
+    private func output(_ arguments: [String], in directory: URL) throws -> String {
+        let process = Process(), pipe = Pipe()
+        process.executableURL = URL(filePath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path] + arguments
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(decoding: data, as: UTF8.self)
     }
 
     private func eventually(timeout: Duration = .seconds(5), _ condition: @MainActor () -> Bool) async throws -> Bool {
@@ -149,7 +183,7 @@ struct BlameDiffWorkspaceTests {
         #expect(group.activeDocumentID == session.id)
         #expect(workspace.tabInfo(session.id)?.title == "f.txt (Changes)")
         #expect(workspace.activeDocument == nil) // a diff tab, not an editor
-        let document = session.document
+        let document = try #require(session.document)
         #expect(!group.contains(document.id))
         #expect(try await eventually { document.diffHunks == [DiffHunk(oldStart: 3, oldCount: 0, newStart: 3, newCount: 1)] })
 
@@ -177,6 +211,81 @@ struct BlameDiffWorkspaceTests {
         workspace.openChanges(for: opened.url)
         workspace.closeAll()
         #expect(workspace.diffSessions.isEmpty && workspace.documents.isEmpty)
+        withExtendedLifetime(workspace) {}
+    }
+
+    /// The workspace is a folder inside the repository, so index paths need its prefix.
+    @Test func stagesAndUnstagesSingleHunks() async throws {
+        let repo = FileManager.default.temporaryDirectory.appending(path: "omc-hunks-\(UUID().uuidString)")
+        let root = repo.appending(path: "sub")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try git(["init", "-q"], in: repo)
+        let original = (1...20).map { "line \($0)" }.joined(separator: "\n") + "\n"
+        try original.write(to: root.appending(path: "f.txt"), atomically: true, encoding: .utf8)
+        try git(["add", "."], in: repo)
+        try git(["commit", "-q", "-m", "Lines"], in: repo)
+
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        #expect(try await eventually { workspace.gitRepository != nil })
+        workspace.open(fileAt: root.appending(path: "f.txt"))
+        let document = try #require(workspace.activeDocument)
+        #expect(try await eventually { document.diffBaseLines != nil })
+
+        // Two unsaved changes in the buffer: line 2 and line 19.
+        let text = document.textStorage.mutableString
+        document.textStorage.replaceCharacters(in: text.range(of: "line 19"), with: "LINE 19")
+        document.textStorage.replaceCharacters(in: text.range(of: "line 2\n"), with: "LINE 2\n")
+        await document.waitForDiff()
+        #expect(document.diffHunks.count == 2)
+
+        // Stage only the second: the index gets it, the first stays an unstaged change.
+        workspace.stageHunk(document.diffHunks[1], of: document)
+        #expect(try await eventually { document.diffHunks.count == 1 })
+        #expect(document.diffHunks.first?.newStart == 1)
+        let staged = try output(["show", ":sub/f.txt"], in: repo)
+        #expect(staged == original.replacingOccurrences(of: "line 19", with: "LINE 19"))
+        #expect(try String(contentsOf: root.appending(path: "f.txt"), encoding: .utf8) == original) // disk untouched
+
+        // The staged diff shows it (HEAD ↔ index); unstaging it restores the index to HEAD.
+        let session = try #require(workspace.openChanges(for: document.url, staged: true))
+        #expect(workspace.tabInfo(session.id)?.title == "f.txt (Staged)")
+        #expect(try await eventually { session.hunks == [DiffHunk(oldStart: 18, oldCount: 1, newStart: 18, newCount: 1)] })
+        #expect(workspace.openChanges(for: document.url, staged: true) === session)
+        #expect(workspace.openChanges(for: document.url) !== session) // the working-tree diff is a separate tab
+        workspace.unstageHunk(session.hunks[0], in: session)
+        #expect(try await eventually { session.isLoaded && session.hunks.isEmpty })
+        #expect(try output(["show", ":sub/f.txt"], in: repo) == original)
+        #expect(try await eventually { document.diffHunks.count == 2 }) // both unstaged again
+
+        // A hunk computed against an index that changed since is refused, not misapplied.
+        let stale = document.diffHunks[0]
+        // (Changed in the index only, as another tool would; the file on disk stays as it is.)
+        let elsewhere = FileManager.default.temporaryDirectory.appending(path: "omc-blob-\(UUID().uuidString)")
+        try original.replacingOccurrences(of: "line 5", with: "x").write(to: elsewhere, atomically: true, encoding: .utf8)
+        let blob = try output(["hash-object", "-w", elsewhere.path], in: repo).trimmingCharacters(in: .whitespacesAndNewlines)
+        try git(["update-index", "--cacheinfo", "100644,\(blob),sub/f.txt"], in: repo)
+        workspace.errorMessage = nil
+        workspace.stageHunk(stale, of: document)
+        #expect(try await eventually { workspace.errorMessage != nil })
+        #expect(workspace.errorMessage?.contains("changed") == true)
+        #expect(try output(["show", ":sub/f.txt"], in: repo).contains("\nx\n"))
+        withExtendedLifetime(workspace) {}
+    }
+
+    @Test func unstagingAllOfANewFileRemovesItFromTheIndex() async throws {
+        let root = try makeRepository()
+        try "fresh\n".write(to: root.appending(path: "new.txt"), atomically: true, encoding: .utf8)
+        try git(["add", "new.txt"], in: root)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        #expect(try await eventually { workspace.gitRepository != nil })
+        let session = try #require(workspace.openChanges(for: root.appending(path: "new.txt"), staged: true))
+        #expect(try await eventually { session.hunks.count == 1 })
+        #expect(session.isNewFile && session.title == "new.txt (Staged)")
+        workspace.unstageHunk(session.hunks[0], in: session)
+        #expect(try await eventually { session.isLoaded && session.indexLines == nil })
+        #expect(try output(["status", "--porcelain"], in: root) == "?? new.txt\n")
         withExtendedLifetime(workspace) {}
     }
 }

@@ -511,6 +511,12 @@ final class EditorController: NSObject {
             onRevert: { [weak self, weak popover] in
                 self?.revert(hunk)
                 popover?.performClose(nil)
+            },
+            onStage: document.stageHunkAction.map { stage in
+                { [weak popover] in
+                    stage(hunk)
+                    popover?.performClose(nil)
+                }
             }
         ))
         hunkPopover = popover

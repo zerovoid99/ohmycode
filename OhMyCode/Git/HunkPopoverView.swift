@@ -1,11 +1,13 @@
 import SwiftUI
 
 /// Shown when clicking a change marker in the gutter: the staged lines (red) and current
-/// lines (green) of that hunk, with Revert.
+/// lines (green) of that hunk, with Revert and Stage.
 struct HunkPopoverView: View {
     let oldLines: [String]
     let newLines: [String]
     let onRevert: () -> Void
+    /// Nil when the file can't be staged in parts.
+    var onStage: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -14,6 +16,10 @@ struct HunkPopoverView: View {
                 Spacer()
                 Button("Revert", systemImage: "arrow.uturn.backward", action: onRevert)
                     .help("Revert this change to the staged version (undoable)")
+                if let onStage {
+                    Button("Stage", systemImage: "plus", action: onStage)
+                        .help("Stage only this change")
+                }
             }
             .padding(8)
             Divider()
