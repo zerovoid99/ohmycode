@@ -554,4 +554,8 @@ struct RepoHistory: Equatable {
     let isLoading: Bool
     /// The last page was full: there may be older commits.
     let hasMore: Bool
+    /// The commit graph, one row per commit.
+    var graph: [CommitGraphRow] = []
+    /// The most lanes any row uses (the graph column's width).
+    var graphWidth: Int { graph.map(\.width).max() ?? 1 }
 }

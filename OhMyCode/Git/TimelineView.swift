@@ -133,31 +133,27 @@ private struct RepositoryLogView: View {
                 if history.commits.isEmpty && !history.isLoading {
                     ContentUnavailableView("No Commits", systemImage: "clock", description: Text("Nothing has been committed yet."))
                 } else {
-                    List {
-                        ForEach(history.commits) { commit in
-                            DisclosureGroup(isExpanded: binding(for: commit)) {
-                                files(of: commit)
-                            } label: {
-                                RepoCommitRow(commit: commit)
-                                    .contentShape(Rectangle())
-                                    .onTapGesture { toggle(commit) }
-                                    .contextMenu { menu(for: commit) }
+                    // Rows touch (no list insets), so each row's piece of the graph joins the next.
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(history.commits.enumerated()), id: \.element.id) { index, commit in
+                                commitRow(commit, graph: history.graph.indices.contains(index) ? history.graph[index] : nil,
+                                          lanes: history.graphWidth)
                             }
-                        }
-                        if history.hasMore || history.isLoading {
-                            HStack {
-                                Spacer()
-                                if history.isLoading {
-                                    ProgressView().controlSize(.small)
-                                } else {
-                                    Button("Load More") { workspace.loadRepoHistory(more: true) }
+                            if history.hasMore || history.isLoading {
+                                HStack {
+                                    Spacer()
+                                    if history.isLoading {
+                                        ProgressView().controlSize(.small)
+                                    } else {
+                                        Button("Load More") { workspace.loadRepoHistory(more: true) }
+                                    }
+                                    Spacer()
                                 }
-                                Spacer()
+                                .padding(.vertical, 6)
                             }
                         }
                     }
-                    .listStyle(.sidebar)
-                    .scrollContentBackground(.hidden)
                 }
             } else if workspace.gitRepository == nil {
                 ContentUnavailableView("Not in Git", systemImage: "questionmark.folder",
@@ -169,8 +165,38 @@ private struct RepositoryLogView: View {
         .task { if workspace.repoHistory == nil { workspace.loadRepoHistory() } }
     }
 
-    private func binding(for commit: RepoCommit) -> Binding<Bool> {
-        Binding(get: { expanded.contains(commit.sha) }, set: { if $0 != expanded.contains(commit.sha) { toggle(commit) } })
+    /// The graph column's lane spacing: narrower when there are many lanes, so it never takes
+    /// more than about half the panel.
+    private func spacing(for lanes: Int) -> CGFloat { min(11, 120 / CGFloat(max(1, lanes))) }
+
+    private func commitRow(_ commit: RepoCommit, graph: CommitGraphRow?, lanes: Int) -> some View {
+        let isExpanded = expanded.contains(commit.sha)
+        return HStack(alignment: .top, spacing: 4) {
+            if let graph {
+                CommitGraphCell(row: graph, lanes: lanes, spacing: spacing(for: lanes), nodeY: 13)
+                    .frame(maxHeight: .infinity)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .top, spacing: 4) {
+                    RepoCommitRow(commit: commit)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .padding(.top, 5)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { toggle(commit) }
+                .contextMenu { menu(for: commit) }
+                if isExpanded {
+                    files(of: commit).padding(.bottom, 4)
+                }
+            }
+            .padding(.top, 4)
+            .padding(.trailing, 8)
+        }
+        .padding(.leading, 4)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func toggle(_ commit: RepoCommit) {
@@ -180,8 +206,12 @@ private struct RepositoryLogView: View {
         }
     }
 
-    @ViewBuilder
     private func files(of commit: RepoCommit) -> some View {
+        VStack(alignment: .leading, spacing: 3) { fileRows(of: commit) }
+    }
+
+    @ViewBuilder
+    private func fileRows(of commit: RepoCommit) -> some View {
         if let files = workspace.commitFiles[commit.sha] {
             if files.isEmpty {
                 Text("No file changes").font(.caption).foregroundStyle(.secondary)

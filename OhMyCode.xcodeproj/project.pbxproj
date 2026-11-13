@@ -19,6 +19,7 @@
 		1D3022887233E995E0CC9A98 /* TerminalKeyMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DA477C6C5DD7FADEA27948 /* TerminalKeyMap.swift */; };
 		1F6340BD53600AC51FF68193 /* VSCodeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B511C0F6AACECBD26C594F8 /* VSCodeTheme.swift */; };
 		21EDC22CA862562303AA0ABF /* LanguageServerConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7C57B7EB44D1B9076110A5 /* LanguageServerConnection.swift */; };
+		234640D26A9F03EFA06D017E /* CommitGraph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F75F53CE900295074EEE285 /* CommitGraph.swift */; };
 		24B7957B0621B9E84225341C /* SearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43F3388BA148B4E8F22F589 /* SearchTests.swift */; };
 		2E028BA8A6DD44C06C727335 /* TreeSitterPython in Frameworks */ = {isa = PBXBuildFile; productRef = B7578A1892DE4A8AD836F880 /* TreeSitterPython */; };
 		3043BD420289D09EDB6B05E8 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D8010605A8A9875A268782 /* TimelineView.swift */; };
@@ -44,6 +45,7 @@
 		6F155EAA252E5ED13E320E60 /* TreeSitterJSON in Frameworks */ = {isa = PBXBuildFile; productRef = DFFC9B802FF091C8BB16D5AE /* TreeSitterJSON */; };
 		6F6580D30998138BE1E1BAC2 /* GutterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F488C05B906F0EDF3B72B9D /* GutterView.swift */; };
 		7042CD02AA5B9520810A7177 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2903C4AF8D35ECFA693E971 /* AppSettings.swift */; };
+		70BE660B9B25C427A5DE8207 /* CommitGraphTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 914B50B9C32C4D129975E6BF /* CommitGraphTests.swift */; };
 		7ACEC9BB55E27BD7C88EC300 /* LineDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 257D4B1DFFEADE990E86AC2F /* LineDiff.swift */; };
 		7C38F08A05F05728C4005924 /* SwiftTreeSitter in Frameworks */ = {isa = PBXBuildFile; productRef = F1CE83A05017EBD7031E980D /* SwiftTreeSitter */; };
 		7CA904BB3CD95F4207DAB396 /* MultiCursorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F4A1D4E9786FCAEC6E2C553 /* MultiCursorTests.swift */; };
@@ -144,6 +146,7 @@
 		444F791D467BD9D84951C7DC /* EditorGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGroupView.swift; sourceTree = "<group>"; };
 		4A76E72897EB0575B5F95E98 /* PTYProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYProcess.swift; sourceTree = "<group>"; };
 		4F4A1D4E9786FCAEC6E2C553 /* MultiCursorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiCursorTests.swift; sourceTree = "<group>"; };
+		4F75F53CE900295074EEE285 /* CommitGraph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommitGraph.swift; sourceTree = "<group>"; };
 		4F973E946D73AF21BFAE0D75 /* LineIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineIndex.swift; sourceTree = "<group>"; };
 		56E3DC7C8474D02E52D8006C /* GrammarRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrammarRegistry.swift; sourceTree = "<group>"; };
 		57DDDDFEE387635D979AA622 /* TerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSession.swift; sourceTree = "<group>"; };
@@ -165,6 +168,7 @@
 		8902C7C1FC02562C44039229 /* SourceLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceLanguage.swift; sourceTree = "<group>"; };
 		8A27CC784765B3447A7FD539 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
 		8F488C05B906F0EDF3B72B9D /* GutterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GutterView.swift; sourceTree = "<group>"; };
+		914B50B9C32C4D129975E6BF /* CommitGraphTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommitGraphTests.swift; sourceTree = "<group>"; };
 		93015393E54CC5284AD91618 /* PaletteModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaletteModel.swift; sourceTree = "<group>"; };
 		95DB07857625F52A05770C90 /* OhMyCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OhMyCodeTests.swift; sourceTree = "<group>"; };
 		95ED4C401864D6BBB7980F5B /* CodeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeEditorView.swift; sourceTree = "<group>"; };
@@ -306,6 +310,7 @@
 			children = (
 				0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */,
 				67EAC67DA0BCF2450AAD5F84 /* BlameDiffTests.swift */,
+				914B50B9C32C4D129975E6BF /* CommitGraphTests.swift */,
 				2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */,
 				16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */,
 				63C0BDA667585BA6CF3CCCE0 /* FileWatchingTests.swift */,
@@ -433,6 +438,7 @@
 		FA927494CBBF9D4C16DCC25E /* Git */ = {
 			isa = PBXGroup;
 			children = (
+				4F75F53CE900295074EEE285 /* CommitGraph.swift */,
 				22A9D5C62A3D394938C0CC07 /* DiffHighlighting.swift */,
 				BB1D4C88F2D6272ECCA41AB8 /* DiffView.swift */,
 				35FE1528841757CF0824617C /* GitStatus.swift */,
@@ -580,6 +586,7 @@
 				7042CD02AA5B9520810A7177 /* AppSettings.swift in Sources */,
 				F8468141431F9A6418630B20 /* AutoEdit.swift in Sources */,
 				11D618DD62A741BF5C5FC2E1 /* CodeEditorView.swift in Sources */,
+				234640D26A9F03EFA06D017E /* CommitGraph.swift in Sources */,
 				C1BE27B5BFAC1807427CFDCE /* CompletionController.swift in Sources */,
 				BAEF5F51E56FA1074B4DEDC9 /* DiagnosticsOverlayView.swift in Sources */,
 				E8F251A6BAB2837B10195807 /* DiffHighlighting.swift in Sources */,
@@ -650,6 +657,7 @@
 			files = (
 				D3F4C2A897DA315C7F9495F4 /* AutoEditTests.swift in Sources */,
 				8314EEB610146D25ED51C5DF /* BlameDiffTests.swift in Sources */,
+				70BE660B9B25C427A5DE8207 /* CommitGraphTests.swift in Sources */,
 				AAB71F6BE2CE7E5D5864EADF /* DiffHighlightTests.swift in Sources */,
 				E1AD3FCB68345C20CCD3CAC5 /* EditorChromeTests.swift in Sources */,
 				AE3ECD7BB4950C7B8C99D795 /* FileWatchingTests.swift in Sources */,

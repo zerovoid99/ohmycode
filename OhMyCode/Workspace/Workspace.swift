@@ -684,14 +684,17 @@ final class Workspace {
         let pageSize = repoHistoryPageSize
         let skip = more ? existing.count : 0
         let limit = more ? pageSize : max(pageSize, existing.count)
-        repoHistory = RepoHistory(commits: existing, isLoading: true, hasMore: repoHistory?.hasMore ?? false)
+        repoHistory = RepoHistory(commits: existing, isLoading: true, hasMore: repoHistory?.hasMore ?? false,
+                                  graph: repoHistory?.graph ?? [])
         repoHistoryTask = Task {
-            let page = await Task.detached(priority: .utility) {
-                Git.log(in: repository, limit: limit, skip: skip)
+            // The graph is laid out again for the whole list: a new page can end lanes above it.
+            let (page, commits, graph) = await Task.detached(priority: .utility) {
+                let page = Git.log(in: repository, limit: limit, skip: skip)
+                let commits = more ? existing + (page ?? []) : page ?? []
+                return (page, commits, CommitGraph.layout(commits.map { ($0.sha, $0.parents) }))
             }.value
             guard !Task.isCancelled else { return }
-            let commits = more ? existing + (page ?? []) : page ?? []
-            repoHistory = RepoHistory(commits: commits, isLoading: false, hasMore: (page?.count ?? 0) == limit)
+            repoHistory = RepoHistory(commits: commits, isLoading: false, hasMore: (page?.count ?? 0) == limit, graph: graph)
         }
     }
 
