@@ -154,6 +154,12 @@ extension GutterView {
 final class EditorContainerView: NSView {
     let gutterView: GutterView
     let scrollView: NSScrollView
+    var minimapView: MinimapView? {
+        didSet { oldValue?.removeFromSuperview(); if let minimapView { addSubview(minimapView) }; needsLayout = true }
+    }
+    var stickyView: StickyScrollView? {
+        didSet { oldValue?.removeFromSuperview(); if let stickyView { addSubview(stickyView, positioned: .above, relativeTo: nil) }; needsLayout = true }
+    }
 
     init(gutterView: GutterView, scrollView: NSScrollView) {
         self.gutterView = gutterView
@@ -170,8 +176,18 @@ final class EditorContainerView: NSView {
     override func layout() {
         super.layout()
         let gutterWidth = gutterView.width
+        let showsMinimap = minimapView.map { !$0.isHidden } ?? false
+        let minimapWidth = showsMinimap ? MinimapView.width : 0
+        let textWidth = max(0, bounds.width - gutterWidth - minimapWidth)
         gutterView.frame = NSRect(x: 0, y: 0, width: gutterWidth, height: bounds.height)
-        scrollView.frame = NSRect(x: gutterWidth, y: 0, width: max(0, bounds.width - gutterWidth), height: bounds.height)
+        scrollView.frame = NSRect(x: gutterWidth, y: 0, width: textWidth, height: bounds.height)
+        minimapView?.frame = NSRect(x: gutterWidth + textWidth, y: 0, width: minimapWidth, height: bounds.height)
+        if let stickyView {
+            // Across the gutter and the text, at the top (this view isn't flipped).
+            let height = min(stickyView.height, bounds.height / 2)
+            stickyView.frame = NSRect(x: 0, y: bounds.height - height, width: gutterWidth + textWidth, height: height)
+            stickyView.isHidden = height == 0
+        }
         gutterView.needsDisplay = true
     }
 }

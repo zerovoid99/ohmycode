@@ -38,6 +38,8 @@ final class EditorController: NSObject {
     var onFocus: (() -> Void)?
     private var textLayoutManager: NSTextLayoutManager?
     private weak var containerView: EditorContainerView?
+    private(set) var minimapView: MinimapView?
+    private(set) var stickyView: StickyScrollView?
     private(set) lazy var completion = CompletionController(editor: self)
     private(set) lazy var hover = HoverController(editor: self)
     /// What the user just typed, captured before the change, for completion triggering.
@@ -102,9 +104,17 @@ final class EditorController: NSObject {
             gutter?.needsDisplay = true
             overlay?.needsDisplay = true
             self?.refreshHighlights(force: false)
+            self?.minimapView?.refresh()
         }
         let containerView = EditorContainerView(gutterView: gutter, scrollView: scrollView)
         self.containerView = containerView
+        let minimap = MinimapView(editor: self)
+        containerView.minimapView = minimap
+        minimapView = minimap
+        let sticky = StickyScrollView(editor: self)
+        sticky.onHeightChange = { [weak containerView] in containerView?.needsLayout = true }
+        containerView.stickyView = sticky
+        stickyView = sticky
         applySettings()
         NotificationCenter.default.addObserver(self, selector: #selector(settingsDidChange),
                                                name: AppSettings.didChange, object: nil)
@@ -122,6 +132,8 @@ final class EditorController: NSObject {
             self.document.editor = self
             textView.window?.makeFirstResponder(textView)
             self.document.highlighter?.addClient(self)
+            if let minimap = self.minimapView, !minimap.isHidden { self.document.highlighter?.addClient(minimap) }
+            self.stickyView?.update()
             self.applyDiagnostics()
         }
         return containerView
@@ -173,6 +185,55 @@ final class EditorController: NSObject {
         gutterView.themeDidChange()
         diagnosticsOverlay?.needsDisplay = true
         refreshHighlights(force: true)
+
+        let settings = AppSettings.shared
+        if let minimapView, minimapView.isHidden == settings.showsMinimap {
+            minimapView.isHidden = !settings.showsMinimap
+            if settings.showsMinimap { document.highlighter?.addClient(minimapView) }
+            containerView?.needsLayout = true
+        }
+        minimapView?.needsDisplay = true
+        stickyView?.update()
+    }
+
+    // MARK: Line geometry (minimap, sticky scroll)
+
+    /// Height of one line; lines don't wrap, so all have the same height.
+    var lineHeight: CGFloat {
+        if let layoutManager = textView.textLayoutManager,
+           let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, textView.visibleRect.minY - textView.textContainerOrigin.y))),
+           let line = fragment.textLineFragments.first {
+            return line.typographicBounds.height
+        }
+        let font = EditorTheme.font
+        return ceil(font.ascender - font.descender + font.leading)
+    }
+
+    var visibleLineCount: Int {
+        max(1, Int(textView.visibleRect.height / max(1, lineHeight)))
+    }
+
+    /// Scrolls so `line` (zero-based) is the first visible line.
+    func scrollLineToTop(_ line: Int) {
+        guard let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager else { return }
+        let index = document.lineIndex
+        let offset = index.lineStarts[min(max(0, line), index.lineCount - 1)]
+        guard let location = contentManager.location(contentManager.documentRange.location, offsetBy: offset) else { return }
+        var y: CGFloat = 0
+        layoutManager.enumerateTextLayoutFragments(from: location, options: [.ensuresLayout]) { fragment in
+            y = fragment.layoutFragmentFrame.minY
+            return false
+        }
+        textView.scroll(NSPoint(x: textView.visibleRect.minX, y: y + textView.textContainerOrigin.y))
+    }
+
+    /// Puts the cursor at the start of `line` with that line at the top, below any sticky lines.
+    func reveal(line: Int) {
+        let index = document.lineIndex
+        let line = min(max(0, line), index.lineCount - 1)
+        textView.setSelectedRange(NSRange(location: index.lineStarts[line], length: 0))
+        scrollLineToTop(line - (stickyView?.lines.filter { $0 < line }.count ?? 0))
+        focus()
     }
 
     // MARK: View state
@@ -287,6 +348,8 @@ final class EditorController: NSObject {
         gutterView.updateWidth()
         gutterView.needsDisplay = true
         diagnosticsOverlay?.needsDisplay = true
+        minimapView?.refresh(textChanged: true)
+        stickyView?.update()
     }
 
     private func didBecomeFocused() {
@@ -384,6 +447,8 @@ final class EditorController: NSObject {
 
     @objc private func viewportDidScroll() {
         gutterView.needsDisplay = true
+        minimapView?.refresh()
+        stickyView?.update()
     }
 
     /// Asks for syntax colors when the viewport moved outside the highlighted range (or always,
@@ -439,6 +504,8 @@ extension EditorController: NSTextViewDelegate {
         let typed = pendingTypedText
         pendingTypedText = nil
         completion.textDidChange(typed: typed)
+        minimapView?.refresh(textChanged: true)
+        stickyView?.update()
         for other in document.editors where other !== self { other.refreshAfterEdit() }
     }
 

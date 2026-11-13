@@ -42,6 +42,9 @@ final class AppSettings {
     var terminalFontFamily: String { didSet { changed() } }
     var terminalFontSize: Double { didSet { changed() } }
 
+    var showsMinimap: Bool { didSet { changed() } }
+    var stickyScroll: Bool { didSet { changed() } }
+
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var isLoading = false
 
@@ -54,6 +57,8 @@ final class AppSettings {
         editorFontSize = Self.clampedSize(defaults.object(forKey: Keys.editorFontSize) as? Double ?? Self.defaultEditorFontSize)
         terminalFontFamily = defaults.string(forKey: Keys.terminalFontFamily) ?? ""
         terminalFontSize = Self.clampedSize(defaults.object(forKey: Keys.terminalFontSize) as? Double ?? Self.defaultTerminalFontSize)
+        showsMinimap = defaults.object(forKey: Keys.showsMinimap) as? Bool ?? true
+        stickyScroll = defaults.object(forKey: Keys.stickyScroll) as? Bool ?? true
         isLoading = false
     }
 
@@ -64,6 +69,8 @@ final class AppSettings {
         static let editorFontSize = "editorFontSize"
         static let terminalFontFamily = "terminalFontFamily"
         static let terminalFontSize = "terminalFontSize"
+        static let showsMinimap = "showsMinimap"
+        static let stickyScroll = "stickyScroll"
     }
 
     private static func clampedSize(_ size: Double) -> Double {
@@ -84,6 +91,8 @@ final class AppSettings {
         defaults.set(editorFontSize, forKey: Keys.editorFontSize)
         defaults.set(terminalFontFamily, forKey: Keys.terminalFontFamily)
         defaults.set(terminalFontSize, forKey: Keys.terminalFontSize)
+        defaults.set(showsMinimap, forKey: Keys.showsMinimap)
+        defaults.set(stickyScroll, forKey: Keys.stickyScroll)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
         EditorTheme.invalidate()
         applyAppearance()
@@ -156,6 +165,8 @@ final class AppSettings {
         themeID = EditorTheme.defaultTheme.id
         editorFontFamily = ""
         terminalFontFamily = ""
+        showsMinimap = true
+        stickyScroll = true
         resetZoom()
     }
 }

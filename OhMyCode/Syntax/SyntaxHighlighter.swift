@@ -77,6 +77,17 @@ final class SyntaxHighlighter {
         return await engine.highlights(in: range)
     }
 
+    /// See `SyntaxEngine.enclosingScopeLines`. Uses the latest parsed tree (no waiting).
+    func enclosingScopeLines(line: Int, lineStart: Int) async -> [Int] {
+        await engine.enclosingScopeLines(line: line, lineStart: lineStart)
+    }
+
+    /// Highlights from the latest parsed tree, without waiting for pending edits (sticky
+    /// scroll and other secondary views that tolerate a frame of lag).
+    func currentHighlights(in range: NSRange) async -> [NamedRange] {
+        await engine.highlights(in: range)
+    }
+
     func waitUntilIdle() async {
         while let inFlight { await inFlight.value }
     }
