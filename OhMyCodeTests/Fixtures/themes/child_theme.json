@@ -1,0 +1,28 @@
+// A theme in the style of VS Code's Dark Modern, building on a base theme.
+{
+	"name": "Child Modern",
+	"type": "dark",
+	"include": "./base_dark.json",
+	"colors": {
+		"editor.background": "#1F1F1F",
+		"editor.selectionBackground": "#264F7880",
+		"editorCursor.foreground": "#AEAFAD",
+		"editorLineNumber.foreground": "#6E7681",
+		"editorLineNumber.activeForeground": "#CCCCCC",
+		"editorGroupHeader.tabsBackground": "#181818",
+		"panel.background": "#181818",
+		"terminal.ansiBlack": "#000000", "terminal.ansiRed": "#F14C4C", "terminal.ansiGreen": "#0DBC79",
+		"terminal.ansiYellow": "#E5E510", "terminal.ansiBlue": "#2472C8", "terminal.ansiMagenta": "#BC3FBC",
+		"terminal.ansiCyan": "#11A8CD", "terminal.ansiWhite": "#E5E5E5",
+		"terminal.ansiBrightBlack": "#666666", "terminal.ansiBrightRed": "#F14C4C", "terminal.ansiBrightGreen": "#23D18B",
+		"terminal.ansiBrightYellow": "#F5F543", "terminal.ansiBrightBlue": "#3B8EEA", "terminal.ansiBrightMagenta": "#D670D6",
+		"terminal.ansiBrightCyan": "#29B8DB", "terminal.ansiBrightWhite": "#E5E5E5"
+	},
+	"tokenColors": [
+		{ "scope": "keyword.control", "settings": { "foreground": "#C586C0" } },
+		{ "scope": "entity.name.function", "settings": { "foreground": "#DCDCAA" } },
+		{ "scope": ["entity.name.type", "support.type"], "settings": { "foreground": "#4EC9B0" } },
+		{ "scope": "source.js keyword", "settings": { "foreground": "#FF0000" } },
+		{ "scope": "variable.other.property", "settings": { "fontStyle": "italic" } }
+	]
+}

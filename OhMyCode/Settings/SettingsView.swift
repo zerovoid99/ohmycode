@@ -1,8 +1,11 @@
+import UniformTypeIdentifiers
 import SwiftUI
 
 /// Settings window (⌘,). Changes apply immediately to open editors and terminals.
 struct SettingsView: View {
     @Bindable var settings = AppSettings.shared
+    private let library = ThemeLibrary.shared
+    @State private var importError: String?
 
     var body: some View {
         TabView {
@@ -27,16 +30,48 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("Color Theme") {
-                ForEach(EditorTheme.themes) { theme in
-                    ThemeRow(theme: theme, isSelected: settings.themeID == theme.id)
+            Section {
+                ForEach(EditorTheme.builtInThemes + library.themes) { theme in
+                    ThemeRow(theme: theme, isSelected: settings.themeID == theme.id,
+                             onRemove: library.isImported(theme.id) ? { library.remove(theme.id) } : nil)
                         .contentShape(Rectangle())
                         .onTapGesture { settings.themeID = theme.id }
+                }
+            } header: {
+                Text("Color Theme")
+            } footer: {
+                HStack {
+                    Text("VS Code themes (.json) can be imported, e.g. from an extension's themes folder.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Import VS Code Theme…", action: importTheme)
                 }
             }
             restoreDefaults
         }
         .formStyle(.grouped)
+        .alert("Couldn't Import Theme", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
+            Button("OK") { importError = nil }
+        } message: {
+            Text(importError ?? "")
+        }
+    }
+
+    private func importTheme() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose VS Code color theme files (.json)"
+        guard panel.runModal() == .OK else { return }
+        var last: EditorThemeDefinition?
+        for url in panel.urls {
+            do {
+                last = try library.importTheme(from: url)
+            } catch {
+                importError = "\(url.lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+        if let last { settings.themeID = last.id }
     }
 
     // MARK: Editor
@@ -114,6 +149,7 @@ private struct FontSizeField: View {
 private struct ThemeRow: View {
     let theme: EditorThemeDefinition
     let isSelected: Bool
+    var onRemove: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -130,6 +166,11 @@ private struct ThemeRow: View {
             .padding(.vertical, 5)
             .background(Color(nsColor: theme.background), in: Capsule())
             .environment(\.colorScheme, theme.isDark.map { $0 ? .dark : .light } ?? .light)
+            if let onRemove {
+                Button(action: onRemove) { Image(systemName: "trash") }
+                    .buttonStyle(.borderless)
+                    .help("Remove Imported Theme")
+            }
         }
     }
 }

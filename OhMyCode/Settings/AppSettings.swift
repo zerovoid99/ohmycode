@@ -10,7 +10,7 @@ final class AppSettings {
     /// the user's real settings (the test host is the app itself).
     static let shared = AppSettings(defaults: isRunningTests ? scratchDefaults() : .standard)
 
-    private static var isRunningTests: Bool {
+    static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             || NSClassFromString("XCTestCase") != nil
     }

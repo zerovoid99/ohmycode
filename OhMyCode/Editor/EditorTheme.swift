@@ -129,7 +129,10 @@ enum EditorTheme {
 
     // MARK: Themes
 
-    static let themes: [EditorThemeDefinition] = [defaultTheme, solarizedLight, solarizedDark, monokai]
+    static let builtInThemes: [EditorThemeDefinition] = [defaultTheme, solarizedLight, solarizedDark, monokai]
+
+    /// Built-in themes, then imported VS Code themes.
+    static var themes: [EditorThemeDefinition] { builtInThemes + ThemeLibrary.shared.themes }
 
     /// Xcode-like colors that follow the system's light/dark appearance.
     static let defaultTheme = EditorThemeDefinition(
@@ -188,7 +191,7 @@ enum EditorTheme {
             0x75715E, 0xF92672, 0xA6E22E, 0xF4BF75, 0x66D9EF, 0xAE81FF, 0xA1EFE4, 0xF9F8F5,
         ])
 
-    static func hex(_ value: UInt32) -> NSColor {
+    nonisolated static func hex(_ value: UInt32) -> NSColor {
         NSColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
                 blue: CGFloat(value & 0xFF) / 255, alpha: 1)
     }
