@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Top of the Source Control panel: the current branch (click to pick another), how far it is
@@ -29,8 +30,16 @@ struct BranchBar: View {
                     .help("\(status.behind) to pull, \(status.ahead) to push (as of the last fetch)")
             }
             Group {
-                Button("Fetch", systemImage: "arrow.triangle.2.circlepath") { workspace.fetch() }
-                    .help("Fetch from all remotes")
+                Menu {
+                    RemotesMenu(workspace: workspace)
+                } label: {
+                    Label("Fetch", systemImage: "arrow.triangle.2.circlepath")
+                } primaryAction: {
+                    workspace.fetch()
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Fetch from all remotes; the arrow lists the remotes")
                 Button("Pull", systemImage: "arrow.down") { workspace.pull() }
                     .help(status.upstream.map { "Pull from \($0)" } ?? "Pull (no upstream yet)")
                     .disabled(status.upstream == nil)
@@ -44,6 +53,44 @@ struct BranchBar: View {
             if workspace.isRunningGitCommand { ProgressView().controlSize(.mini) }
         }
         .font(.callout)
+        // The remotes menu lists them: read them with the panel (changes reload them).
+        .task(id: workspace.gitRepository?.root) { await workspace.loadRemotes() }
+    }
+}
+
+/// The remotes: fetch one, change its URL, rename or remove it; add another.
+struct RemotesMenu: View {
+    let workspace: Workspace
+
+    var body: some View {
+        Button("Fetch All") { workspace.fetch() }
+        Divider()
+        if let remotes = workspace.remotes {
+            if remotes.isEmpty {
+                Text("No Remotes")
+            }
+            ForEach(remotes) { remote in
+                Menu("\(remote.name) — \(remote.displayURL)") {
+                    Button("Fetch from \(remote.name)") { workspace.fetch(from: remote) }
+                    Divider()
+                    Button("Edit URL…") { workspace.editRemoteURL(remote) }
+                    Button("Rename…") { workspace.renameRemote(remote) }
+                    Button("Copy URL") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(remote.fetchURL, forType: .string)
+                    }
+                    if remote.pushURL != remote.fetchURL {
+                        Text("Pushes to \(GitRemote.display(remote.pushURL))")
+                    }
+                    Divider()
+                    Button("Remove…", role: .destructive) { workspace.removeRemote(remote) }
+                }
+            }
+        } else {
+            Text("Loading…")
+        }
+        Divider()
+        Button("Add Remote…") { workspace.addRemote() }
     }
 }
 

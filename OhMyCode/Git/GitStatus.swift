@@ -428,6 +428,34 @@ enum Git {
         return files
     }
 
+    /// The remotes with their URLs, by name.
+    static func remoteList(in repository: Repository) -> [GitRemote]? {
+        guard let output = run(["remote", "--verbose"], in: repository.root) else { return nil }
+        return GitRemote.parse(output)
+    }
+
+    static func addRemote(_ name: String, url: String, in repository: Repository) throws {
+        try check(["remote", "add", "--", name, url], in: repository.root)
+    }
+
+    /// Removes the remote, its remote-tracking branches and the upstreams set to it.
+    static func removeRemote(_ name: String, in repository: Repository) throws {
+        try check(["remote", "remove", name], in: repository.root)
+    }
+
+    static func renameRemote(_ name: String, to newName: String, in repository: Repository) throws {
+        try check(["remote", "rename", "--", name, newName], in: repository.root)
+    }
+
+    /// Sets the URL fetched from and, unless it has a push URL of its own, pushed to.
+    static func setRemoteURL(_ name: String, url: String, in repository: Repository) throws {
+        try check(["remote", "set-url", "--", name, url], in: repository.root)
+    }
+
+    static func fetch(remote: String, in repository: Repository) throws {
+        try check(["fetch", "--prune", "--", remote], in: repository.root)
+    }
+
     static func remotes(in repository: Repository) -> [String] {
         guard let output = run(["remote"], in: repository.root) else { return [] }
         return String(decoding: output, as: UTF8.self).split(separator: "\n").map(String.init)
@@ -654,6 +682,40 @@ enum Git {
     }
 }
 
+
+/// A remote and where it fetches from and pushes to.
+struct GitRemote: Sendable, Hashable, Identifiable {
+    let name: String
+    let fetchURL: String
+    let pushURL: String
+
+    var id: String { name }
+
+    /// The URL without a password (`https://user:token@host` shows as `https://user:•••@host`).
+    static func display(_ url: String) -> String {
+        guard var components = URLComponents(string: url), components.password != nil, components.host != nil else { return url }
+        components.password = "•••"
+        return components.string?.replacingOccurrences(of: "%E2%80%A2%E2%80%A2%E2%80%A2", with: "•••") ?? url
+    }
+
+    var displayURL: String { Self.display(fetchURL) }
+
+    /// Parses `git remote --verbose`: "origin\turl (fetch)" and "origin\turl (push)" lines.
+    static func parse(_ data: Data) -> [GitRemote] {
+        var fetch: [String: String] = [:], push: [String: String] = [:], order: [String] = []
+        for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
+            let parts = line.split(separator: "\t", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let name = String(parts[0])
+            var rest = String(parts[1])
+            let isPush = rest.hasSuffix(" (push)")
+            if isPush || rest.hasSuffix(" (fetch)") { rest = String(rest.dropLast(isPush ? 7 : 8)) }
+            if !order.contains(name) { order.append(name) }
+            if isPush { push[name] = rest } else { fetch[name] = rest }
+        }
+        return order.map { GitRemote(name: $0, fetchURL: fetch[$0] ?? push[$0] ?? "", pushURL: push[$0] ?? fetch[$0] ?? "") }
+    }
+}
 
 /// A commit as the blame popover shows it.
 struct CommitDetails: Sendable, Equatable {

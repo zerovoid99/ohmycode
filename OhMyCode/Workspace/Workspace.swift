@@ -114,6 +114,11 @@ final class Workspace {
     private(set) var stashFiles: [String: [StashFile]] = [:]
     /// Local and remote branches, read when the branch picker opens.
     private(set) var branches: [GitBranch]?
+    /// The repository's remotes, once read (see `loadRemotes`).
+    private(set) var remotes: [GitRemote]?
+    /// Tests answer this instead of the remote dialog: a name and URL, given the remote being
+    /// edited (nil: a new one). Nil cancels.
+    @ObservationIgnored var remotePrompt: ((GitRemote?) -> (name: String, url: String)?)?
     /// Tests answer these instead of dialogs: a name typed for a new or renamed branch (given
     /// the dialog's title), and yes/no questions (given the question).
     @ObservationIgnored var textPrompt: ((String) -> String?)?
@@ -183,6 +188,7 @@ final class Workspace {
 
         gitStatus = nil
         gitRepository = nil
+        remotes = nil
         refreshGit()
         languageClients.values.forEach { $0.shutdown() }
         languageClients.removeAll()
@@ -603,6 +609,7 @@ final class Workspace {
             isRunningGitCommand = false
             refreshGit()
             if branches != nil { await loadBranches() }
+            if remotes != nil { await loadRemotes() }
         }
     }
 
@@ -974,6 +981,74 @@ final class Workspace {
     }
 
     func fetch() { runGit { try Git.fetch(in: $0) } }
+
+    // MARK: Remotes
+
+    func loadRemotes() async {
+        guard let repository = gitRepository else { remotes = nil; return }
+        remotes = await Task.detached(priority: .userInitiated) { Git.remoteList(in: repository) }.value ?? []
+    }
+
+    func fetch(from remote: GitRemote) { runGit { try Git.fetch(remote: remote.name, in: $0) } }
+
+    /// Asks for a name and URL, then adds the remote and fetches it.
+    func addRemote() {
+        let suggested = remotes?.isEmpty != false ? "origin" : ""
+        guard let answer = remotePrompt.map({ $0(nil) }) ?? promptForRemote(nil, suggestedName: suggested) else { return }
+        let name = answer.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let url = answer.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !url.isEmpty else { return }
+        runGit { repository in
+            try Git.addRemote(name, url: url, in: repository)
+            try Git.fetch(remote: name, in: repository)
+        }
+    }
+
+    /// Asks for a new URL for the remote.
+    func editRemoteURL(_ remote: GitRemote) {
+        guard let answer = remotePrompt.map({ $0(remote) }) ?? promptForRemote(remote, suggestedName: remote.name) else { return }
+        let url = answer.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty, url != remote.fetchURL else { return }
+        runGit { try Git.setRemoteURL(remote.name, url: url, in: $0) }
+    }
+
+    func renameRemote(_ remote: GitRemote) {
+        guard let name = ask("Rename Remote", message: "New name for “\(remote.name)”. Its remote branches and the "
+                             + "upstreams set to it follow.", placeholder: remote.name, initial: remote.name),
+              name != remote.name else { return }
+        runGit { try Git.renameRemote(remote.name, to: name, in: $0) }
+    }
+
+    func removeRemote(_ remote: GitRemote) {
+        guard confirm("Remove the remote “\(remote.name)”? Its remote branches go from this repository and branches "
+                      + "tracking it lose their upstream. Nothing changes on the server.") else { return }
+        runGit { try Git.removeRemote(remote.name, in: $0) }
+    }
+
+    /// The remote dialog: a name (only for a new remote) and a URL.
+    private func promptForRemote(_ remote: GitRemote?, suggestedName: String) -> (name: String, url: String)? {
+        let alert = NSAlert()
+        alert.messageText = remote.map { "Edit “\($0.name)” URL" } ?? "Add Remote"
+        alert.informativeText = remote == nil
+            ? "It's fetched right away. SSH (git@host:owner/repo.git) or HTTPS URLs work."
+            : "Where the remote fetches from and pushes to."
+        let name = NSTextField(string: suggestedName)
+        name.placeholderString = "origin"
+        let url = NSTextField(string: remote?.fetchURL ?? "")
+        url.placeholderString = "git@github.com:owner/repo.git"
+        let fields = remote == nil ? [name, url] : [url]
+        let stack = NSStackView(views: fields)
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.frame = NSRect(x: 0, y: 0, width: 320, height: CGFloat(fields.count) * 24 + CGFloat(fields.count - 1) * 8)
+        for field in fields { field.widthAnchor.constraint(equalToConstant: 320).isActive = true }
+        alert.accessoryView = stack
+        alert.addButton(withTitle: remote == nil ? "Add" : "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = remote == nil && suggestedName.isEmpty ? name : url
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return (remote?.name ?? name.stringValue, url.stringValue)
+    }
 
     func pull() {
         guard confirmUnsavedBeforeCheckout() else { return }

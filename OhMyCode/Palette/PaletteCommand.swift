@@ -154,6 +154,10 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.gitRepository != nil }, perform: { $0.pushTag(nil) }),
         PaletteCommand(id: "git.toggleBlame", title: "Git: Toggle Line Blame", icon: "person.text.rectangle", shortcut: nil,
                        isAvailable: { _ in true }, perform: { _ in AppSettings.shared.showsLineBlame.toggle() }),
+        PaletteCommand(id: "git.addRemote", title: "Git: Add Remote…", icon: "server.rack", shortcut: nil,
+                       isAvailable: { $0.gitRepository != nil }, perform: { workspace in
+                           Task { @MainActor in await workspace.loadRemotes(); workspace.addRemote() }
+                       }),
         PaletteCommand(id: "git.toggleBlameColumn", title: "Git: Toggle Blame Column", icon: "sidebar.leading", shortcut: nil,
                        isAvailable: { $0.activeDocument?.canBlame == true },
                        perform: { $0.activeDocument?.editor?.toggleBlameColumn() }),
