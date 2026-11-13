@@ -45,6 +45,8 @@ final class AppSettings {
     var showsMinimap: Bool { didSet { changed() } }
     var stickyScroll: Bool { didSet { changed() } }
     var formatOnSave: Bool { didSet { changed() } }
+    /// Git blame of the cursor's line, shown at its end.
+    var showsLineBlame: Bool { didSet { changed() } }
     /// Closing brackets and quotes typed for you.
     var autoClosePairs: Bool { didSet { changed() } }
 
@@ -63,6 +65,7 @@ final class AppSettings {
         showsMinimap = defaults.object(forKey: Keys.showsMinimap) as? Bool ?? true
         stickyScroll = defaults.object(forKey: Keys.stickyScroll) as? Bool ?? true
         formatOnSave = defaults.object(forKey: Keys.formatOnSave) as? Bool ?? false
+        showsLineBlame = defaults.object(forKey: Keys.showsLineBlame) as? Bool ?? true
         autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
         isLoading = false
     }
@@ -77,6 +80,7 @@ final class AppSettings {
         static let showsMinimap = "showsMinimap"
         static let stickyScroll = "stickyScroll"
         static let formatOnSave = "formatOnSave"
+        static let showsLineBlame = "showsLineBlame"
         static let autoClosePairs = "autoClosePairs"
     }
 
@@ -101,6 +105,7 @@ final class AppSettings {
         defaults.set(showsMinimap, forKey: Keys.showsMinimap)
         defaults.set(stickyScroll, forKey: Keys.stickyScroll)
         defaults.set(formatOnSave, forKey: Keys.formatOnSave)
+        defaults.set(showsLineBlame, forKey: Keys.showsLineBlame)
         defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
         EditorTheme.invalidate()
@@ -177,6 +182,7 @@ final class AppSettings {
         showsMinimap = true
         stickyScroll = true
         formatOnSave = false
+        showsLineBlame = true
         autoClosePairs = true
         resetZoom()
     }

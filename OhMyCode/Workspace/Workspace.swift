@@ -9,6 +9,8 @@ final class Workspace {
     private(set) var rootNode: FileNode?
     /// Every open document, in any editor group.
     private(set) var documents: [EditorDocument] = []
+    /// Open diff tabs (their ids are tab ids in the groups, like document ids).
+    private(set) var diffSessions: [DiffSession] = []
     /// Split editor panes, left to right; there is always at least one.
     private(set) var groups: [EditorGroup]
     var activeGroupID: EditorGroup.ID {
@@ -404,6 +406,12 @@ final class Workspace {
             }.value
             document.setDiffBase(base)
         }
+        document.blameProvider = { text in
+            await Task.detached(priority: .utility) {
+                Git.blame(relativePath: path, contents: text, in: repository)
+            }.value
+        }
+        document.scheduleBlame(after: .zero)
     }
 
     // MARK: Terminal
@@ -519,7 +527,8 @@ final class Workspace {
         guard let group = group ?? (activeGroup.contains(document.id) ? activeGroup
                                     : groups.first { $0.contains(document.id) }) else { return }
         let shownElsewhere = groups.contains { $0 !== group && $0.contains(document.id) }
-        if !shownElsewhere {
+        let inDiff = diffSessions.contains { $0.document === document }
+        if !shownElsewhere && !inDiff {
             guard confirmClose(document) else { return }
             documents.removeAll { $0.id == document.id }
             document.languageClient?.didClose(url: document.url)
@@ -532,10 +541,79 @@ final class Workspace {
     func closeAll() {
         for group in groups.reversed() {
             for id in group.documentIDs.reversed() {
-                guard let document = document(id: id) else { continue }
-                close(document, in: group)
+                closeTab(id, in: group)
                 if group.contains(id) { return } // cancelled
             }
+        }
+    }
+
+    /// Closes a tab of any kind.
+    func closeTab(_ id: UUID, in group: EditorGroup) {
+        if let document = document(id: id) {
+            close(document, in: group)
+        } else if let session = diffSession(id: id) {
+            closeDiff(session, in: group)
+        }
+    }
+
+    // MARK: Diff tabs
+
+    func diffSession(id: UUID?) -> DiffSession? {
+        guard let id else { return nil }
+        return diffSessions.first { $0.id == id }
+    }
+
+    /// Title, tooltip and dirty state for a tab of any kind.
+    func tabInfo(_ id: UUID) -> (title: String, help: String, isDirty: Bool, isDiff: Bool)? {
+        if let document = document(id: id) { return (document.fileName, document.url.path, document.isDirty, false) }
+        if let session = diffSession(id: id) {
+            return (session.title, "\(session.document.url.path) — staged ↔ working tree", false, true)
+        }
+        return nil
+    }
+
+    /// Git: Open Changes — a side-by-side diff tab of the file against its staged version.
+    @discardableResult
+    func openChanges(for url: URL) -> DiffSession? {
+        let canonical = FileWatcher.canonicalPath(url)
+        if let existing = diffSessions.first(where: { $0.document.canonicalPath == canonical }) {
+            activeGroup.show(existing.id)
+            return existing
+        }
+        let wasOpen = document(matching: url) != nil
+        guard let document = document(matching: url) ?? openWithoutTab(url) else { return nil }
+        let session = DiffSession(document: document, ownsDocument: !wasOpen)
+        diffSessions.append(session)
+        activeGroup.show(session.id)
+        return session
+    }
+
+    private func closeDiff(_ session: DiffSession, in group: EditorGroup) {
+        group.remove(session.id)
+        if !groups.contains(where: { $0.contains(session.id) }) {
+            diffSessions.removeAll { $0.id == session.id }
+            // A document opened just for the diff goes too, unless it got a tab meanwhile.
+            let document = session.document
+            if session.ownsDocument, !groups.contains(where: { $0.contains(document.id) }),
+               !diffSessions.contains(where: { $0.document === document }), !document.isDirty {
+                documents.removeAll { $0.id == document.id }
+                document.languageClient?.didClose(url: document.url)
+            }
+        }
+        if group.documentIDs.isEmpty { closeGroup(group) }
+        retargetEditor()
+    }
+
+    /// Opens a document without giving it a tab (for a diff tab).
+    private func openWithoutTab(_ url: URL) -> EditorDocument? {
+        do {
+            let document = try EditorDocument(url: url)
+            documents.append(document)
+            loadDiffBase(for: document)
+            return document
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
         }
     }
 

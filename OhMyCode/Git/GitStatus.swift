@@ -245,12 +245,21 @@ enum Git {
         return String(data: output, encoding: .utf8)
     }
 
-    private static func run(_ arguments: [String], in directory: URL) -> Data? {
-        let result = execute(arguments, in: directory)
+    /// Who last changed each line of `contents` (the buffer as it is, so unsaved lines show as
+    /// not committed and line numbers match the editor). Nil if the file isn't tracked.
+    static func blame(relativePath path: String, contents: String, in repository: Repository) -> [BlameLine?]? {
+        guard let output = run(["blame", "--porcelain", "--contents", "-", "--", path], in: repository.root,
+                               input: Data(contents.utf8)) else { return nil }
+        return BlameLine.parse(output)
+    }
+
+    private static func run(_ arguments: [String], in directory: URL, input: Data? = nil) -> Data? {
+        let result = execute(arguments, in: directory, input: input)
         return result.status == 0 ? result.output : nil
     }
 
-    private static func execute(_ arguments: [String], in directory: URL) -> (status: Int32, output: Data, error: Data) {
+    private static func execute(_ arguments: [String], in directory: URL, input: Data? = nil)
+        -> (status: Int32, output: Data, error: Data) {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/git")
         process.arguments = ["--no-optional-locks", "-c", "core.quotepath=off", "-C", directory.path] + arguments
@@ -261,7 +270,16 @@ enum Git {
         let output = Pipe(), errorOutput = Pipe()
         process.standardOutput = output
         process.standardError = errorOutput
+        let inputPipe = input.map { _ in Pipe() }
+        process.standardInput = inputPipe ?? FileHandle.nullDevice
         do { try process.run() } catch { return (-1, Data(), Data("could not run git".utf8)) }
+        if let inputPipe, let input {
+            // Written concurrently: git may fill the output pipe before it has read all input.
+            DispatchQueue.global().async {
+                try? inputPipe.fileHandleForWriting.write(contentsOf: input)
+                try? inputPipe.fileHandleForWriting.close()
+            }
+        }
         // Drain stderr concurrently so a chatty command can't block on a full pipe.
         nonisolated(unsafe) var errorData = Data()
         let group = DispatchGroup()
@@ -274,5 +292,56 @@ enum Git {
         process.waitUntilExit()
         group.wait()
         return (process.terminationStatus, data, errorData)
+    }
+}
+
+
+/// One line's last change, from `git blame --porcelain`.
+struct BlameLine: Sendable, Equatable {
+    let commit: String
+    let author: String
+    let date: Date
+    let summary: String
+
+    /// Lines changed in the buffer (or in the working tree) and not committed yet.
+    var isUncommitted: Bool { commit.allSatisfy { $0 == "0" } }
+
+    /// One entry per line of the blamed text (nil where git said nothing).
+    static func parse(_ data: Data) -> [BlameLine?] {
+        struct Info { var author = "", time: TimeInterval = 0, summary = "" }
+        var infos: [String: Info] = [:]
+        var result: [BlameLine?] = []
+        var current: (commit: String, line: Int)?
+        for rawLine in String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false) {
+            if rawLine.hasPrefix("\t") {
+                // The line's content ends its entry.
+                guard let (commit, line) = current else { continue }
+                let info = infos[commit] ?? Info()
+                while result.count < line { result.append(nil) }
+                result[line - 1] = BlameLine(commit: commit, author: info.author,
+                                             date: Date(timeIntervalSince1970: info.time), summary: info.summary)
+                current = nil
+                continue
+            }
+            let parts = rawLine.split(separator: " ", maxSplits: 1)
+            guard let key = parts.first else { continue }
+            let value = parts.count > 1 ? String(parts[1]) : ""
+            if key.count == 40, key.allSatisfy(\.isHexDigit) {
+                // "<commit> <original line> <final line> [<lines in group>]"
+                let numbers = value.split(separator: " ")
+                if numbers.count >= 2, let final = Int(numbers[1]) {
+                    current = (String(key), final)
+                    if infos[String(key)] == nil { infos[String(key)] = Info() }
+                }
+            } else if let commit = current?.commit {
+                switch key {
+                case "author": infos[commit]?.author = value
+                case "author-time": infos[commit]?.time = TimeInterval(value) ?? 0
+                case "summary": infos[commit]?.summary = value
+                default: break
+                }
+            }
+        }
+        return result
     }
 }

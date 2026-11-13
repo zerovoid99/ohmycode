@@ -25,6 +25,9 @@ struct EditorGroupView: View {
                                    if workspace.activeGroupID != group.id { workspace.activeGroupID = group.id }
                                })
                     .id(document.id)
+            } else if let session = workspace.diffSession(id: group.activeDocumentID) {
+                DiffView(session: session, workspace: workspace)
+                    .id(session.id)
             } else {
                 ContentUnavailableView(
                     "No Open Editors",

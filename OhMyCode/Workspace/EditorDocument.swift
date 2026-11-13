@@ -81,11 +81,20 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored private(set) lazy var canonicalPath = FileWatcher.canonicalPath(url)
     var languageId: String { LanguageServerConfig.languageId(for: language) }
 
+    /// Who last changed each line (git blame of the buffer); nil while unknown.
+    @ObservationIgnored private(set) var blame: [BlameLine?]?
+    @ObservationIgnored var blameProvider: ((String) async -> [BlameLine?]?)?
+    @ObservationIgnored private var blameTask: Task<Void, Never>?
+
     /// Gutter change markers against the git index, keyed by zero-based line.
     @ObservationIgnored private(set) var diffMarkers: [Int: DiffMarker] = [:]
-    @ObservationIgnored private(set) var diffHunks: [DiffHunk] = []
+    /// Observed: the diff view follows it as you type.
+    private(set) var diffHunks: [DiffHunk] = []
     @ObservationIgnored private var diffBase: String?
-    @ObservationIgnored private var diffBaseLines: [Substring]?
+    /// The staged (index) version's lines, or nil if untracked or not in a repository.
+    @ObservationIgnored private(set) var diffBaseLines: [Substring]?
+    /// Bumped when the diff base changes (staging, committing), for the diff view.
+    private(set) var diffBaseVersion = 0
     @ObservationIgnored private var diffTask: Task<Void, Never>?
     /// Set when the file changed on disk while there were unsaved edits.
     private(set) var hasExternalChanges = false
@@ -267,6 +276,9 @@ final class EditorDocument: Identifiable {
         if lineCount != lineIndex.lineCount { lineCount = lineIndex.lineCount }
         if !isDirty { isDirty = true }
         scheduleDiff(after: .milliseconds(200))
+        // Line numbers moved: hide blame until it's computed again for the new text.
+        if blame != nil { blame = nil; editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true } }
+        scheduleBlame(after: .milliseconds(800))
     }
 
     // MARK: Git diff markers
@@ -276,6 +288,7 @@ final class EditorDocument: Identifiable {
         guard text != diffBase || (text == nil && !diffMarkers.isEmpty) else { return }
         diffBase = text
         diffBaseLines = text.map(LineDiff.lines)
+        diffBaseVersion += 1
         scheduleDiff(after: .zero)
     }
 
@@ -301,6 +314,29 @@ final class EditorDocument: Identifiable {
             redrawGutters()
         }
     }
+
+    // MARK: Blame
+
+    /// Blames the current text (unsaved lines show as not committed) after `delay`; set by the
+    /// workspace for files in a git repository.
+    func scheduleBlame(after delay: Duration) {
+        blameTask?.cancel()
+        guard let blameProvider else { return }
+        blameTask = Task {
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
+            let version = editVersion
+            let result = await blameProvider(textStorage.mutableString as String)
+            guard !Task.isCancelled, version == editVersion else { return }
+            blame = result
+            editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true }
+        }
+    }
+
+    /// Waits for pending blame (tests).
+    func waitForBlame() async { await blameTask?.value }
 
     private func redrawGutters() {
         for editor in editors { editor.gutterView.needsDisplay = true }

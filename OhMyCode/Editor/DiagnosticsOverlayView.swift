@@ -12,6 +12,8 @@ final class DiagnosticsOverlayView: NSView {
     var foldPlaceholders: (() -> [(rect: NSRect, header: Int)])?
     /// Extra cursors (multi-cursor): caret bars and selected text.
     var extraCursors: (() -> (carets: [NSRect], selections: [NSRect]))?
+    /// Git blame of the cursor's line, drawn after its end.
+    var blameAnnotation: (() -> (text: String, origin: NSPoint)?)?
 
     init(textView: NSTextView, document: EditorDocument) {
         self.textView = textView
@@ -56,6 +58,12 @@ final class DiagnosticsOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let theme = EditorTheme.current
+        if let (text, origin) = blameAnnotation?() {
+            let font = NSFontManager.shared.convert(EditorTheme.font, toHaveTrait: .italicFontMask)
+            (text as NSString).draw(at: origin, withAttributes: [
+                .font: font, .foregroundColor: theme.lineNumber.withAlphaComponent(0.8),
+            ])
+        }
         if let (carets, selections) = extraCursors?() {
             theme.selection.withAlphaComponent(0.55).setFill()
             for rect in selections where rect.intersects(dirtyRect) { rect.fill(using: .sourceOver) }

@@ -84,6 +84,7 @@ struct SettingsView: View {
             Toggle("Sticky scroll (keep enclosing declarations at the top)", isOn: $settings.stickyScroll)
             Toggle("Close brackets and quotes automatically", isOn: $settings.autoClosePairs)
             Toggle("Format on save (with the language server)", isOn: $settings.formatOnSave)
+            Toggle("Show git blame for the current line", isOn: $settings.showsLineBlame)
             Section("Preview") {
                 CodePreview(font: settings.editorFont, theme: EditorTheme.themes.first { $0.id == settings.themeID }
                             ?? EditorTheme.defaultTheme)

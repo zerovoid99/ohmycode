@@ -88,6 +88,7 @@ final class EditorController: NSObject {
         diagnosticsOverlay = overlay
         overlay.foldPlaceholders = { [weak self] in self?.foldPlaceholderRects() ?? [] }
         overlay.extraCursors = { [weak self] in self?.extraCursorShapes() ?? ([], []) }
+        overlay.blameAnnotation = { [weak self] in self?.blameAnnotation() }
 
         let gutter = GutterView(textView: textView, document: document)
         self.gutterView = gutter
@@ -265,6 +266,37 @@ final class EditorController: NSObject {
             if rect.intersects(visible) { result.append((rect, header)) }
         }
         return result
+    }
+
+    // MARK: Blame
+
+    /// The blame annotation for the cursor's line: text and where to draw it (after the line).
+    func blameAnnotation() -> (text: String, origin: NSPoint)? {
+        guard AppSettings.shared.showsLineBlame, !hasExtraCursors, let blame = document.blame else { return nil }
+        let selection = textView.selectedRange()
+        guard selection.length == 0 else { return nil }
+        let index = document.lineIndex
+        let line = index.line(containing: selection.location)
+        guard line < blame.count, let entry = blame[line] else { return nil }
+        let start = index.lineStarts[line]
+        let end = line + 1 < index.lineCount ? index.lineStarts[line + 1] - 1 : document.textStorage.length
+        let anchor: NSRect?
+        if end > start {
+            anchor = rect(for: NSRange(location: end - 1, length: 1)).map { NSRect(x: $0.maxX, y: $0.minY, width: 0, height: $0.height) }
+        } else {
+            anchor = rect(for: NSRange(location: start, length: min(1, document.textStorage.length - start)))
+                .map { NSRect(x: $0.minX, y: $0.minY, width: 0, height: $0.height) }
+        }
+        guard let anchor else { return nil }
+        return (Self.describe(entry), NSPoint(x: anchor.maxX + 28, y: anchor.minY))
+    }
+
+    nonisolated static func describe(_ blame: BlameLine, now: Date = Date()) -> String {
+        if blame.isUncommitted { return "Not committed yet" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        let when = formatter.localizedString(for: blame.date, relativeTo: now)
+        return "\(blame.author), \(when) • \(blame.summary)"
     }
 
     // MARK: Line geometry (minimap, sticky scroll)

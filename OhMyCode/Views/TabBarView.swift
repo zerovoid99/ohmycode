@@ -9,52 +9,56 @@ struct TabBarView: View {
 
     var body: some View {
         let isActiveGroup = workspace.activeGroupID == group.id
-        let documents = workspace.documents(in: group)
+        let tabs = group.documentIDs.compactMap { id in workspace.tabInfo(id).map { (id: id, info: $0) } }
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                ForEach(Array(documents.enumerated()), id: \.element.id) { index, document in
+                ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+                    let document = workspace.document(id: tab.id)
                     TabItemView(
-                        document: document,
-                        isActive: document.id == group.activeDocumentID,
+                        title: tab.info.title, help: tab.info.help, isDirty: tab.info.isDirty, isDiff: tab.info.isDiff,
+                        isActive: tab.id == group.activeDocumentID,
                         isActiveGroup: isActiveGroup,
                         onSelect: {
                             workspace.activeGroupID = group.id
-                            workspace.activeDocumentID = document.id
-                            document.editor(inGroup: group)?.focus()
+                            workspace.activeDocumentID = tab.id
+                            document?.editor(inGroup: group)?.focus()
                         },
-                        onClose: { workspace.close(document, in: group) }
+                        onClose: { workspace.closeTab(tab.id, in: group) }
                     )
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tabWidths[document.id] = $0 }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { tabWidths[tab.id] = $0 }
                     .overlay(alignment: .leading) { dropMarker(at: index) }
-                    .overlay(alignment: .trailing) { if index == documents.count - 1 { dropMarker(at: documents.count) } }
-                    .draggable(TabDragPayload(documentID: document.id, groupID: group.id).string) {
-                        Label(document.fileName, systemImage: "doc.text")
+                    .overlay(alignment: .trailing) { if index == tabs.count - 1 { dropMarker(at: tabs.count) } }
+                    .draggable(TabDragPayload(documentID: tab.id, groupID: group.id).string) {
+                        Label(tab.info.title, systemImage: tab.info.isDiff ? "plusminus" : "doc.text")
                             .padding(.horizontal, 10).padding(.vertical, 6)
                             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6))
                     }
                     // Dropping on a tab's left half puts the tab before it, on the right half after.
                     .onDrop(of: [.text], delegate: TabDropDelegate(
                         dropIndex: $dropIndex,
-                        target: { $0.x < (tabWidths[document.id] ?? 0) / 2 ? index : index + 1 },
+                        target: { $0.x < (tabWidths[tab.id] ?? 0) / 2 ? index : index + 1 },
                         perform: { drop($0, at: $1) }))
                     .contextMenu {
-                        Button("Close") { workspace.close(document, in: group) }
-                        Divider()
-                        Button("Split Right") {
-                            workspace.activeGroupID = group.id
-                            workspace.activeDocumentID = document.id
-                            workspace.splitEditor()
-                        }
-                        .disabled(workspace.groups.count >= Workspace.maxGroups)
-                        Button("Move to Next Group") {
-                            workspace.activeGroupID = group.id
-                            workspace.activeDocumentID = document.id
-                            workspace.moveActiveEditor(by: 1)
-                        }
-                        Button("Move to Previous Group") {
-                            workspace.activeGroupID = group.id
-                            workspace.activeDocumentID = document.id
-                            workspace.moveActiveEditor(by: -1)
+                        Button("Close") { workspace.closeTab(tab.id, in: group) }
+                        if let document {
+                            Button("Open Changes") { workspace.openChanges(for: document.url) }
+                            Divider()
+                            Button("Split Right") {
+                                workspace.activeGroupID = group.id
+                                workspace.activeDocumentID = document.id
+                                workspace.splitEditor()
+                            }
+                            .disabled(workspace.groups.count >= Workspace.maxGroups)
+                            Button("Move to Next Group") {
+                                workspace.activeGroupID = group.id
+                                workspace.activeDocumentID = document.id
+                                workspace.moveActiveEditor(by: 1)
+                            }
+                            Button("Move to Previous Group") {
+                                workspace.activeGroupID = group.id
+                                workspace.activeDocumentID = document.id
+                                workspace.moveActiveEditor(by: -1)
+                            }
                         }
                     }
                     Divider()
@@ -64,7 +68,7 @@ struct TabBarView: View {
                     .frame(minWidth: 40, maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
                     .onDrop(of: [.text], delegate: TabDropDelegate(
-                        dropIndex: $dropIndex, target: { _ in documents.count }, perform: { drop($0, at: $1) }))
+                        dropIndex: $dropIndex, target: { _ in tabs.count }, perform: { drop($0, at: $1) }))
             }
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
@@ -117,7 +121,10 @@ private struct TabDropDelegate: DropDelegate {
 }
 
 private struct TabItemView: View {
-    let document: EditorDocument
+    let title: String
+    let help: String
+    let isDirty: Bool
+    let isDiff: Bool
     let isActive: Bool
     let isActiveGroup: Bool
     let onSelect: () -> Void
@@ -126,19 +133,20 @@ private struct TabItemView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(document.fileName)
+            if isDiff { Image(systemName: "plusminus").font(.caption).foregroundStyle(.secondary) }
+            Text(title)
                 .font(.callout)
                 .foregroundStyle(isActive && isActiveGroup ? .primary : .secondary)
                 .lineLimit(1)
             Button(action: onClose) {
-                Image(systemName: document.isDirty && !isHovering ? "circle.fill" : "xmark")
-                    .font(.system(size: document.isDirty && !isHovering ? 7 : 9, weight: .bold))
+                Image(systemName: isDirty && !isHovering ? "circle.fill" : "xmark")
+                    .font(.system(size: isDirty && !isHovering ? 7 : 9, weight: .bold))
                     .frame(width: 14, height: 14)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .opacity(isActive || isHovering || document.isDirty ? 1 : 0)
+            .opacity(isActive || isHovering || isDirty ? 1 : 0)
         }
         .padding(.horizontal, 12)
         .frame(maxHeight: .infinity)
@@ -146,6 +154,6 @@ private struct TabItemView: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
-        .help(document.url.path)
+        .help(help)
     }
 }
