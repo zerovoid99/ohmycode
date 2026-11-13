@@ -984,6 +984,67 @@ final class Workspace {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
+    // MARK: Tags
+
+    /// Tests answer this instead of the tag dialog: a name and an optional message (nil cancels).
+    @ObservationIgnored var tagPrompt: ((RepoCommit?) -> (name: String, message: String)?)?
+
+    /// Creates a tag at `commit` (nil: HEAD), asking for its name and an optional message.
+    func createTag(at commit: RepoCommit?) {
+        guard let answer = tagPrompt.map({ $0(commit) }) ?? promptForTag(commit) else { return }
+        let name = answer.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = answer.message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        runGit { try Git.createTag(name, message: message, at: commit?.sha ?? "HEAD", in: $0) }
+    }
+
+    func deleteTag(_ name: String) {
+        guard confirm("Delete the tag “\(name)”? (Only here: a pushed tag stays on the remote.)") else { return }
+        runGit { try Git.deleteTag(name, in: $0) }
+    }
+
+    /// Pushes a tag (nil: all tags) to "origin" or the only remote.
+    func pushTag(_ name: String?) {
+        runGit { repository in
+            guard let remote = Git.defaultRemote(in: repository) else {
+                throw Git.CommandError(message: "This repository has no remote to push to.")
+            }
+            try Git.pushTag(name, to: remote, in: repository)
+        }
+    }
+
+    func deleteRemoteTag(_ name: String) {
+        guard confirm("Delete the tag “\(name)” from the remote? Others who fetched it keep their copy.") else { return }
+        runGit { repository in
+            guard let remote = Git.defaultRemote(in: repository) else {
+                throw Git.CommandError(message: "This repository has no remote.")
+            }
+            try Git.deleteRemoteTag(name, from: remote, in: repository)
+        }
+    }
+
+    private func promptForTag(_ commit: RepoCommit?) -> (name: String, message: String)? {
+        let alert = NSAlert()
+        alert.messageText = "Create Tag"
+        alert.informativeText = (commit.map { "At \($0.shortSHA) “\($0.summary)”." } ?? "At the current commit.")
+            + " With a message it's an annotated tag."
+        let name = NSTextField(string: "")
+        name.placeholderString = "v1.0.0"
+        let message = NSTextField(string: "")
+        message.placeholderString = "Message (optional)"
+        let stack = NSStackView(views: [name, message])
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.frame = NSRect(x: 0, y: 0, width: 280, height: 56)
+        for field in [name, message] { field.widthAnchor.constraint(equalToConstant: 280).isActive = true }
+        alert.accessoryView = stack
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = name
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return (name.stringValue, message.stringValue)
+    }
+
     // MARK: Cherry-pick and revert
 
     /// Copies a commit onto the current branch. Conflicts leave a cherry-pick in progress.

@@ -68,6 +68,7 @@
 		9A7723213A4E42A98A941F06 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D130AAE1FC421ED188E3196D /* TerminalView.swift */; };
 		A09C0787798D6942C1467B9B /* TextSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091334CC03D66036131BB5D3 /* TextSearch.swift */; };
 		A1704FC0107756EA96D734BF /* TerminalSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57DDDDFEE387635D979AA622 /* TerminalSession.swift */; };
+		A1B04C0E234802555ECD0947 /* TagTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192E117635DB667FA34217E9 /* TagTests.swift */; };
 		A5C219F9607F373EA134925D /* LSPTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BEF6C21AB1D74F6DA6032B5 /* LSPTypes.swift */; };
 		A5EEA136CE98C28D3146A78F /* WorkspaceCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 995D20D57A5D6B2463BCB67A /* WorkspaceCommands.swift */; };
 		A7691BACE48515FE4E24533A /* SettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 235C4B58C44E541E5D4CCE51 /* SettingsTests.swift */; };
@@ -137,6 +138,7 @@
 		0E90646D54E679A22AC13D7A /* GhosttyVt */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GhosttyVt; path = Packages/GhosttyVt; sourceTree = SOURCE_ROOT; };
 		0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchOperationTests.swift; sourceTree = "<group>"; };
 		16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorChromeTests.swift; sourceTree = "<group>"; };
+		192E117635DB667FA34217E9 /* TagTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagTests.swift; sourceTree = "<group>"; };
 		19E162875BB553F73A23130F /* PaletteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaletteView.swift; sourceTree = "<group>"; };
 		1C7B60F3A673166AEFC17819 /* TextReplacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextReplacement.swift; sourceTree = "<group>"; };
 		1DB02258B857C771FD1F3771 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fixtures; path = OhMyCodeTests/Fixtures; sourceTree = SOURCE_ROOT; };
@@ -353,6 +355,7 @@
 				761D7DD6B19C1B92A0D77DE6 /* SplitEditorTests.swift */,
 				EBBC78B08D2E20847B26819B /* StashTests.swift */,
 				283BBF8CB8D107A54E380B0E /* SyntaxHighlighterTests.swift */,
+				192E117635DB667FA34217E9 /* TagTests.swift */,
 				062545FE7797841B1F4B7A4A /* TerminalTests.swift */,
 				CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */,
 			);
@@ -711,6 +714,7 @@
 				D3FBB6809B020C010DBE4836 /* SplitEditorTests.swift in Sources */,
 				2173832CE7C6545543DE5181 /* StashTests.swift in Sources */,
 				811E4E5D449959BFF694A5A8 /* SyntaxHighlighterTests.swift in Sources */,
+				A1B04C0E234802555ECD0947 /* TagTests.swift in Sources */,
 				C1B812E94CAE7B6150426CB0 /* TerminalTests.swift in Sources */,
 				D7A7FF2C9BF229A9AD1993F2 /* VSCodeThemeTests.swift in Sources */,
 			);

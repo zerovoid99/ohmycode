@@ -284,6 +284,36 @@ enum Git {
         }
     }
 
+    // MARK: Tags
+
+    /// A tag at `commit`: annotated when there's a message, lightweight otherwise.
+    static func createTag(_ name: String, message: String?, at commit: String, in repository: Repository) throws {
+        if let message, !message.isEmpty {
+            try check(["tag", "--annotate", "--message", message, name, commit], in: repository.root)
+        } else {
+            try check(["tag", name, commit], in: repository.root)
+        }
+    }
+
+    static func deleteTag(_ name: String, in repository: Repository) throws {
+        try check(["tag", "--delete", name], in: repository.root)
+    }
+
+    /// Pushes one tag, or (`name` nil) every tag.
+    static func pushTag(_ name: String?, to remote: String, in repository: Repository) throws {
+        try check(["push", remote] + (name.map { ["refs/tags/\($0)"] } ?? ["--tags"]), in: repository.root)
+    }
+
+    static func deleteRemoteTag(_ name: String, from remote: String, in repository: Repository) throws {
+        try check(["push", remote, "--delete", "refs/tags/\(name)"], in: repository.root)
+    }
+
+    /// "origin", or the only remote; nil if there are none.
+    static func defaultRemote(in repository: Repository) -> String? {
+        let remotes = remotes(in: repository)
+        return remotes.contains("origin") ? "origin" : remotes.first
+    }
+
     // MARK: Cherry-pick and revert
 
     /// Applies a commit's changes on top of HEAD as a new commit (a merge commit's changes
@@ -734,6 +764,8 @@ struct RepoCommit: Sendable, Hashable, Identifiable {
 
     var id: String { sha }
     var shortSHA: String { String(sha.prefix(7)) }
+    /// Tags pointing at this commit ("tag: v1" refs).
+    var tags: [String] { refs.filter { $0.hasPrefix("tag: ") }.map { String($0.dropFirst(5)) } }
 
     /// Parses `git log --format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s`.
     static func parseLog(_ data: Data) -> [RepoCommit] {

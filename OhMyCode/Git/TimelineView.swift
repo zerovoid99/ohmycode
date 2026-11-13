@@ -239,6 +239,16 @@ private struct RepositoryLogView: View {
         Button("Create Branch Here…") { workspace.createBranch(at: commit) }
         Button("Check Out (Detached)…") { workspace.checkoutDetached(commit) }
         Divider()
+        Button("Create Tag…") { workspace.createTag(at: commit) }
+        ForEach(commit.tags, id: \.self) { tag in
+            Menu("Tag “\(tag)”") {
+                Button("Push to Remote") { workspace.pushTag(tag) }
+                Divider()
+                Button("Delete…", role: .destructive) { workspace.deleteTag(tag) }
+                Button("Delete from Remote…", role: .destructive) { workspace.deleteRemoteTag(tag) }
+            }
+        }
+        Divider()
         Button("Cherry-Pick into \(workspace.gitStatus?.branch ?? "HEAD")") { workspace.cherryPick(commit) }
             .help("Apply this commit's changes on the current branch as a new commit")
         Button("Revert Commit…") { workspace.revertCommit(commit) }
