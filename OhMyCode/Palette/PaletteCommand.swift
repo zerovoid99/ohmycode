@@ -10,6 +10,10 @@ struct PaletteCommand: Identifiable {
     let isAvailable: (Workspace) -> Bool
     let perform: (Workspace) -> Void
 
+    private static func supports(_ workspace: Workspace, _ feature: LanguageClient.Feature) -> Bool {
+        workspace.activeDocument?.languageClient?.supports(feature) == true
+    }
+
     static let all: [PaletteCommand] = [
         PaletteCommand(id: "go.quickOpen", title: "Go to File…", icon: "doc.text.magnifyingglass", shortcut: "⌘P",
                        isAvailable: { $0.rootNode != nil }, perform: { $0.showPalette(.files) }),
@@ -17,6 +21,15 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.activeDocument != nil }, perform: { $0.showPalette(.goToLine) }),
         PaletteCommand(id: "go.definition", title: "Go to Definition", icon: "arrow.turn.down.right", shortcut: "F12",
                        isAvailable: { $0.activeDocument?.languageClient != nil }, perform: { $0.goToDefinition() }),
+        PaletteCommand(id: "go.references", title: "Find All References", icon: "link", shortcut: "⇧F12",
+                       isAvailable: { supports($0, .references) }, perform: { $0.findReferences() }),
+        PaletteCommand(id: "edit.rename", title: "Rename Symbol…", icon: "pencil", shortcut: "F2",
+                       isAvailable: { supports($0, .rename) }, perform: { $0.renameSymbol() }),
+        PaletteCommand(id: "edit.format", title: "Format Document", icon: "text.alignleft", shortcut: "⇧⌥F",
+                       isAvailable: { supports($0, .formatting) }, perform: { $0.formatDocument() }),
+        PaletteCommand(id: "edit.hover", title: "Show Hover", icon: "text.bubble", shortcut: nil,
+                       isAvailable: { supports($0, .hover) || $0.activeDocument?.diagnostics.isEmpty == false },
+                       perform: { $0.showHover() }),
         PaletteCommand(id: "file.openFolder", title: "File: Open Folder…", icon: "folder", shortcut: "⌘O",
                        isAvailable: { _ in true }, perform: { $0.presentOpenPanel() }),
         PaletteCommand(id: "file.save", title: "File: Save", icon: "square.and.arrow.down", shortcut: "⌘S",
@@ -50,6 +63,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.rootNode != nil }, perform: { $0.sidebarMode = .files }),
         PaletteCommand(id: "view.search", title: "Search: Find in Files", icon: "magnifyingglass", shortcut: "⇧⌘F",
                        isAvailable: { $0.rootNode != nil }, perform: { $0.showSearch() }),
+        PaletteCommand(id: "view.replace", title: "Search: Replace in Files", icon: "text.badge.checkmark",
+                       shortcut: "⇧⌘H", isAvailable: { $0.rootNode != nil }, perform: { $0.showSearch(replace: true) }),
         PaletteCommand(id: "view.sourceControl", title: "View: Show Source Control", icon: "arrow.triangle.branch",
                        shortcut: "⌃⇧G", isAvailable: { $0.rootNode != nil }, perform: { $0.sidebarMode = .sourceControl }),
         PaletteCommand(id: "git.stageAll", title: "Git: Stage All Changes", icon: "plus", shortcut: nil,

@@ -33,6 +33,8 @@ final class LanguageClient {
     @ObservationIgnored private var versions: [URL: Int] = [:]
     @ObservationIgnored private(set) var incrementalSync = true
     @ObservationIgnored private(set) var triggerCharacters: Set<String> = []
+    /// The server's `capabilities` from `initialize`.
+    @ObservationIgnored private var capabilities: [String: Any] = [:]
     @ObservationIgnored var onDiagnostics: ((URL, [Diagnostic]) -> Void)?
 
     init(name: String, command: [String], rootURL: URL, environment: [String: String]) throws {
@@ -59,7 +61,10 @@ final class LanguageClient {
             "capabilities": [
                 "general": ["positionEncodings": ["utf-16"]],
                 "window": ["workDoneProgress": true],
-                "workspace": ["workspaceFolders": true, "configuration": true],
+                "workspace": [
+                    "workspaceFolders": true, "configuration": true, "applyEdit": false,
+                    "workspaceEdit": ["documentChanges": true],
+                ],
                 "textDocument": [
                     "synchronization": ["didSave": true, "dynamicRegistration": false],
                     "completion": [
@@ -67,6 +72,10 @@ final class LanguageClient {
                         "contextSupport": true,
                     ],
                     "definition": ["linkSupport": true],
+                    "hover": ["contentFormat": ["markdown", "plaintext"]],
+                    "references": [String: Any](),
+                    "rename": ["prepareSupport": true],
+                    "formatting": [String: Any](),
                     "publishDiagnostics": ["relatedInformation": false],
                 ],
             ],
@@ -74,6 +83,7 @@ final class LanguageClient {
         do {
             let result = try await request("initialize", params: params, beforeReady: true) as? [String: Any]
             let capabilities = result?["capabilities"] as? [String: Any] ?? [:]
+            self.capabilities = capabilities
             let sync = capabilities["textDocumentSync"]
             let kind = (sync as? Int) ?? ((sync as? [String: Any])?["change"] as? Int) ?? 2
             incrementalSync = kind != 1
@@ -159,6 +169,76 @@ final class LanguageClient {
         ])
         if let list = result as? [Any] { return list.compactMap(LSPLocation.init(json:)) }
         return LSPLocation(json: result).map { [$0] } ?? []
+    }
+
+    enum Feature: String {
+        case hover = "hoverProvider"
+        case references = "referencesProvider"
+        case rename = "renameProvider"
+        case formatting = "documentFormattingProvider"
+    }
+
+    /// Whether the server advertised `feature` (a provider is `true` or an options object).
+    func supports(_ feature: Feature) -> Bool {
+        switch capabilities[feature.rawValue] {
+        case let flag as Bool: flag
+        case is [String: Any]: true
+        default: false
+        }
+    }
+
+    /// Hover documentation as Markdown, or nil when there is none.
+    func hover(url: URL, position: LSPPosition) async throws -> String? {
+        let result = try await request("textDocument/hover", params: [
+            "textDocument": ["uri": url.absoluteString], "position": position.json,
+        ])
+        return HoverContent.markdown(from: result)
+    }
+
+    func references(url: URL, position: LSPPosition, includeDeclaration: Bool = true) async throws -> [LSPLocation] {
+        let result = try await request("textDocument/references", params: [
+            "textDocument": ["uri": url.absoluteString], "position": position.json,
+            "context": ["includeDeclaration": includeDeclaration],
+        ])
+        return (result as? [Any] ?? []).compactMap(LSPLocation.init(json:))
+    }
+
+    enum PrepareRename: Equatable {
+        /// The symbol can't be renamed here.
+        case invalid
+        /// The server didn't say what's renamed; the client uses the word at the cursor.
+        case defaultBehavior
+        case range(LSPRange, placeholder: String?)
+    }
+
+    func prepareRename(url: URL, position: LSPPosition) async throws -> PrepareRename {
+        let options = capabilities[Feature.rename.rawValue] as? [String: Any]
+        guard options?["prepareProvider"] as? Bool == true else { return .defaultBehavior }
+        let result = try await request("textDocument/prepareRename", params: [
+            "textDocument": ["uri": url.absoluteString], "position": position.json,
+        ])
+        guard let object = result as? [String: Any] else { return .invalid }
+        if let range = LSPRange(json: object) { return .range(range, placeholder: nil) }
+        if let range = LSPRange(json: object["range"]) {
+            return .range(range, placeholder: object["placeholder"] as? String)
+        }
+        return object["defaultBehavior"] as? Bool == true ? .defaultBehavior : .invalid
+    }
+
+    func rename(url: URL, position: LSPPosition, newName: String) async throws -> WorkspaceEdit? {
+        let result = try await request("textDocument/rename", params: [
+            "textDocument": ["uri": url.absoluteString], "position": position.json, "newName": newName,
+        ])
+        return WorkspaceEdit(json: result)
+    }
+
+    func formatting(url: URL, tabSize: Int, insertSpaces: Bool) async throws -> [LSPTextEdit] {
+        let result = try await request("textDocument/formatting", params: [
+            "textDocument": ["uri": url.absoluteString],
+            "options": ["tabSize": tabSize, "insertSpaces": insertSpaces, "trimTrailingWhitespace": true,
+                        "insertFinalNewline": true],
+        ])
+        return (result as? [Any] ?? []).compactMap(LSPTextEdit.init(json:))
     }
 
     // MARK: JSON-RPC

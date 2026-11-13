@@ -18,12 +18,13 @@ final class Workspace {
         case files = "Files"
         case search = "Search"
         case sourceControl = "Source Control"
+        case references = "References"
     }
 
     @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
 
-    /// ⇧⌘F: show the search panel, seeded with the editor's selection.
-    func showSearch() {
+    /// ⇧⌘F (⇧⌘H with `replace`): show the search panel, seeded with the editor's selection.
+    func showSearch(replace: Bool = false) {
         sidebarMode = .search
         var selected: String?
         if let editor = activeDocument?.editor, let textView = editor.textView {
@@ -32,7 +33,7 @@ final class Workspace {
                 selected = (textView.string as NSString).substring(with: range)
             }
         }
-        search.focus(prefill: selected)
+        search.focus(prefill: selected, replace: replace)
     }
 
     /// Files for Find in Files: the quick-open index (git-aware), built first if needed.
@@ -45,6 +46,10 @@ final class Workspace {
     }
 
     var sidebarMode = SidebarMode.files
+    /// Last Find All References result, shown in the sidebar.
+    var references: ReferenceList?
+    /// Replaces the rename dialog (tests): gets the current name, returns the new one or nil.
+    @ObservationIgnored var renamePrompt: ((String) -> String?)?
     private(set) var gitStatus: GitStatus?
     private(set) var isRunningGitCommand = false
     @ObservationIgnored private(set) var gitRepository: Git.Repository?
@@ -64,11 +69,12 @@ final class Workspace {
     @ObservationIgnored private var canonicalRootPath = ""
 
     init() {
-        NotificationCenter.default.addObserver(forName: .omcGoToDefinition, object: nil, queue: .main) { [weak self] note in
+        NotificationCenter.default.addObserver(forName: .omcEditorCommand, object: nil, queue: .main) { [weak self] note in
             let document = note.object as? EditorDocument
+            let command = (note.userInfo?["command"] as? String).flatMap(EditorCommand.init(rawValue:))
             MainActor.assumeIsolated {
-                guard let self, let document, self.documents.contains(where: { $0 === document }) else { return }
-                self.goToDefinition(in: document)
+                guard let self, let document, let command, self.documents.contains(where: { $0 === document }) else { return }
+                self.perform(command, in: document)
             }
         }
     }
@@ -222,7 +228,7 @@ final class Workspace {
 
     /// Servers report symlink-resolved paths (/private/var/…); map them back under the
     /// workspace root so the file isn't opened twice under different names.
-    private func workspaceURL(for url: URL) -> URL {
+    func workspaceURL(for url: URL) -> URL {
         let path = FileWatcher.canonicalPath(url)
         if let rootURL, path.hasPrefix(canonicalRootPath + "/") {
             return rootURL.appending(path: String(path.dropFirst(canonicalRootPath.count + 1)))
@@ -230,9 +236,18 @@ final class Workspace {
         return URL(filePath: path)
     }
 
-    private func document(matching url: URL) -> EditorDocument? {
+    func document(matching url: URL) -> EditorDocument? {
         let path = FileWatcher.canonicalPath(url)
         return documents.first { $0.canonicalPath == path }
+    }
+
+    func perform(_ command: EditorCommand, in document: EditorDocument) {
+        switch command {
+        case .goToDefinition: goToDefinition(in: document)
+        case .findReferences: findReferences(in: document)
+        case .rename: renameSymbol(in: document)
+        case .format: formatDocument(document)
+        }
     }
 
     /// Jumps to the definition of the symbol at the cursor (F12, ⌘-click).

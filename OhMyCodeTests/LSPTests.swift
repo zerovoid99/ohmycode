@@ -22,10 +22,20 @@ struct LanguageClientTests {
         return LanguageServerConfig(name: "Fake LSP", command: ["/usr/bin/python3", script.path], languages: [.swift])
     }
 
-    private func makeWorkspace(text: String) throws -> (Workspace, EditorDocument, EditorController, NSWindow) {
+    func makeWorkspace(text: String, files: [String: String] = [:]) throws -> (Workspace, EditorDocument, EditorController, NSWindow) {
+        try Self.makeWorkspace(text: text, files: files)
+    }
+
+    /// A folder with main.swift (opened in an editor in a window) plus `files`.
+    static func makeWorkspace(text: String, files: [String: String] = [:]) throws -> (Workspace, EditorDocument, EditorController, NSWindow) {
         let root = FileManager.default.temporaryDirectory.appending(path: "omc-lsp-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try text.write(to: root.appending(path: "main.swift"), atomically: true, encoding: .utf8)
+        for (path, contents) in files {
+            let url = root.appending(path: path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try contents.write(to: url, atomically: true, encoding: .utf8)
+        }
         let workspace = Workspace()
         workspace.languageServerOverrides[.swift] = Self.fakeServer
         workspace.openFolder(root)
@@ -46,7 +56,11 @@ struct LanguageClientTests {
     // the window is freed at once (no first responder, no completion panel) and the workspace
     // soon after, silently detaching its language server: in the app, the window owns both.
     /// Generous: the first server start waits for the login-shell PATH, which can take seconds.
-    private func eventually(timeout: Duration = .seconds(10), _ condition: @MainActor () -> Bool) async throws -> Bool {
+    func eventually(timeout: Duration = .seconds(10), _ condition: @MainActor () -> Bool) async throws -> Bool {
+        try await Self.eventually(timeout: timeout, condition)
+    }
+
+    static func eventually(timeout: Duration = .seconds(10), _ condition: @MainActor () -> Bool) async throws -> Bool {
         let deadline = ContinuousClock.now + timeout
         while !condition() {
             if ContinuousClock.now > deadline { return false }
@@ -199,5 +213,55 @@ struct SourceKitLSPTests {
                                                      triggerCharacter: nil)
         print("SKLSP completions=\(completion.items.count) e.g. \(completion.items.prefix(5).map(\.label))")
         #expect(completion.items.contains { $0.label.hasPrefix("count") })
+    }
+
+    @Test(.timeLimit(.minutes(3))) func hoverReferencesRenameAndFormat() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-skl2-\(UUID().uuidString)")
+        let sources = root.appending(path: "Sources/Demo")
+        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+        try """
+        // swift-tools-version: 5.9
+        import PackageDescription
+        let package = Package(name: "Demo", targets: [.executableTarget(name: "Demo")])
+        """.write(to: root.appending(path: "Package.swift"), atomically: true, encoding: .utf8)
+        try "/// Number of apples.\nlet count: Int = 3\nprint(count)\nfunc   f( ) {print(count) }\n"
+            .write(to: sources.appending(path: "main.swift"), atomically: true, encoding: .utf8)
+        try "func other() { print(count) }\n".write(to: sources.appending(path: "other.swift"), atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: sources.appending(path: "main.swift"))
+        let document = try #require(workspace.activeDocument)
+        let controller = EditorController(document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = controller.makeView()
+        window.layoutIfNeeded()
+        document.editor = controller
+        document.undoManager.groupsByEvent = false
+        let deadline = ContinuousClock.now + .seconds(60)
+        while document.languageClient?.state != .ready && ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(100)) }
+        let client = try #require(document.languageClient)
+        #expect(client.supports(.hover) && client.supports(.references) && client.supports(.rename) && client.supports(.formatting))
+        let hover = try await client.hover(url: document.url, position: LSPPosition(line: 2, character: 7))
+        #expect(hover?.contains("let count: Int") == true)
+        #expect(hover?.contains("Number of apples.") == true)
+        controller.textView.setSelectedRange(NSRange(location: 47, length: 0)) // "count" in print(count)
+        for _ in 0..<30 { // cross-file results need the background index
+            await workspace.findReferences()?.value
+            await workspace.findReferences()?.value
+            if (workspace.references?.count ?? 0) >= 4 { break }
+            try await Task.sleep(for: .seconds(1))
+        }
+        #expect(workspace.references?.results.map(\.path) == ["Sources/Demo/main.swift", "Sources/Demo/other.swift"])
+        #expect(workspace.references?.count == 4)
+
+        workspace.renamePrompt = { _ in "total" }
+        await workspace.renameSymbol()?.value
+        #expect(document.textStorage.string == "/// Number of apples.\nlet total: Int = 3\nprint(total)\nfunc   f( ) {print(total) }\n")
+        #expect(try String(contentsOf: sources.appending(path: "other.swift"), encoding: .utf8) == "func other() { print(total) }\n")
+
+        await workspace.formatDocument()?.value
+        #expect(document.textStorage.string == "/// Number of apples.\nlet total: Int = 3\nprint(total)\nfunc f() { print(total) }\n")
+        #expect(workspace.errorMessage == nil)
+        withExtendedLifetime((workspace, window)) {}
     }
 }

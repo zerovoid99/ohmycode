@@ -11,6 +11,9 @@ struct WorkspaceView: View {
                     Image(systemName: "magnifyingglass").help("Search (⇧⌘F)").tag(Workspace.SidebarMode.search)
                     Image(systemName: "arrow.triangle.branch").help(changeCountLabel + " (⌃⇧G)")
                         .tag(Workspace.SidebarMode.sourceControl)
+                    if workspace.references != nil {
+                        Image(systemName: "link").help("References").tag(Workspace.SidebarMode.references)
+                    }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -26,6 +29,8 @@ struct WorkspaceView: View {
                     SearchView(model: workspace.search)
                 case .sourceControl:
                     SourceControlView(workspace: workspace)
+                case .references:
+                    ReferencesView(workspace: workspace)
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 480)

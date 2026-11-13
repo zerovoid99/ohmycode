@@ -94,6 +94,56 @@ enum TextSearch {
         }
     }
 
+    /// A result row for a known position (references), with the usual preview.
+    static func makeMatch(line: Int, column: Int, length: Int, lineText: String) -> SearchMatch {
+        let (preview, previewRange) = Matcher.preview(lineText, column: column, length: length)
+        return SearchMatch(line: line, column: column, length: length, preview: preview, previewRange: previewRange)
+    }
+
+    // MARK: Replace
+
+    /// The regex for a search: used by regex and non-ASCII case-insensitive searches, and to
+    /// compute replacements (it finds exactly what the search finds).
+    static func replacementRegex(_ options: SearchOptions) throws -> NSRegularExpression {
+        var pattern = options.regex ? options.query : NSRegularExpression.escapedPattern(for: options.query)
+        if options.wholeWord { pattern = "\\b(?:" + pattern + ")\\b" }
+        do {
+            return try NSRegularExpression(pattern: pattern, options: options.caseSensitive
+                                           ? [.anchorsMatchLines] : [.caseInsensitive, .anchorsMatchLines])
+        } catch {
+            throw SearchError.invalidRegex(options.query)
+        }
+    }
+
+    /// NSRegularExpression template for the replace field: literal text, or for regex
+    /// searches `$1`-style groups plus `\n` and `\t` escapes.
+    static func template(_ replacement: String, regex: Bool) -> String {
+        guard regex else { return NSRegularExpression.escapedTemplate(for: replacement) }
+        var result = ""
+        var iterator = replacement.makeIterator()
+        while let character = iterator.next() {
+            guard character == "\\", let next = iterator.next() else { result.append(character); continue }
+            switch next {
+            case "n": result.append("\n")
+            case "t": result.append("\t")
+            default: result.append("\\"); result.append(next) // template escapes (\$, \\) stay as they are
+            }
+        }
+        return result
+    }
+
+    /// Every match in `text` with its replacement.
+    static func replacements(in text: String, regex: NSRegularExpression, template: String) -> [TextReplacement] {
+        let string = text as NSString
+        var result: [TextReplacement] = []
+        regex.enumerateMatches(in: text, range: NSRange(location: 0, length: string.length)) { match, _, _ in
+            guard let match, match.range.length > 0 else { return }
+            result.append(TextReplacement(range: match.range,
+                                          text: regex.replacementString(for: match, in: text, offset: 0, template: template)))
+        }
+        return result
+    }
+
     /// Memory-mapped contents, or nil for unreadable, huge or binary files.
     private static func read(_ url: URL) -> Data? {
         guard let data = try? Data(contentsOf: url, options: .alwaysMapped),
@@ -167,14 +217,7 @@ private struct Matcher: Sendable {
             mode = .bytes(options.caseSensitive ? bytes : bytes.map(FuzzyMatcher.asciiLowercase),
                           foldCase: !options.caseSensitive)
         } else {
-            var pattern = options.regex ? options.query : NSRegularExpression.escapedPattern(for: options.query)
-            if options.wholeWord { pattern = "\\b(?:" + pattern + ")\\b" }
-            do {
-                mode = .regex(try NSRegularExpression(
-                    pattern: pattern, options: options.caseSensitive ? [.anchorsMatchLines] : [.caseInsensitive, .anchorsMatchLines]))
-            } catch {
-                throw TextSearch.SearchError.invalidRegex(options.query)
-            }
+            mode = .regex(try TextSearch.replacementRegex(options))
         }
     }
 

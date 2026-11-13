@@ -11,6 +11,29 @@ struct LineIndex: Equatable {
         lineStarts = [0] + Self.newlineStarts(in: string, range: NSRange(location: 0, length: string.length))
     }
 
+    /// UTF-16 offset for an LSP position (line, UTF-16 column), clamped to its line and the text.
+    func offset(for position: LSPPosition, length: Int) -> Int {
+        guard position.line < lineCount else { return length }
+        let lineStart = lineStarts[max(0, position.line)]
+        let lineEnd = position.line + 1 < lineCount ? lineStarts[position.line + 1] - 1 : length
+        return min(lineStart + max(0, position.character), max(lineStart, lineEnd))
+    }
+
+    func range(for range: LSPRange, length: Int) -> NSRange {
+        let start = offset(for: range.start, length: length)
+        let end = max(start, offset(for: range.end, length: length))
+        return NSRange(location: start, length: end - start)
+    }
+
+    /// Text of a zero-based line, without its newline.
+    func lineText(_ line: Int, in string: NSString) -> String {
+        guard line >= 0, line < lineCount else { return "" }
+        let start = lineStarts[line]
+        var end = line + 1 < lineCount ? lineStarts[line + 1] - 1 : string.length
+        if end > start, string.character(at: end - 1) == 0x0D { end -= 1 }
+        return string.substring(with: NSRange(location: start, length: max(0, end - start)))
+    }
+
     /// Zero-based line containing the UTF-16 `offset`.
     func line(containing offset: Int) -> Int {
         max(0, upperBound(offset) - 1)

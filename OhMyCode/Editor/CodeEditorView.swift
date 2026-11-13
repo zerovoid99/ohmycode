@@ -31,6 +31,7 @@ final class EditorController: NSObject {
     // NSTextLayoutManager only holds its content manager weakly.
     private let textContentStorage = NSTextContentStorage()
     private(set) lazy var completion = CompletionController(editor: self)
+    private(set) lazy var hover = HoverController(editor: self)
     /// What the user just typed, captured before the change, for completion triggering.
     private var pendingTypedText: String?
     /// Range that currently has highlight colors applied; scrolling inside it is free.
@@ -74,8 +75,12 @@ final class EditorController: NSObject {
         textView.onCommandClick = { [weak self] in
             guard let self else { return }
             self.completion.dismiss()
+            self.hover.dismiss()
             self.goToDefinition()
         }
+        textView.onMouseMoved = { [weak self] point in self?.hover.mouseMoved(to: point) }
+        textView.onMouseExited = { [weak self] in self?.hover.mouseExited() }
+        textView.onKeyDown = { [weak self] in self?.hover.dismiss() }
         gutter.onLineClick = { [weak self] line, rect in self?.showHunk(atLine: line, rect: rect) }
         textView.onLayout = { [weak self, weak gutter, weak overlay] in
             gutter?.needsDisplay = true
@@ -188,10 +193,81 @@ final class EditorController: NSObject {
 
     // MARK: Language features
 
-    /// The editor doesn't know its workspace; the workspace owning the document handles this.
-    func goToDefinition() {
-        NotificationCenter.default.post(name: .omcGoToDefinition, object: document)
+    /// The editor doesn't know its workspace; the workspace owning the document handles these.
+    func perform(_ command: EditorCommand) {
+        NotificationCenter.default.post(name: .omcEditorCommand, object: document,
+                                        userInfo: ["command": command.rawValue])
     }
+
+    func goToDefinition() { perform(.goToDefinition) }
+
+    @objc private func contextGoToDefinition(_ sender: Any?) { perform(.goToDefinition) }
+    @objc private func contextFindReferences(_ sender: Any?) { perform(.findReferences) }
+    @objc private func contextRename(_ sender: Any?) { perform(.rename) }
+    @objc private func contextFormat(_ sender: Any?) { perform(.format) }
+
+    /// Language actions at the top of the editor's context menu.
+    fileprivate func languageMenuItems() -> [NSMenuItem] {
+        guard let client = document.languageClient else { return [] }
+        func item(_ title: String, _ action: Selector, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = [],
+                  enabled: Bool = true) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: enabled ? action : nil, keyEquivalent: key)
+            item.keyEquivalentModifierMask = modifiers
+            item.target = self
+            return item
+        }
+        let f12 = String(Character(UnicodeScalar(NSF12FunctionKey)!))
+        let f2 = String(Character(UnicodeScalar(NSF2FunctionKey)!))
+        return [
+            item("Go to Definition", #selector(contextGoToDefinition), f12),
+            item("Find All References", #selector(contextFindReferences), f12, .shift,
+                 enabled: client.supports(.references)),
+            item("Rename Symbol", #selector(contextRename), f2, enabled: client.supports(.rename)),
+            .separator(),
+            item("Format Document", #selector(contextFormat), "f", [.shift, .option],
+                 enabled: client.supports(.formatting)),
+            .separator(),
+        ]
+    }
+
+    /// Text changed without going through the text view (multi-edits, undo of those).
+    func textDidChangeProgrammatically() {
+        gutterView.updateWidth()
+        gutterView.needsDisplay = true
+        completion.dismiss()
+        hover.dismiss()
+    }
+
+    // MARK: Geometry
+
+    /// Bounding rect of `range` in text view coordinates (laid out on demand).
+    func rect(for range: NSRange) -> NSRect? {
+        guard let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager,
+              NSMaxRange(range) <= document.textStorage.length,
+              let textRange = textRange(for: range, in: contentManager) else { return nil }
+        layoutManager.ensureLayout(for: textRange)
+        var result: NSRect?
+        layoutManager.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
+            result = result.map { $0.union(frame) } ?? frame
+            return true
+        }
+        let origin = textView.textContainerOrigin
+        return result?.offsetBy(dx: origin.x, dy: origin.y)
+    }
+
+    /// The character whose glyph is under `point` (text view coordinates), if any.
+    func characterIndex(at point: NSPoint) -> Int? {
+        let length = document.textStorage.length
+        let insertion = textView.characterIndexForInsertion(at: point)
+        for index in [insertion, insertion - 1] where index >= 0 && index < length {
+            if let rect = rect(for: NSRange(location: index, length: 1)), rect.insetBy(dx: -1, dy: -1).contains(point) {
+                return index
+            }
+        }
+        return nil
+    }
+
+    func wordRange(at index: Int) -> NSRange? { document.wordRange(at: index) }
 
     // MARK: Git hunks
 
@@ -284,7 +360,20 @@ extension EditorController: NSTextViewDelegate {
         document.undoManager
     }
 
+    func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+        hover.dismiss()
+        // Right-clicking outside the selection moves the cursor there, so actions apply to that word.
+        let selection = view.selectedRange()
+        if !(NSLocationInRange(charIndex, selection) || (selection.length == 0 && charIndex == selection.location)) {
+            view.setSelectedRange(NSRange(location: charIndex, length: 0))
+        }
+        let items = languageMenuItems()
+        for (offset, item) in items.enumerated() { menu.insertItem(item, at: offset) }
+        return menu
+    }
+
     func textDidChange(_ notification: Notification) {
+        hover.dismiss()
         // Highlighting is rescheduled by the document's edit observer.
         gutterView.updateWidth()
         gutterView.needsDisplay = true
@@ -319,6 +408,39 @@ final class CodeTextView: NSTextView {
     var onLayout: (() -> Void)?
     var onCommandClick: (() -> Void)?
     var onResignFocus: (() -> Void)?
+    var onMouseMoved: ((NSPoint) -> Void)?
+    var onMouseExited: (() -> Void)?
+    var onKeyDown: (() -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        onMouseMoved?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onMouseExited?()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        onKeyDown?()
+        super.keyDown(with: event)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        onKeyDown?()
+        super.scrollWheel(with: event)
+    }
 
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
@@ -374,7 +496,12 @@ extension EditorController: SyntaxHighlighterClient {
     }
 }
 
+/// Language actions an editor asks its workspace to run (⌘-click, context menu).
+enum EditorCommand: String {
+    case goToDefinition, findReferences, rename, format
+}
+
 extension Notification.Name {
-    /// Posted by an editor (⌘-click) to ask its workspace to go to the definition.
-    static let omcGoToDefinition = Notification.Name("omcGoToDefinition")
+    /// Posted by an editor with `userInfo["command"]` (an `EditorCommand` raw value).
+    static let omcEditorCommand = Notification.Name("omcEditorCommand")
 }

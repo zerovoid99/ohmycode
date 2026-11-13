@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Minimal LSP server for tests. Mirrors documents from incremental changes (UTF-16
 positions), reports a diagnostic for every "BAD", and answers completion/definition."""
-import json, sys
+import json, os, re, sys
+from urllib.parse import unquote, urlparse, quote
 
 docs = {}
+root = None
 
 def read():
     length = None
@@ -57,12 +59,94 @@ def publish(uri):
     send({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
           "params": {"uri": uri, "diagnostics": diagnostics}})
 
+def path_of(uri):
+    return unquote(urlparse(uri).path)
+
+def text_of(uri):
+    if uri in docs:
+        return docs[uri]
+    with open(path_of(uri), encoding="utf-8") as f:
+        return f.read()
+
+def word_at(uri, pos):
+    line = text_of(uri).split("\n")[pos["line"]]
+    u = units(line)
+    # back to str index from UTF-16 column
+    col = len(b"".join(u[:pos["character"]]).decode("utf-16-le"))
+    for m in re.finditer(r"\w+", line):
+        if m.start() <= col <= m.end():
+            start16 = len(units(line[:m.start()]))
+            return m.group(), {"start": {"line": pos["line"], "character": start16},
+                               "end": {"line": pos["line"], "character": start16 + len(units(m.group()))}}
+    return None, None
+
+def all_uris():
+    uris = set(docs)
+    for dirpath, _, files in os.walk(root):
+        for name in files:
+            if name.endswith(".swift"):
+                uris.add("file://" + quote(os.path.join(dirpath, name)))
+    # Prefer the open documents' spelling of each path.
+    by_path = {}
+    for uri in sorted(uris, key=lambda u: u not in docs):
+        by_path.setdefault(os.path.realpath(path_of(uri)), uri)
+    return sorted(by_path.values())
+
+def occurrences(word):
+    result = []
+    for uri in all_uris():
+        for line_no, line in enumerate(text_of(uri).split("\n")):
+            for m in re.finditer(r"\b%s\b" % re.escape(word), line):
+                start16 = len(units(line[:m.start()]))
+                result.append((uri, {"start": {"line": line_no, "character": start16},
+                                     "end": {"line": line_no, "character": start16 + len(units(word))}}))
+    return result
+
 while True:
     msg = read()
     method, mid, params = msg.get("method"), msg.get("id"), msg.get("params", {})
     if method == "initialize":
+        root = path_of(params["rootUri"])
         send({"jsonrpc": "2.0", "id": mid, "result": {"capabilities": {
-            "textDocumentSync": 2, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": True}}})
+            "textDocumentSync": 2, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": True,
+            "hoverProvider": True, "referencesProvider": True, "renameProvider": {"prepareProvider": True},
+            "documentFormattingProvider": True}}})
+    elif method == "textDocument/hover":
+        word, rng = word_at(params["textDocument"]["uri"], params["position"])
+        result = None
+        if word and word != "nohover":
+            result = {"range": rng, "contents": {"kind": "markdown",
+                      "value": "```swift\nlet %s: Int\n```\n---\nDocs for **%s**." % (word, word)}}
+        send({"jsonrpc": "2.0", "id": mid, "result": result})
+    elif method == "textDocument/references":
+        word, _ = word_at(params["textDocument"]["uri"], params["position"])
+        send({"jsonrpc": "2.0", "id": mid, "result": [{"uri": u, "range": r} for u, r in occurrences(word)] if word else []})
+    elif method == "textDocument/prepareRename":
+        word, rng = word_at(params["textDocument"]["uri"], params["position"])
+        send({"jsonrpc": "2.0", "id": mid, "result": {"range": rng, "placeholder": word} if word and not word[0].isdigit() else None})
+    elif method == "textDocument/rename":
+        word, _ = word_at(params["textDocument"]["uri"], params["position"])
+        by_uri = {}
+        for u, r in occurrences(word):
+            by_uri.setdefault(u, []).append({"range": r, "newText": params["newName"]})
+        # Open documents as documentChanges, the rest in the same list: both shapes are parsed.
+        send({"jsonrpc": "2.0", "id": mid, "result": {"documentChanges": [
+            {"textDocument": {"uri": u, "version": None}, "edits": e} for u, e in by_uri.items()]}})
+    elif method == "textDocument/formatting":
+        # Trims trailing whitespace and re-indents tab-indented lines with the requested spaces.
+        uri = params["textDocument"]["uri"]
+        edits = []
+        indent = " " * params["options"]["tabSize"]
+        for line_no, line in enumerate(docs[uri].split("\n")):
+            stripped = line.rstrip(" \t")
+            if len(stripped) != len(line):
+                edits.append({"range": {"start": {"line": line_no, "character": len(units(stripped))},
+                                        "end": {"line": line_no, "character": len(units(line))}}, "newText": ""})
+            tabs = len(line) - len(line.lstrip("\t"))
+            if tabs and params["options"]["insertSpaces"]:
+                edits.append({"range": {"start": {"line": line_no, "character": 0},
+                                        "end": {"line": line_no, "character": tabs}}, "newText": indent * tabs})
+        send({"jsonrpc": "2.0", "id": mid, "result": edits})
     elif method == "textDocument/didOpen":
         doc = params["textDocument"]
         docs[doc["uri"]] = doc["text"]

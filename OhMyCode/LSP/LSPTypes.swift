@@ -176,3 +176,119 @@ enum Snippet {
         return nil
     }
 }
+
+struct LSPTextEdit: Equatable, Sendable {
+    var range: LSPRange
+    var newText: String
+
+    init(range: LSPRange, newText: String) {
+        self.range = range
+        self.newText = newText
+    }
+
+    /// TextEdit or AnnotatedTextEdit.
+    init?(json: Any?) {
+        guard let object = json as? [String: Any], let range = LSPRange(json: object["range"]),
+              let newText = object["newText"] as? String else { return nil }
+        self.init(range: range, newText: newText)
+    }
+}
+
+/// Text edits per file. File create/rename/delete operations are not supported and skipped.
+struct WorkspaceEdit: Equatable, Sendable {
+    var changes: [URL: [LSPTextEdit]] = [:]
+
+    init(changes: [URL: [LSPTextEdit]]) {
+        self.changes = changes
+    }
+
+    init?(json: Any?) {
+        guard let object = json as? [String: Any] else { return nil }
+        if let documentChanges = object["documentChanges"] as? [Any] {
+            for change in documentChanges {
+                guard let change = change as? [String: Any],
+                      let document = change["textDocument"] as? [String: Any],
+                      let uri = document["uri"] as? String, let url = URL(string: uri),
+                      let edits = change["edits"] as? [Any] else { continue }
+                changes[url, default: []] += edits.compactMap(LSPTextEdit.init(json:))
+            }
+        } else if let map = object["changes"] as? [String: Any] {
+            for (uri, edits) in map {
+                guard let url = URL(string: uri), let edits = edits as? [Any] else { continue }
+                changes[url, default: []] += edits.compactMap(LSPTextEdit.init(json:))
+            }
+        }
+    }
+
+    var editCount: Int { changes.values.reduce(0) { $0 + $1.count } }
+}
+
+/// Hover contents (MarkupContent, MarkedString or MarkedString[]) normalized to Markdown.
+enum HoverContent {
+    static func markdown(from json: Any?) -> String? {
+        guard let object = json as? [String: Any] else { return nil }
+        let text = markdown(contents: object["contents"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    private static func markdown(contents: Any?) -> String {
+        switch contents {
+        case let text as String:
+            return text
+        case let list as [Any]:
+            return list.map { markdown(contents: $0) }.filter { !$0.isEmpty }.joined(separator: "\n\n---\n\n")
+        case let object as [String: Any]:
+            let value = object["value"] as? String ?? ""
+            if let language = object["language"] as? String { return "```\(language)\n\(value)\n```" }
+            if object["kind"] as? String == "plaintext" { return "```\n\(value)\n```" }
+            return value
+        default:
+            return ""
+        }
+    }
+
+    enum Block: Equatable {
+        case code(String)
+        case text(String)
+        case rule
+    }
+
+    /// Splits Markdown into fenced code blocks, horizontal rules and prose paragraphs
+    /// (SwiftUI renders inline Markdown only).
+    static func blocks(_ markdown: String) -> [Block] {
+        var blocks: [Block] = []
+        var prose: [Substring] = []
+        var code: [Substring]?
+
+        func flushProse() {
+            let text = prose.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty { blocks.append(.text(text)) }
+            prose.removeAll()
+        }
+
+        for line in markdown.split(separator: "\n", omittingEmptySubsequences: false) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("```") {
+                if let lines = code {
+                    let text = lines.joined(separator: "\n")
+                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { blocks.append(.code(text)) }
+                    code = nil
+                } else {
+                    flushProse()
+                    code = []
+                }
+            } else if code != nil {
+                code!.append(line)
+            } else if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+                flushProse()
+                if !blocks.isEmpty, blocks.last != .rule { blocks.append(.rule) }
+            } else {
+                prose.append(line)
+            }
+        }
+        if let lines = code, !lines.isEmpty { blocks.append(.code(lines.joined(separator: "\n"))) }
+        flushProse()
+        if blocks.last == .rule { blocks.removeLast() }
+        return blocks
+    }
+}

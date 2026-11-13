@@ -37,6 +37,8 @@ final class EditorDocument: Identifiable {
     let undoManager = UndoManager()
 
     private(set) var isDirty = false
+    /// Bumped on every text change; lets async results (formatting, rename) detect staleness.
+    @ObservationIgnored private(set) var editVersion = 0
     private(set) var lineCount = 1
     var cursorLine = 1
     var cursorColumn = 1
@@ -116,17 +118,51 @@ final class EditorDocument: Identifiable {
 
     /// UTF-16 offset for an LSP position, clamped to the document.
     func offset(for position: LSPPosition) -> Int {
-        let length = textStorage.length
-        guard position.line < lineIndex.lineCount else { return length }
-        let lineStart = lineIndex.lineStarts[max(0, position.line)]
-        let lineEnd = position.line + 1 < lineIndex.lineCount ? lineIndex.lineStarts[position.line + 1] - 1 : length
-        return min(lineStart + max(0, position.character), max(lineStart, lineEnd))
+        lineIndex.offset(for: position, length: textStorage.length)
     }
 
     func range(for lspRange: LSPRange) -> NSRange {
-        let start = offset(for: lspRange.start)
-        let end = max(start, offset(for: lspRange.end))
+        lineIndex.range(for: lspRange, length: textStorage.length)
+    }
+
+    /// The identifier around `index` (or ending right at it).
+    func wordRange(at index: Int) -> NSRange? {
+        let text = textStorage.mutableString
+        func isWord(_ at: Int) -> Bool {
+            guard at >= 0, at < text.length else { return false }
+            let unit = text.character(at: at)
+            if unit == 0x5F { return true } // _
+            if CFStringIsSurrogateHighCharacter(unit) || CFStringIsSurrogateLowCharacter(unit) { return false }
+            guard let scalar = Unicode.Scalar(unit) else { return false }
+            return CharacterSet.alphanumerics.contains(scalar)
+        }
+        var start = index
+        if !isWord(start) && isWord(start - 1) { start -= 1 }
+        guard isWord(start) else { return nil }
+        var end = start
+        while isWord(start - 1) { start -= 1 }
+        while isWord(end) { end += 1 }
         return NSRange(location: start, length: end - start)
+    }
+
+    /// Indentation style for formatting: tabs if most indented lines use them, otherwise
+    /// 2 or 4 spaces judged from the indent widths in the first few thousand lines.
+    var indentation: (tabSize: Int, insertSpaces: Bool) {
+        let text = textStorage.mutableString
+        var tabs = 0, spaces = 0, twoSpaceSteps = 0
+        for line in 0..<min(lineIndex.lineCount, 5_000) {
+            let start = lineIndex.lineStarts[line]
+            guard start < text.length else { break }
+            let first = text.character(at: start)
+            if first == 0x09 { tabs += 1; continue }
+            guard first == 0x20 else { continue }
+            var width = 0
+            while start + width < text.length, text.character(at: start + width) == 0x20 { width += 1 }
+            spaces += 1
+            if width % 4 == 2 { twoSpaceSteps += 1 }
+        }
+        if tabs > spaces { return (4, false) }
+        return (spaces > 0 && twoSpaceSteps * 5 >= spaces ? 2 : 4, true)
     }
 
     func setDiagnostics(_ diagnostics: [Diagnostic]) {
@@ -195,6 +231,7 @@ final class EditorDocument: Identifiable {
 
         // `mutableString`, not `string`: bridging `string` to Swift copies the whole text.
         lineIndex.apply(editedRange: range, changeInLength: delta, in: textStorage.mutableString)
+        editVersion += 1
 
         if let languageClient {
             let inserted = textStorage.mutableString.substring(with: range)

@@ -8,6 +8,10 @@ extension FocusedValues {
 struct WorkspaceCommands: Commands {
     @FocusedValue(\.workspace) private var workspace
 
+    private func supports(_ feature: LanguageClient.Feature) -> Bool {
+        workspace?.activeDocument?.languageClient?.supports(feature) == true
+    }
+
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("Open Folder…") { workspace?.presentOpenPanel() }
@@ -43,6 +47,9 @@ struct WorkspaceCommands: Commands {
                 .disabled(workspace?.rootNode == nil)
             Button("Search") { workspace?.showSearch() }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(workspace?.rootNode == nil)
+            Button("Replace in Files") { workspace?.showSearch(replace: true) }
+                .keyboardShortcut("h", modifiers: [.command, .shift])
                 .disabled(workspace?.rootNode == nil)
             Button("Source Control") { workspace?.sidebarMode = .sourceControl }
                 .keyboardShortcut("g", modifiers: [.control, .shift])
@@ -81,6 +88,15 @@ struct WorkspaceCommands: Commands {
             Button("Go to Definition") { workspace?.goToDefinition() }
                 .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF12FunctionKey)!)), modifiers: [])
                 .disabled(workspace?.activeDocument?.languageClient == nil)
+            Button("Find All References") { workspace?.findReferences() }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF12FunctionKey)!)), modifiers: .shift)
+                .disabled(!supports(.references))
+            Button("Rename Symbol…") { workspace?.renameSymbol() }
+                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF2FunctionKey)!)), modifiers: [])
+                .disabled(!supports(.rename))
+            Button("Format Document") { workspace?.formatDocument() }
+                .keyboardShortcut("f", modifiers: [.shift, .option])
+                .disabled(!supports(.formatting))
 
             Divider()
 

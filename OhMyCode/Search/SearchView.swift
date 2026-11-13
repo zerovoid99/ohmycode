@@ -9,6 +9,14 @@ struct SearchView: View {
     var body: some View {
         VStack(spacing: 6) {
             HStack(spacing: 4) {
+                Button {
+                    model.showsReplace.toggle()
+                } label: {
+                    Image(systemName: model.showsReplace ? "chevron.down" : "chevron.right")
+                        .frame(width: 12)
+                }
+                .buttonStyle(.borderless)
+                .help("Toggle Replace (⇧⌘H)")
                 TextField("Search", text: binding(\.query))
                     .textFieldStyle(.roundedBorder)
                     .focused($queryFocused)
@@ -23,6 +31,21 @@ struct SearchView: View {
                 .buttonStyle(.borderless)
                 .help("Files to include/exclude")
             }
+            if model.showsReplace {
+                HStack(spacing: 4) {
+                    Spacer().frame(width: 16)
+                    TextField(model.options.regex ? "Replace ($1 for groups)" : "Replace", text: replacementBinding)
+                        .textFieldStyle(.roundedBorder)
+                    Button {
+                        model.replaceAll()
+                    } label: {
+                        Image(systemName: "text.badge.checkmark")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(model.results.isEmpty || model.isReplacing)
+                    .help("Replace All")
+                }
+            }
             if showsFilters {
                 TextField("Files to include (e.g. *.swift, Sources/)", text: binding(\.include))
                     .textFieldStyle(.roundedBorder)
@@ -34,11 +57,14 @@ struct SearchView: View {
                 ForEach(model.results) { result in
                     DisclosureGroup(isExpanded: .constant(true)) {
                         ForEach(result.matches) { match in
-                            MatchRow(match: match)
+                            SearchMatchRow(match: match,
+                                           replacement: model.showsReplace ? model.replacementPreview(for: match) : nil,
+                                           onReplace: { model.replace(match, in: result) })
                                 .onTapGesture { model.open(result, match) }
                         }
                     } label: {
-                        FileHeader(result: result)
+                        SearchFileHeader(result: result,
+                                         onReplace: model.showsReplace ? { model.replace(in: result) } : nil)
                     }
                 }
             }
@@ -68,6 +94,10 @@ struct SearchView: View {
         .foregroundStyle(.secondary)
     }
 
+    private var replacementBinding: Binding<String> {
+        Binding(get: { model.replacement }, set: { model.replacement = $0 })
+    }
+
     private func binding<Value>(_ keyPath: WritableKeyPath<SearchOptions, Value>) -> Binding<Value> {
         Binding(get: { model.options[keyPath: keyPath] }, set: { model.options[keyPath: keyPath] = $0 })
     }
@@ -89,8 +119,11 @@ struct SearchView: View {
     }
 }
 
-private struct FileHeader: View {
+/// A file's row in search and reference results.
+struct SearchFileHeader: View {
     let result: SearchFileResult
+    var onReplace: (() -> Void)?
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -99,25 +132,43 @@ private struct FileHeader: View {
             Text((result.path as NSString).deletingLastPathComponent)
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
             Spacer(minLength: 4)
+            if isHovered, let onReplace {
+                Button(action: onReplace) { Image(systemName: "text.badge.checkmark") }
+                    .buttonStyle(.borderless)
+                    .help("Replace All in File")
+            }
             Text("\(result.matches.count)")
                 .font(.caption2.monospacedDigit())
                 .padding(.horizontal, 5)
                 .background(.quaternary, in: Capsule())
         }
+        .onHover { isHovered = $0 }
     }
 }
 
-private struct MatchRow: View {
+/// One match: its line with the match highlighted, or with `replacement` shown as a diff.
+struct SearchMatchRow: View {
     let match: SearchMatch
+    var replacement: String?
+    var onReplace: (() -> Void)?
+    @State private var isHovered = false
 
     var body: some View {
-        highlighted
-            .font(.system(size: 12, design: .monospaced))
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .help("Line \(match.line + 1)")
+        HStack(spacing: 4) {
+            highlighted
+                .font(.system(size: 12, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if isHovered, replacement != nil, let onReplace {
+                Button(action: onReplace) { Image(systemName: "checkmark.circle") }
+                    .buttonStyle(.borderless)
+                    .help("Replace")
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .help("Line \(match.line + 1)")
     }
 
     private var highlighted: Text {
@@ -128,8 +179,16 @@ private struct MatchRow: View {
         let hit = preview.substring(with: range)
         let after = preview.substring(from: NSMaxRange(range))
         var hitText = AttributedString(hit)
-        hitText.backgroundColor = Color.orange.opacity(0.35)
         hitText.font = .system(size: 12, weight: .bold, design: .monospaced)
-        return Text(before) + Text(hitText) + Text(after)
+        guard let replacement else {
+            hitText.backgroundColor = Color.orange.opacity(0.35)
+            return Text(before) + Text(hitText) + Text(after)
+        }
+        hitText.backgroundColor = Color.red.opacity(0.25)
+        hitText.strikethroughStyle = .single
+        var newText = AttributedString(replacement.replacingOccurrences(of: "\n", with: "⏎"))
+        newText.backgroundColor = Color.green.opacity(0.3)
+        newText.font = .system(size: 12, weight: .bold, design: .monospaced)
+        return Text(before) + Text(hitText) + Text(newText) + Text(after)
     }
 }
