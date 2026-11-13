@@ -168,23 +168,70 @@ extension Workspace {
     /// ⇧⌥F: formats the document with the language server, as one undoable step.
     @discardableResult
     func formatDocument(_ target: EditorDocument? = nil) -> Task<Void, Never>? {
-        guard let document = target ?? activeDocument, let client = document.languageClient,
-              client.state == .ready, client.supports(.formatting) else {
+        guard let document = target ?? activeDocument, canFormat(document) else {
             NSSound.beep()
             return nil
         }
-        let version = document.editVersion
-        let (tabSize, insertSpaces) = document.indentation
         return Task {
             do {
-                let edits = try await client.formatting(url: document.url, tabSize: tabSize, insertSpaces: insertSpaces)
-                guard document.editVersion == version else { return } // typed meanwhile: stale edits
-                try document.apply(edits.map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) },
-                                   actionName: "Format Document")
+                try await format(document)
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    func canFormat(_ document: EditorDocument) -> Bool {
+        guard let client = document.languageClient else { return false }
+        return client.state == .ready && client.supports(.formatting)
+    }
+
+    /// Asks the server for formatting edits and applies them (one undo step). Edits that arrive
+    /// after the user typed are stale and dropped. Returns whether the text changed.
+    @discardableResult
+    func format(_ document: EditorDocument) async throws -> Bool {
+        guard let client = document.languageClient else { return false }
+        let version = document.editVersion
+        let (tabSize, insertSpaces) = document.indentation
+        let edits = try await client.formatting(url: document.url, tabSize: tabSize, insertSpaces: insertSpaces)
+        // Stale (typed meanwhile) or given up on (format on save timed out and saved already).
+        guard document.editVersion == version, !Task.isCancelled else { return false }
+        return try document.apply(edits.map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) },
+                                  actionName: "Format Document")
+    }
+
+    /// ⌘S with format on save: formats (if the setting is on and a server can), then saves. A slow
+    /// or failing formatter never blocks the save: after the timeout the text is saved as is.
+    @discardableResult
+    func formatAndSave(_ document: EditorDocument) -> Task<Bool, Never> {
+        Task {
+            if formatOnSave ?? AppSettings.shared.formatOnSave, canFormat(document) {
+                // Whichever comes first: the formatted text, or the timeout. (Cancelling doesn't
+                // interrupt the wait for the server's reply, so race them explicitly.)
+                let formatting = Task { _ = try? await format(document) }
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    let once = ResumeOnce(continuation)
+                    Task { await formatting.value; once.resume() }
+                    Task {
+                        try? await Task.sleep(for: formatOnSaveTimeout)
+                        formatting.cancel() // late edits are then dropped (see `format`)
+                        once.resume()
+                    }
+                }
+            }
+            return save(document)
+        }
+    }
+}
+
+/// Resumes a continuation once, whichever caller comes first.
+@MainActor
+private final class ResumeOnce {
+    private var continuation: CheckedContinuation<Void, Never>?
+    init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
+    func resume() {
+        continuation?.resume()
+        continuation = nil
     }
 }
 

@@ -103,9 +103,12 @@ final class EditorController: NSObject {
         textView.onMouseMoved = { [weak self] point in self?.hover.mouseMoved(to: point) }
         textView.onOptionClick = { [weak self] location in self?.toggleCursor(at: location) }
         textView.onInsertText = { [weak self] text in
-            guard let self, self.hasExtraCursors else { return false }
-            self.insertAtAllCursors(text)
-            return true
+            guard let self else { return false }
+            if self.hasExtraCursors {
+                self.insertAtAllCursors(text)
+                return true
+            }
+            return self.handleTyped(text)
         }
         textView.onClick = { [weak self] point in
             self?.clearExtraCursors()
@@ -589,6 +592,8 @@ extension EditorController: NSTextViewDelegate {
     func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if completion.handle(selector) { return true }
         if handleMultiCursorCommand(selector) { return true }
+        if selector == #selector(NSResponder.insertNewline(_:)) { return handleNewline() }
+        if selector == #selector(NSResponder.deleteBackward(_:)) { return handleDeleteBackward() }
         if selector == #selector(NSResponder.complete(_:)) {
             completion.triggerManually()
             return true

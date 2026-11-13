@@ -273,12 +273,15 @@ struct LanguageFeatureTests {
         document.undoManager.redo()
         #expect(document.textStorage.string == formatted)
 
-        // Typing while the request is in flight makes its edits stale: they are dropped.
+        // Typing while the request is in flight makes its edits stale: they are dropped. ("SLOW"
+        // makes the fake server take a second to answer.)
         document.undoManager.undo()
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "// SLOW\n")
         let task = workspace.formatDocument()
+        try await Task.sleep(for: .milliseconds(200)) // the request is out
         document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "// x\n")
         await task?.value
-        #expect(document.textStorage.string == "// x\n" + original)
+        #expect(document.textStorage.string == "// x\n// SLOW\n" + original)
         withExtendedLifetime((workspace, window)) {}
     }
 }

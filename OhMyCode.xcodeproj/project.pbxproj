@@ -76,6 +76,7 @@
 		C6CBA1171534B6D1B3BF508F /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E900D8E8A233E7EC65D90EB6 /* WelcomeView.swift */; };
 		CABEED7DF19DCC31E8FFCA57 /* EditPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2064E56401AD034E47F05028 /* EditPreview.swift */; };
 		D37EC5DDCD64316FCFA7467F /* EditorGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 444F791D467BD9D84951C7DC /* EditorGroupView.swift */; };
+		D3F4C2A897DA315C7F9495F4 /* AutoEditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */; };
 		D3FBB6809B020C010DBE4836 /* SplitEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761D7DD6B19C1B92A0D77DE6 /* SplitEditorTests.swift */; };
 		D477F7BD99917931B16AB872 /* Workspace+Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CE2146BEDE3433D4D023C59 /* Workspace+Language.swift */; };
 		D7A7FF2C9BF229A9AD1993F2 /* VSCodeThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */; };
@@ -92,6 +93,7 @@
 		EC7C9812CD24CEA4A918CD9E /* LanguageServers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98686231101B7D30D51EBDC4 /* LanguageServers.swift */; };
 		EF0AF94F1D1E95FC69096C48 /* PaletteModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93015393E54CC5284AD91618 /* PaletteModel.swift */; };
 		F0CE384F222A160A7BAEB5AF /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6163A12092027D9DED0CC99 /* Workspace.swift */; };
+		F8468141431F9A6418630B20 /* AutoEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = A920B7257090F4575659642F /* AutoEdit.swift */; };
 		F91C6A39A5D20B2F37F385DF /* FileWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCCA5F034FB1A1D75C15F673 /* FileWatcher.swift */; };
 /* End PBXBuildFile section */
 
@@ -111,6 +113,7 @@
 		062545FE7797841B1F4B7A4A /* TerminalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTests.swift; sourceTree = "<group>"; };
 		091334CC03D66036131BB5D3 /* TextSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSearch.swift; sourceTree = "<group>"; };
 		0CE2146BEDE3433D4D023C59 /* Workspace+Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+Language.swift"; sourceTree = "<group>"; };
+		0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoEditTests.swift; sourceTree = "<group>"; };
 		0DE8B7417AC9A29F14098B2F /* HoverController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoverController.swift; sourceTree = "<group>"; };
 		0E90646D54E679A22AC13D7A /* GhosttyVt */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GhosttyVt; path = Packages/GhosttyVt; sourceTree = SOURCE_ROOT; };
 		16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorChromeTests.swift; sourceTree = "<group>"; };
@@ -162,6 +165,7 @@
 		A2CDFC2E1CCF97A2D1EB482A /* FuzzyMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyMatcher.swift; sourceTree = "<group>"; };
 		A7C9D84FAB6E84ED23CE13AC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A84B684B87EB09C7E0B6F720 /* TerminalRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRenderer.swift; sourceTree = "<group>"; };
+		A920B7257090F4575659642F /* AutoEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoEdit.swift; sourceTree = "<group>"; };
 		AE7C57B7EB44D1B9076110A5 /* LanguageServerConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageServerConnection.swift; sourceTree = "<group>"; };
 		B14BECEA4F9A853D675100EC /* StatusBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarView.swift; sourceTree = "<group>"; };
 		BAC70BDDB10EC612FCBE47F8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -284,6 +288,7 @@
 		62E936D0F14C621F151D072E /* OhMyCodeTests */ = {
 			isa = PBXGroup;
 			children = (
+				0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */,
 				16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */,
 				63C0BDA667585BA6CF3CCCE0 /* FileWatchingTests.swift */,
 				1DB02258B857C771FD1F3771 /* Fixtures */,
@@ -348,6 +353,7 @@
 		98E624085E20EADAD9A93D25 /* Editor */ = {
 			isa = PBXGroup;
 			children = (
+				A920B7257090F4575659642F /* AutoEdit.swift */,
 				95ED4C401864D6BBB7980F5B /* CodeEditorView.swift */,
 				D06B0B21A096AF4D60EC2722 /* DiagnosticsOverlayView.swift */,
 				E2206FF6013AF555A1FBEA43 /* EditorTheme.swift */,
@@ -548,6 +554,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7042CD02AA5B9520810A7177 /* AppSettings.swift in Sources */,
+				F8468141431F9A6418630B20 /* AutoEdit.swift in Sources */,
 				11D618DD62A741BF5C5FC2E1 /* CodeEditorView.swift in Sources */,
 				C1BE27B5BFAC1807427CFDCE /* CompletionController.swift in Sources */,
 				BAEF5F51E56FA1074B4DEDC9 /* DiagnosticsOverlayView.swift in Sources */,
@@ -614,6 +621,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D3F4C2A897DA315C7F9495F4 /* AutoEditTests.swift in Sources */,
 				E1AD3FCB68345C20CCD3CAC5 /* EditorChromeTests.swift in Sources */,
 				AE3ECD7BB4950C7B8C99D795 /* FileWatchingTests.swift in Sources */,
 				E5E5BD6A7BCDB034E59EFF3D /* FoldingTests.swift in Sources */,

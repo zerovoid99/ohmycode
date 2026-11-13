@@ -82,6 +82,8 @@ struct SettingsView: View {
             FontSizeField(title: "Size", size: $settings.editorFontSize)
             Toggle("Show minimap", isOn: $settings.showsMinimap)
             Toggle("Sticky scroll (keep enclosing declarations at the top)", isOn: $settings.stickyScroll)
+            Toggle("Close brackets and quotes automatically", isOn: $settings.autoClosePairs)
+            Toggle("Format on save (with the language server)", isOn: $settings.formatOnSave)
             Section("Preview") {
                 CodePreview(font: settings.editorFont, theme: EditorTheme.themes.first { $0.id == settings.themeID }
                             ?? EditorTheme.defaultTheme)

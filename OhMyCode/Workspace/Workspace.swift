@@ -67,6 +67,10 @@ final class Workspace {
     var pendingEdit: EditPreview?
     /// Last Find All References result, shown in the sidebar.
     var references: ReferenceList?
+    /// Replaces the Format on Save setting (tests); nil follows Settings.
+    @ObservationIgnored var formatOnSave: Bool?
+    /// How long saving waits for the formatter before saving the text as it is.
+    @ObservationIgnored var formatOnSaveTimeout: Duration = .seconds(2)
     /// Replaces the rename dialog (tests): gets the current name, returns the new one or nil.
     @ObservationIgnored var renamePrompt: ((String) -> String?)?
     private(set) var gitStatus: GitStatus?
@@ -635,15 +639,21 @@ final class Workspace {
         }
     }
 
-    func saveAll() {
-        for document in documents where document.isDirty {
-            guard save(document) else { return }
+    /// Saves every unsaved document (formatting each first, if format on save is on).
+    @discardableResult
+    func saveAll() -> Task<Void, Never> {
+        let dirty = documents.filter(\.isDirty)
+        return Task {
+            for document in dirty {
+                guard await formatAndSave(document).value else { return }
+            }
         }
     }
 
-    func saveActive() {
-        guard let document = activeDocument else { return }
-        save(document)
+    @discardableResult
+    func saveActive() -> Task<Bool, Never>? {
+        guard let document = activeDocument else { return nil }
+        return formatAndSave(document)
     }
 
     @discardableResult

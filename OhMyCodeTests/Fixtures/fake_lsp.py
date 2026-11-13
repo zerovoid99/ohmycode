@@ -133,6 +133,9 @@ while True:
         send({"jsonrpc": "2.0", "id": mid, "result": {"documentChanges": [
             {"textDocument": {"uri": u, "version": None}, "edits": e} for u, e in by_uri.items()]}})
     elif method == "textDocument/formatting":
+        if "SLOW" in docs[params["textDocument"]["uri"]]:
+            import time
+            time.sleep(1.0)
         # Trims trailing whitespace and re-indents tab-indented lines with the requested spaces.
         uri = params["textDocument"]["uri"]
         edits = []

@@ -44,6 +44,9 @@ final class AppSettings {
 
     var showsMinimap: Bool { didSet { changed() } }
     var stickyScroll: Bool { didSet { changed() } }
+    var formatOnSave: Bool { didSet { changed() } }
+    /// Closing brackets and quotes typed for you.
+    var autoClosePairs: Bool { didSet { changed() } }
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var isLoading = false
@@ -59,6 +62,8 @@ final class AppSettings {
         terminalFontSize = Self.clampedSize(defaults.object(forKey: Keys.terminalFontSize) as? Double ?? Self.defaultTerminalFontSize)
         showsMinimap = defaults.object(forKey: Keys.showsMinimap) as? Bool ?? true
         stickyScroll = defaults.object(forKey: Keys.stickyScroll) as? Bool ?? true
+        formatOnSave = defaults.object(forKey: Keys.formatOnSave) as? Bool ?? false
+        autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
         isLoading = false
     }
 
@@ -71,6 +76,8 @@ final class AppSettings {
         static let terminalFontSize = "terminalFontSize"
         static let showsMinimap = "showsMinimap"
         static let stickyScroll = "stickyScroll"
+        static let formatOnSave = "formatOnSave"
+        static let autoClosePairs = "autoClosePairs"
     }
 
     private static func clampedSize(_ size: Double) -> Double {
@@ -93,6 +100,8 @@ final class AppSettings {
         defaults.set(terminalFontSize, forKey: Keys.terminalFontSize)
         defaults.set(showsMinimap, forKey: Keys.showsMinimap)
         defaults.set(stickyScroll, forKey: Keys.stickyScroll)
+        defaults.set(formatOnSave, forKey: Keys.formatOnSave)
+        defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
         EditorTheme.invalidate()
         applyAppearance()
@@ -167,6 +176,8 @@ final class AppSettings {
         terminalFontFamily = ""
         showsMinimap = true
         stickyScroll = true
+        formatOnSave = false
+        autoClosePairs = true
         resetZoom()
     }
 }
