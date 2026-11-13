@@ -44,6 +44,7 @@ final class EditorController: NSObject {
     private(set) var stickyView: StickyScrollView?
     private(set) lazy var completion = CompletionController(editor: self)
     private(set) lazy var hover = HoverController(editor: self)
+    private(set) lazy var blameHover = BlameHoverController(editor: self)
     /// What the user just typed, captured before the change, for completion triggering.
     private var pendingTypedText: String?
     /// Range that currently has highlight colors applied; scrolling inside it is free.
@@ -103,7 +104,10 @@ final class EditorController: NSObject {
             self.hover.dismiss()
             self.goToDefinition()
         }
-        textView.onMouseMoved = { [weak self] point in self?.hover.mouseMoved(to: point) }
+        textView.onMouseMoved = { [weak self] point in
+            guard let self else { return }
+            if self.blameHover.mouseMoved(to: point) { self.hover.dismiss() } else { self.hover.mouseMoved(to: point) }
+        }
         textView.onOptionClick = { [weak self] location in self?.toggleCursor(at: location) }
         textView.onInsertText = { [weak self] text in
             guard let self else { return false }
@@ -116,12 +120,13 @@ final class EditorController: NSObject {
         textView.onClick = { [weak self] point in
             self?.clearExtraCursors()
             if self?.handleConflictClick(at: point) == true { return true }
+            if self?.handleBlameClick(at: point) == true { return true }
             guard let self, let hit = self.foldPlaceholderRects().first(where: { $0.rect.contains(point) }) else { return false }
             self.document.unfold(atHeader: hit.header)
             return true
         }
-        textView.onMouseExited = { [weak self] in self?.hover.mouseExited() }
-        textView.onKeyDown = { [weak self] in self?.hover.dismiss() }
+        textView.onMouseExited = { [weak self] in self?.hover.mouseExited(); self?.blameHover.mouseExited() }
+        textView.onKeyDown = { [weak self] in self?.hover.dismiss(); self?.blameHover.dismiss() }
         gutter.onLineClick = { [weak self] line, rect in self?.showHunk(atLine: line, rect: rect) }
         gutter.onFoldClick = { [weak self] line in self?.document.toggleFold(atLine: line) }
         textView.onLayout = { [weak self, weak gutter, weak overlay] in
@@ -273,8 +278,9 @@ final class EditorController: NSObject {
 
     // MARK: Blame
 
-    /// The blame annotation for the cursor's line: text and where to draw it (after the line).
-    func blameAnnotation() -> (text: String, origin: NSPoint)? {
+    /// The blame annotation for the cursor's line: its text, where it's drawn (after the line)
+    /// and the line's blame.
+    func blameAnnotation() -> BlameAnnotation? {
         guard AppSettings.shared.showsLineBlame, !hasExtraCursors, let blame = document.blame else { return nil }
         let selection = textView.selectedRange()
         guard selection.length == 0 else { return nil }
@@ -291,8 +297,14 @@ final class EditorController: NSObject {
                 .map { NSRect(x: $0.minX, y: $0.minY, width: 0, height: $0.height) }
         }
         guard let anchor else { return nil }
-        return (Self.describe(entry), NSPoint(x: anchor.maxX + 28, y: anchor.minY))
+        let text = Self.describe(entry)
+        let size = (text as NSString).size(withAttributes: [.font: Self.blameFont])
+        return BlameAnnotation(text: text, rect: NSRect(x: anchor.maxX + 28, y: anchor.minY, width: ceil(size.width),
+                                                        height: max(anchor.height, size.height)),
+                               blame: entry, isHovered: blameHover.isMouseOnAnnotation && !entry.isUncommitted)
     }
+
+    static var blameFont: NSFont { NSFontManager.shared.convert(EditorTheme.font, toHaveTrait: .italicFontMask) }
 
     nonisolated static func describe(_ blame: BlameLine, now: Date = Date()) -> String {
         if blame.isUncommitted { return "Not committed yet" }

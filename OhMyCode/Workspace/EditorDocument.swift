@@ -85,6 +85,8 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored private(set) var blame: [BlameLine?]?
     @ObservationIgnored var blameProvider: ((String) async -> [BlameLine?]?)?
     @ObservationIgnored private var blameTask: Task<Void, Never>?
+    /// What the blame popover can do with a line's commit (set by the workspace).
+    @ObservationIgnored var blameActions: BlameActions?
     /// Merge conflicts left in the text (`<<<<<<<` … `>>>>>>>`), re-read shortly after edits.
     @ObservationIgnored private(set) var conflicts: [MergeConflict] = []
     @ObservationIgnored private var conflictTask: Task<Void, Never>?
@@ -450,4 +452,14 @@ extension TextStorageObserver: @preconcurrency NSTextStorageDelegate {
         guard editedMask.contains(.editedCharacters) else { return }
         onEdit(editedRange, delta)
     }
+}
+
+/// The blame popover's commit actions, provided by the workspace.
+struct BlameActions {
+    /// The commit's whole message, email and date.
+    let details: @MainActor (BlameLine) async -> CommitDetails?
+    /// What the commit changed in this file, as a diff tab.
+    let openChanges: @MainActor (BlameLine) -> Void
+    /// The commit in the repository log.
+    let showInTimeline: @MainActor (BlameLine) -> Void
 }

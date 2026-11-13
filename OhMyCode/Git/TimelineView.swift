@@ -151,6 +151,20 @@ private struct RepositoryLogView: View {
             guard !Task.isCancelled else { return }
             workspace.repoHistoryFilter = filter
         }
+        // A search started elsewhere (blame's Show in Timeline) shows in the box.
+        .onChange(of: workspace.repoHistoryFilter) { _, filter in
+            let current = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let filter, filter.text != current || filter.kind != kind else { return }
+            query = filter.text
+            kind = filter.kind
+        }
+        // The commit searched for by its whole hash opens, showing its files.
+        .onChange(of: workspace.repoHistory?.pinned?.sha, initial: true) { _, sha in
+            if let sha, sha == workspace.repoHistoryFilter?.text.lowercased() {
+                expanded.insert(sha)
+                if let commit = workspace.repoHistory?.pinned { Task { await workspace.loadFiles(of: commit) } }
+            }
+        }
     }
 
     private var searchBar: some View {

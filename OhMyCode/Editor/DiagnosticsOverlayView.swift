@@ -13,7 +13,7 @@ final class DiagnosticsOverlayView: NSView {
     /// Extra cursors (multi-cursor): caret bars and selected text.
     var extraCursors: (() -> (carets: [NSRect], selections: [NSRect]))?
     /// Git blame of the cursor's line, drawn after its end.
-    var blameAnnotation: (() -> (text: String, origin: NSPoint)?)?
+    var blameAnnotation: (() -> BlameAnnotation?)?
     /// Merge conflicts: tinted sides, and the actions after each `<<<<<<<` line.
     var conflictBands: (() -> [(rect: NSRect, kind: ConflictBand)])?
     var conflictActions: (() -> [(rect: NSRect, conflict: MergeConflict, action: MergeConflict.Action)])?
@@ -85,11 +85,15 @@ final class DiagnosticsOverlayView: NSView {
                                withAttributes: separatorAttributes)
             }
         }
-        if let (text, origin) = blameAnnotation?() {
-            let font = NSFontManager.shared.convert(EditorTheme.font, toHaveTrait: .italicFontMask)
-            (text as NSString).draw(at: origin, withAttributes: [
-                .font: font, .foregroundColor: theme.lineNumber.withAlphaComponent(0.8),
-            ])
+        if let annotation = blameAnnotation?() {
+            // Brighter and underlined while the mouse is on it: it can be clicked.
+            let isHovered = annotation.isHovered
+            var attributes: [NSAttributedString.Key: Any] = [
+                .font: EditorController.blameFont,
+                .foregroundColor: theme.lineNumber.withAlphaComponent(isHovered ? 1 : 0.8),
+            ]
+            if isHovered { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            (annotation.text as NSString).draw(at: annotation.rect.origin, withAttributes: attributes)
         }
         if let (carets, selections) = extraCursors?() {
             theme.selection.withAlphaComponent(0.55).setFill()

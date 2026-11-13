@@ -597,6 +597,13 @@ enum Git {
         return BlameLine.parse(output)
     }
 
+    /// A commit's author, email, date and whole message (for the blame popover).
+    static func commitDetails(_ sha: String, in repository: Repository) -> CommitDetails? {
+        guard let output = run(["show", "-s", "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%B", sha + "^{commit}", "--"],
+                               in: repository.root) else { return nil }
+        return CommitDetails.parse(output)
+    }
+
     static func run(_ arguments: [String], in directory: URL, input: Data? = nil) -> Data? {
         let result = execute(arguments, in: directory, input: input)
         return result.status == 0 ? result.output : nil
@@ -648,19 +655,44 @@ enum Git {
 }
 
 
+/// A commit as the blame popover shows it.
+struct CommitDetails: Sendable, Equatable {
+    let sha: String
+    let parents: [String]
+    let author: String
+    let email: String
+    let date: Date
+    /// The whole message: subject, blank line, body.
+    let message: String
+
+    var shortSHA: String { String(sha.prefix(7)) }
+
+    /// Parses `git show -s --format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%B`.
+    static func parse(_ data: Data) -> CommitDetails? {
+        let fields = String(decoding: data, as: UTF8.self).split(separator: "\u{1f}", maxSplits: 5, omittingEmptySubsequences: false)
+        guard fields.count == 6, fields[0].count == 40 else { return nil }
+        return CommitDetails(sha: String(fields[0]), parents: fields[1].split(separator: " ").map(String.init),
+                             author: String(fields[2]), email: String(fields[3]),
+                             date: Date(timeIntervalSince1970: TimeInterval(fields[4]) ?? 0),
+                             message: fields[5].trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+}
+
 /// One line's last change, from `git blame --porcelain`.
 struct BlameLine: Sendable, Equatable {
     let commit: String
     let author: String
     let date: Date
     let summary: String
+    /// The file's path (from the repository root) in that commit: it may have been renamed since.
+    var path: String? = nil
 
     /// Lines changed in the buffer (or in the working tree) and not committed yet.
     var isUncommitted: Bool { commit.allSatisfy { $0 == "0" } }
 
     /// One entry per line of the blamed text (nil where git said nothing).
     static func parse(_ data: Data) -> [BlameLine?] {
-        struct Info { var author = "", time: TimeInterval = 0, summary = "" }
+        struct Info { var author = "", time: TimeInterval = 0, summary = "", path: String? }
         var infos: [String: Info] = [:]
         var result: [BlameLine?] = []
         var current: (commit: String, line: Int)?
@@ -671,7 +703,8 @@ struct BlameLine: Sendable, Equatable {
                 let info = infos[commit] ?? Info()
                 while result.count < line { result.append(nil) }
                 result[line - 1] = BlameLine(commit: commit, author: info.author,
-                                             date: Date(timeIntervalSince1970: info.time), summary: info.summary)
+                                             date: Date(timeIntervalSince1970: info.time), summary: info.summary,
+                                             path: info.path)
                 current = nil
                 continue
             }
@@ -683,13 +716,14 @@ struct BlameLine: Sendable, Equatable {
                 let numbers = value.split(separator: " ")
                 if numbers.count >= 2, let final = Int(numbers[1]) {
                     current = (String(key), final)
-                    if infos[String(key)] == nil { infos[String(key)] = Info() }
+                    if infos[String(key)] == nil { infos[String(key)] = Info(path: nil) }
                 }
             } else if let commit = current?.commit {
                 switch key {
                 case "author": infos[commit]?.author = value
                 case "author-time": infos[commit]?.time = TimeInterval(value) ?? 0
                 case "summary": infos[commit]?.summary = value
+                case "filename": infos[commit]?.path = value
                 default: break
                 }
             }

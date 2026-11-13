@@ -99,6 +99,7 @@ final class Workspace {
     }
     @ObservationIgnored private var repoHistoryTask: Task<Void, Never>?
     @ObservationIgnored var repoHistoryPageSize = 200
+    @ObservationIgnored private var commitDetailsCache: [String: CommitDetails] = [:]
     /// Files each commit changed, read when the commit is expanded.
     private(set) var commitFiles: [String: [CommitFile]] = [:]
     /// Tests answer these instead of a dialog: the new branch's name (nil cancels), and
@@ -639,6 +640,10 @@ final class Workspace {
             }.value
         }
         document.scheduleBlame(after: .zero)
+        document.blameActions = BlameActions(
+            details: { [weak self] line in await self?.commitDetails(line.commit) },
+            openChanges: { [weak self] line in Task { await self?.openBlameChanges(line) } },
+            showInTimeline: { [weak self] line in self?.showInTimeline(commit: line.commit) })
         document.stageHunkAction = { [weak self, weak document] hunk in
             guard let self, let document else { return }
             self.stageHunk(hunk, of: document)
@@ -822,6 +827,38 @@ final class Workspace {
     func openCommit(_ commit: RepoCommit, file: CommitFile) -> DiffSession? {
         guard let top = repositoryRootURL else { return nil }
         return openCommit(commit.change(to: file), for: top.appending(path: file.path))
+    }
+
+    // MARK: Blame commits
+
+    /// A commit's details, read once.
+    func commitDetails(_ sha: String) async -> CommitDetails? {
+        if let cached = commitDetailsCache[sha] { return cached }
+        guard let repository = gitRepository else { return nil }
+        let details = await Task.detached(priority: .userInitiated) { Git.commitDetails(sha, in: repository) }.value
+        if let details { commitDetailsCache[sha] = details }
+        return details
+    }
+
+    /// What a blamed line's commit changed in the file (under its name then), as a diff tab.
+    @discardableResult
+    func openBlameChanges(_ line: BlameLine) async -> DiffSession? {
+        guard !line.isUncommitted, let repository = gitRepository else { return nil }
+        let found = await Task.detached(priority: .userInitiated) { () -> (RepoCommit, CommitFile)? in
+            guard let commit = Git.commit(named: line.commit, in: repository),
+                  let files = Git.changedFiles(in: commit, repository: repository),
+                  let file = files.first(where: { $0.path == line.path }) else { return nil }
+            return (commit, file)
+        }.value
+        guard let (commit, file) = found else { NSSound.beep(); return nil }
+        return openCommit(commit, file: file)
+    }
+
+    /// The repository log, searched for the commit (listed first).
+    func showInTimeline(commit sha: String) {
+        sidebarMode = .history
+        historyScope = .repository
+        repoHistoryFilter = LogFilter(kind: .message, text: sha)
     }
 
     /// Asks for a name, then creates a branch at the commit and switches to it.
