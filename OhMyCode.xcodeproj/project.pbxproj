@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		020BDA84409FA41D7BA2F892 /* CherryPickRevertTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD1EE59BB50DF03FDACEC29F /* CherryPickRevertTests.swift */; };
 		023ACAFE62E90FC0786D187B /* Folding.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD481A433E345CB1885E699A /* Folding.swift */; };
+		02E885A074454CEE4C6CDBA0 /* KeyChord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8ACE079A3D04529E9DC8892 /* KeyChord.swift */; };
 		034D9CC0BA3A8D8AF6D44394 /* LanguageFeatureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A2EB4BF7034731316A9A0A0 /* LanguageFeatureTests.swift */; };
 		044DA0A3099C7DFA46352B52 /* SourceLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8902C7C1FC02562C44039229 /* SourceLanguage.swift */; };
 		0519AD12725AC5562E607ECA /* TreeSitterSwift in Frameworks */ = {isa = PBXBuildFile; productRef = F2757B429A33A779C4A3B433 /* TreeSitterSwift */; };
@@ -221,6 +222,7 @@
 		A2CDFC2E1CCF97A2D1EB482A /* FuzzyMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyMatcher.swift; sourceTree = "<group>"; };
 		A7C9D84FAB6E84ED23CE13AC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A84B684B87EB09C7E0B6F720 /* TerminalRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRenderer.swift; sourceTree = "<group>"; };
+		A8ACE079A3D04529E9DC8892 /* KeyChord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyChord.swift; sourceTree = "<group>"; };
 		A920B7257090F4575659642F /* AutoEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoEdit.swift; sourceTree = "<group>"; };
 		ACE819C92FADAF8803791321 /* ExtensionManifest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionManifest.swift; sourceTree = "<group>"; };
 		AD30FD882FC57FFB419BED7E /* LineStagingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineStagingTests.swift; sourceTree = "<group>"; };
@@ -403,6 +405,7 @@
 				7AA039A5FEC0049694AC90B8 /* ExtensionRuntime.swift */,
 				05B54BDB4196B0B5897248E3 /* ExtensionStore.swift */,
 				517F578F30739DC0F6EBB92B /* ExtensionsView.swift */,
+				A8ACE079A3D04529E9DC8892 /* KeyChord.swift */,
 			);
 			path = Extensions;
 			sourceTree = "<group>";
@@ -694,6 +697,7 @@
 				3A5FD50EF98D72A2334F36D5 /* HoverController.swift in Sources */,
 				C14352D19633B543E83FAF76 /* HunkPopoverView.swift in Sources */,
 				3BCB6570189F96FF5FC255C1 /* InteractiveRebaseView.swift in Sources */,
+				02E885A074454CEE4C6CDBA0 /* KeyChord.swift in Sources */,
 				A5C219F9607F373EA134925D /* LSPTypes.swift in Sources */,
 				E5CFE2F260DE1EAD2C15DC54 /* LanguageClient.swift in Sources */,
 				21EDC22CA862562303AA0ABF /* LanguageServerConnection.swift in Sources */,

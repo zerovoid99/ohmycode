@@ -59,6 +59,7 @@ struct RootView: View {
             }
         }
         .focusedSceneValue(\.workspace, workspace)
+        .background(WindowReader { [workspace] in workspace.window = $0 })
         .task {
             workspace.openInNewWindow = { url in openWindow(id: RootView.folderWindowID, value: url) }
             if let folder, workspace.rootURL == nil { workspace.openFolder(folder) }
@@ -72,5 +73,27 @@ struct RootView: View {
             actions: { Button("OK") {} },
             message: { Text(workspace.errorMessage ?? "") }
         )
+    }
+}
+
+/// Reports the window a view is in.
+private struct WindowReader: NSViewRepresentable {
+    let found: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView { Reader(found: found) }
+    func updateNSView(_ view: NSView, context: Context) {}
+
+    private final class Reader: NSView {
+        let found: (NSWindow?) -> Void
+        init(found: @escaping (NSWindow?) -> Void) {
+            self.found = found
+            super.init(frame: .zero)
+        }
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            found(window)
+        }
     }
 }

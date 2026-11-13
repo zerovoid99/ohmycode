@@ -97,6 +97,7 @@ final class ExtensionHost {
                 }
             })
             trackActiveEditor()
+            listenForKeys()
         }
         reload(restart: true)
     }
@@ -121,6 +122,7 @@ final class ExtensionHost {
             extensions = installed.map { item in
                 kept.first { $0.id == item.id } ?? ExtensionInstance(installed: item, enabled: store.isEnabled(item.id))
             }
+            updateKeybindings()
             for instance in extensions where instance.state == .inactive && instance.manifest.activatesOnStartup {
                 _ = await activate(instance)
             }
@@ -228,6 +230,85 @@ final class ExtensionHost {
     private func removeContributions(of instance: ExtensionInstance) {
         instance.registeredCommands = []
         statusItems.removeAll { $0.extensionID == instance.id }
+    }
+
+    // MARK: Keybindings
+
+    /// The enabled extensions' shortcuts that parse (bad ones are in their logs).
+    private(set) var keybindings: [(chord: KeyChord, binding: ExtensionManifest.Keybinding, extension: ExtensionInstance)] = []
+
+    private func updateKeybindings() {
+        keybindings = extensions.filter(\.isEnabled).flatMap { instance in
+            instance.manifest.keybindings.compactMap { binding in
+                do {
+                    return (try KeyChord(parsing: binding.key), binding, instance)
+                } catch {
+                    instance.append("warning", "Keybinding \(binding.key) for \(binding.command) ignored: \(error.localizedDescription)")
+                    return nil
+                }
+            }
+        }
+    }
+
+    /// The shortcut shown for a command in the palette.
+    func shortcut(for command: String) -> String? {
+        keybindings.first { $0.binding.command == command }?.chord.display
+    }
+
+    /// Runs the command bound to a key press in this window; false if none applies. A shortcut
+    /// a menu item already has stays the menu's.
+    func handleKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        guard let match = keybindings.first(where: { $0.chord.matches(event) && isTrue($0.binding.when, in: window) }) else {
+            return false
+        }
+        if let item = match.chord.menuItem(in: NSApp.mainMenu) {
+            match.extension.append("warning", "\(match.chord.display) is the menu's “\(item.title)”: \(match.binding.command) isn't run.")
+            return false
+        }
+        run(match.binding.command)
+        return true
+    }
+
+    /// Evaluates a `when` clause: terms joined with "&&", each "editorTextFocus",
+    /// "editorLangId == <id>" (or "!="), optionally negated with "!". Unknown terms are false.
+    func isTrue(_ when: String?, in window: NSWindow?) -> Bool {
+        guard let when, !when.trimmingCharacters(in: .whitespaces).isEmpty else { return true }
+        return when.components(separatedBy: "&&").allSatisfy { raw in
+            var term = raw.trimmingCharacters(in: .whitespaces)
+            var negated = false
+            while term.hasPrefix("!") && !term.hasPrefix("!=") { negated.toggle(); term = String(term.dropFirst()).trimmingCharacters(in: .whitespaces) }
+            let value: Bool
+            if term == "editorTextFocus" {
+                value = (window?.firstResponder as? NSTextView).map { $0 === workspace.activeDocument?.editor?.textView } ?? false
+            } else if term.hasPrefix("editorLangId") {
+                let rest = term.dropFirst("editorLangId".count).trimmingCharacters(in: .whitespaces)
+                let language = workspace.activeDocument?.languageId
+                if rest.hasPrefix("==") { value = language == rest.dropFirst(2).trimmingCharacters(in: .whitespaces) }
+                else if rest.hasPrefix("!=") { value = language != rest.dropFirst(2).trimmingCharacters(in: .whitespaces) }
+                else { value = false }
+            } else {
+                value = false
+            }
+            return value != negated
+        }
+    }
+
+    /// One key monitor for the app, handing key presses to the host of the window they're in.
+    private static let hosts = NSHashTable<ExtensionHost>.weakObjects()
+    private static var keyMonitor: Any?
+
+    private func listenForKeys() {
+        Self.hosts.add(self)
+        guard Self.keyMonitor == nil else { return }
+        Self.keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            nonisolated(unsafe) let event = event
+            let handled = MainActor.assumeIsolated { () -> Bool in
+                guard let window = event.window,
+                      let host = ExtensionHost.hosts.allObjects.first(where: { $0.workspace.window === window }) else { return false }
+                return host.handleKeyDown(event, in: window)
+            }
+            return handled ? nil : event
+        }
     }
 
     // MARK: Managing

@@ -32,9 +32,18 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
         var description: String?
     }
 
+    /// A shortcut for a command: "cmd+shift+k"; `when` narrows it ("editorTextFocus",
+    /// "editorLangId == swift", joined with "&&", "!" negates).
+    struct Keybinding: Codable, Sendable, Equatable {
+        let command: String
+        let key: String
+        var when: String?
+    }
+
     struct Contributions: Codable, Sendable, Equatable {
         var commands: [Command]?
         var configuration: [String: Setting]?
+        var keybindings: [Keybinding]?
     }
 
     /// What an extension may do beyond the editor and the workspace folder, granted when it's
@@ -68,6 +77,7 @@ struct ExtensionManifest: Codable, Sendable, Equatable {
 
     var commands: [Command] { contributes?.commands ?? [] }
     var settings: [String: Setting] { contributes?.configuration ?? [:] }
+    var keybindings: [Keybinding] { contributes?.keybindings ?? [] }
     var grantedPermissions: Set<Permission> { Set(permissions ?? []) }
 
     enum ValidationError: LocalizedError, Equatable {

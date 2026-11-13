@@ -244,7 +244,8 @@ final class PaletteModel {
             return (PaletteItem(id: "extension:" + command.command, action: .extensionCommand(command.command),
                                 icon: command.icon ?? "puzzlepiece.extension", title: title, titleMatches: match.positions,
                                 // The extension, unless the category already names it.
-                                detail: command.category == instance.manifest.name ? nil : instance.manifest.name), match.score)
+                                detail: command.category == instance.manifest.name ? nil : instance.manifest.name,
+                                shortcut: workspace.extensions.shortcut(for: command.command)), match.score)
         }
         let all = builtIn + contributed
         let sorted = prepared.isEmpty ? all : all.sorted { $0.1 > $1.1 }

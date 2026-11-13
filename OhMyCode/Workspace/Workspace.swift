@@ -16,6 +16,8 @@ final class Workspace {
             for document in oldValue where !documents.contains(where: { $0 === document }) { extensions.documentClosed(document) }
         }
     }
+    /// The window showing this workspace (set by the window).
+    @ObservationIgnored weak var window: NSWindow?
     /// The window's extensions.
     @ObservationIgnored private(set) lazy var extensions = ExtensionHost(workspace: self)
     @ObservationIgnored private var extensionsStarted = false

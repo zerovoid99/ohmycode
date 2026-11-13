@@ -484,3 +484,103 @@ struct ExtensionWatchdogTests {
         withExtendedLifetime(workspace) {}
     }
 }
+
+private func keyEvent(_ keyCode: UInt16, _ modifiers: NSEvent.ModifierFlags, _ characters: String = "") -> NSEvent {
+    NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0, windowNumber: 0, context: nil,
+                     characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode)!
+}
+
+@MainActor
+struct ExtensionKeybindingTests {
+    @Test func parsesShowsAndMatchesChords() throws {
+        let chord = try KeyChord(parsing: "cmd+shift+k")
+        #expect(chord.display == "⇧⌘K")
+        #expect(chord.matches(keyEvent(40, [.command, .shift], "K")))
+        #expect(!chord.matches(keyEvent(40, [.command], "k")))
+        #expect(!chord.matches(keyEvent(40, [.command, .shift, .option], "K")))
+        #expect(!chord.matches(keyEvent(41, [.command, .shift], ";")))
+        // Caps lock and the like don't count.
+        #expect(chord.matches(keyEvent(40, [.command, .shift, .capsLock], "K")))
+        #expect(try KeyChord(parsing: "ctrl+alt+f5").display == "⌃⌥F5")
+        #expect(try KeyChord(parsing: "Cmd+Enter").display == "⌘↩")
+        #expect(try KeyChord(parsing: "f12").display == "F12")
+        #expect(try KeyChord(parsing: "cmd+.").keyCode == 47)
+
+        #expect(throws: KeyChord.ParseError.needsModifier("shift+a")) { try KeyChord(parsing: "shift+a") }
+        #expect(throws: KeyChord.ParseError.unknownModifier("hyper")) { try KeyChord(parsing: "hyper+a") }
+        #expect(throws: KeyChord.ParseError.unknownKey("§")) { try KeyChord(parsing: "cmd+§") }
+    }
+
+    @Test func findsTheSameShortcutInMenus() throws {
+        let menu = NSMenu(), file = NSMenuItem(title: "File", action: nil, keyEquivalent: ""), submenu = NSMenu()
+        file.submenu = submenu
+        menu.addItem(file)
+        submenu.addItem(NSMenuItem(title: "Save", action: nil, keyEquivalent: "s"))
+        submenu.addItem(NSMenuItem(title: "Kill", action: nil, keyEquivalent: "K"))
+        #expect(try KeyChord(parsing: "cmd+s").menuItem(in: menu)?.title == "Save")
+        #expect(try KeyChord(parsing: "cmd+shift+k").menuItem(in: menu)?.title == "Kill")
+        #expect(try KeyChord(parsing: "cmd+k").menuItem(in: menu) == nil)
+        #expect(try KeyChord(parsing: "cmd+alt+s").menuItem(in: menu) == nil)
+    }
+
+    @Test func runsBoundCommandsWhenTheirConditionHolds() async throws {
+        let store = makeStore()
+        try store.install(from: try makeExtension("""
+        { "id": "test.keys", "name": "Keys", "version": "1", "main": "main.js",
+          "contributes": {
+            "commands": [{ "command": "keys.mark", "title": "Mark" }, { "command": "keys.save", "title": "Save" }],
+            "keybindings": [
+              { "command": "keys.mark", "key": "cmd+shift+u", "when": "editorTextFocus && editorLangId == plaintext" },
+              { "command": "keys.mark", "key": "u" },
+              { "command": "keys.save", "key": "cmd+s" } ] } }
+        """, source: """
+        const omc = require('omc');
+        exports.activate = (context) => {
+          omc.commands.registerCommand('keys.mark', () => context.storage.update('marks', (context.storage.get('marks', 0)) + 1));
+          omc.commands.registerCommand('keys.save', () => context.storage.update('saved', true));
+        };
+        """))
+        let (workspace, root) = try makeWorkspace(store: store)
+        await workspace.extensions.waitUntilIdle()
+        workspace.open(fileAt: root.appending(path: "a.txt"))
+        let document = try #require(workspace.activeDocument)
+        let controller = EditorController(document: document)
+        document.editor = controller
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = controller.makeView()
+        let host = workspace.extensions
+        let instance = try #require(host.extensions.first)
+        // The one without a modifier is refused, with a note in the log.
+        #expect(host.keybindings.count == 2)
+        #expect(instance.log.contains { $0.message.contains("Keybinding u") })
+        #expect(host.shortcut(for: "keys.mark") == "⇧⌘U")
+        workspace.showPalette(.commands)
+        #expect(workspace.palette?.items.first { $0.title == "Mark" }?.shortcut == "⇧⌘U")
+        workspace.closePalette()
+
+        let press = keyEvent(32, [.command, .shift], "U")
+        // Not focused in the editor: the condition fails, the key goes on.
+        window.makeFirstResponder(nil)
+        #expect(!host.handleKeyDown(press, in: window))
+        window.makeFirstResponder(controller.textView)
+        #expect(host.handleKeyDown(press, in: window))
+        #expect(try await eventually { store.stored("marks", of: "test.keys") == .number(1) })
+        #expect(instance.state == .active) // activated by its first use
+
+        // ⌘S is the File menu's: it stays Save. (The test host has no menus of its own.)
+        let menus = NSApp.mainMenu
+        defer { NSApp.mainMenu = menus }
+        let menu = NSMenu(), file = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
+        file.submenu = NSMenu()
+        file.submenu?.addItem(NSMenuItem(title: "Save", action: nil, keyEquivalent: "s"))
+        menu.addItem(file)
+        NSApp.mainMenu = menu
+        #expect(!host.handleKeyDown(keyEvent(1, [.command], "s"), in: window))
+        #expect(instance.log.contains { $0.message.contains("isn't run") })
+
+        #expect(host.isTrue("!editorTextFocus", in: window) == false)
+        #expect(host.isTrue("editorLangId != swift", in: window))
+        #expect(!host.isTrue("someUnknownContext", in: window))
+        withExtendedLifetime((workspace, window)) {}
+    }
+}
