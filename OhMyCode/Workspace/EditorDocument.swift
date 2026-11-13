@@ -51,6 +51,9 @@ final class EditorDocument: Identifiable {
     /// Shared by every editor showing this document (split views): each adds its own
     /// layout manager, so edits in one view lay out in all of them.
     @ObservationIgnored let textContentStorage = NSTextContentStorage()
+    /// Hidden (folded) line ranges, in characters; see Folding.swift.
+    @ObservationIgnored private(set) var folds: [NSRange] = []
+    @ObservationIgnored private let foldingDelegate = FoldingDelegate()
     /// Every editor showing this document (weak).
     @ObservationIgnored private let editorTable = NSHashTable<EditorController>.weakObjects()
     var editors: [EditorController] { editorTable.allObjects }
@@ -102,6 +105,7 @@ final class EditorDocument: Identifiable {
         self.lineCount = lineIndex.lineCount
         self.highlighter = SyntaxHighlighter(language: language, textStorage: textStorage)
         textContentStorage.textStorage = textStorage
+        textContentStorage.delegate = foldingDelegate
 
         let observer = TextStorageObserver { [weak self] range, delta in
             self?.textDidEdit(range: range, changeInLength: delta)
@@ -109,6 +113,11 @@ final class EditorDocument: Identifiable {
         textStorage.delegate = observer
         storageObserver = observer
         diskModificationDate = Self.modificationDate(of: url)
+    }
+
+    /// The content storage doesn't retain its delegate and may outlive the document.
+    isolated deinit {
+        textContentStorage.delegate = nil
     }
 
     func save() throws {
@@ -243,6 +252,7 @@ final class EditorDocument: Identifiable {
         // `mutableString`, not `string`: bridging `string` to Swift copies the whole text.
         lineIndex.apply(editedRange: range, changeInLength: delta, in: textStorage.mutableString)
         editVersion += 1
+        adjustFolds(editStart: start, oldEnd: oldEnd, delta: delta)
 
         if let languageClient {
             let inserted = textStorage.mutableString.substring(with: range)
@@ -294,6 +304,15 @@ final class EditorDocument: Identifiable {
 
     private func redrawGutters() {
         for editor in editors { editor.gutterView.needsDisplay = true }
+    }
+
+    /// Replaces the folds and re-lays out every editor showing the document.
+    func setFolds(_ newFolds: [NSRange], relayout: Bool = true) {
+        let affected = (folds + newFolds)
+        folds = newFolds.sorted { $0.location < $1.location }
+        foldingDelegate.setHidden(folds)
+        guard relayout else { return }
+        for editor in editors { editor.foldsDidChange(affected) }
     }
 
     /// Registers an editor showing this document (without making it the target of actions).

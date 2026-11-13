@@ -2,11 +2,16 @@ import AppKit
 
 /// Draws squiggly underlines for diagnostics over the text view. TextKit 2 rendering attributes
 /// don't draw underlines (colors work, underlines are ignored), so we draw them from the text
-/// segment geometry ourselves. Transparent to mouse events.
+/// segment geometry ourselves. Also draws the "⋯" after folded lines. Transparent to mouse
+/// events (the text view handles clicks on "⋯").
 @MainActor
 final class DiagnosticsOverlayView: NSView {
     private weak var textView: NSTextView?
     private let document: EditorDocument
+    /// Placeholders for folded regions, in this view's (= the text view's) coordinates.
+    var foldPlaceholders: (() -> [(rect: NSRect, header: Int)])?
+    /// Extra cursors (multi-cursor): caret bars and selected text.
+    var extraCursors: (() -> (carets: [NSRect], selections: [NSRect]))?
 
     init(textView: NSTextView, document: EditorDocument) {
         self.textView = textView
@@ -50,6 +55,22 @@ final class DiagnosticsOverlayView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        let theme = EditorTheme.current
+        if let (carets, selections) = extraCursors?() {
+            theme.selection.withAlphaComponent(0.55).setFill()
+            for rect in selections where rect.intersects(dirtyRect) { rect.fill(using: .sourceOver) }
+            theme.cursor.setFill()
+            for rect in carets where rect.intersects(dirtyRect) { rect.fill() }
+        }
+        for (rect, _) in foldPlaceholders?() ?? [] where rect.intersects(dirtyRect) {
+            let box = NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3)
+            theme.lineNumber.withAlphaComponent(0.25).setFill()
+            box.fill()
+            let dots = "⋯" as NSString
+            let attributes: [NSAttributedString.Key: Any] = [.font: EditorTheme.font, .foregroundColor: theme.foreground]
+            let size = dots.size(withAttributes: attributes)
+            dots.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
+        }
         for (rect, color) in segments() where rect.intersects(dirtyRect.insetBy(dx: 0, dy: -4)) {
             color.setStroke()
             let path = NSBezierPath()

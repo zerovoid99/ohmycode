@@ -38,6 +38,8 @@ final class EditorController: NSObject {
     var onFocus: (() -> Void)?
     private var textLayoutManager: NSTextLayoutManager?
     private weak var containerView: EditorContainerView?
+    /// Cursors besides the text view's own selection (see MultiCursor.swift).
+    var extraSelections: [NSRange] = []
     private(set) var minimapView: MinimapView?
     private(set) var stickyView: StickyScrollView?
     private(set) lazy var completion = CompletionController(editor: self)
@@ -84,6 +86,8 @@ final class EditorController: NSObject {
         let overlay = DiagnosticsOverlayView(textView: textView, document: document)
         textView.addSubview(overlay)
         diagnosticsOverlay = overlay
+        overlay.foldPlaceholders = { [weak self] in self?.foldPlaceholderRects() ?? [] }
+        overlay.extraCursors = { [weak self] in self?.extraCursorShapes() ?? ([], []) }
 
         let gutter = GutterView(textView: textView, document: document)
         self.gutterView = gutter
@@ -97,9 +101,22 @@ final class EditorController: NSObject {
             self.goToDefinition()
         }
         textView.onMouseMoved = { [weak self] point in self?.hover.mouseMoved(to: point) }
+        textView.onOptionClick = { [weak self] location in self?.toggleCursor(at: location) }
+        textView.onInsertText = { [weak self] text in
+            guard let self, self.hasExtraCursors else { return false }
+            self.insertAtAllCursors(text)
+            return true
+        }
+        textView.onClick = { [weak self] point in
+            self?.clearExtraCursors()
+            guard let self, let hit = self.foldPlaceholderRects().first(where: { $0.rect.contains(point) }) else { return false }
+            self.document.unfold(atHeader: hit.header)
+            return true
+        }
         textView.onMouseExited = { [weak self] in self?.hover.mouseExited() }
         textView.onKeyDown = { [weak self] in self?.hover.dismiss() }
         gutter.onLineClick = { [weak self] line, rect in self?.showHunk(atLine: line, rect: rect) }
+        gutter.onFoldClick = { [weak self] line in self?.document.toggleFold(atLine: line) }
         textView.onLayout = { [weak self, weak gutter, weak overlay] in
             gutter?.needsDisplay = true
             overlay?.needsDisplay = true
@@ -194,6 +211,57 @@ final class EditorController: NSObject {
         }
         minimapView?.needsDisplay = true
         stickyView?.update()
+    }
+
+    // MARK: Folding
+
+    /// Folds changed: lay out the affected lines again (hidden lines come and go).
+    func foldsDidChange(_ ranges: [NSRange]) {
+        guard let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager else { return }
+        let length = document.textStorage.length
+        if var union = ranges.first {
+            for range in ranges.dropFirst() { union = NSUnionRange(union, range) }
+            // From the line before (the header) through the hidden lines.
+            let start = max(0, min(union.location, length) - 1)
+            let end = min(length, NSMaxRange(union))
+            if let textRange = textRange(for: NSRange(location: start, length: end - start), in: contentManager) {
+                layoutManager.invalidateLayout(for: textRange)
+            }
+        }
+        layoutManager.textViewportLayoutController.layoutViewport()
+        textView.needsLayout = true
+        gutterView.needsDisplay = true
+        diagnosticsOverlay?.needsDisplay = true
+        stickyView?.update()
+    }
+
+    /// Folds or unfolds the region at the cursor (⌥⌘[ and ⌥⌘]).
+    func foldAtCursor(_ fold: Bool) {
+        let line = document.lineIndex.line(containing: textView.selectedRange().location)
+        if fold { document.foldEnclosing(line: line) } else { document.unfoldEnclosing(line: line) }
+        // Keep the cursor visible: on the header when its line got hidden.
+        let selection = textView.selectedRange()
+        if document.isHidden(selection.location), let header = document.folds.first(where: { NSLocationInRange(selection.location, $0) }) {
+            let headerLine = document.lineIndex.line(containing: header.location) - 1
+            textView.setSelectedRange(NSRange(location: document.lineIndex.lineStarts[max(0, headerLine)], length: 0))
+        }
+    }
+
+    /// Where the "⋯" after a folded header is drawn (text view coordinates).
+    func foldPlaceholderRects() -> [(rect: NSRect, header: Int)] {
+        let visible = textView.visibleRect
+        var result: [(NSRect, Int)] = []
+        for fold in document.folds {
+            let header = document.lineIndex.line(containing: fold.location) - 1
+            guard header >= 0, !document.isHidden(document.lineIndex.lineStarts[header]) else { continue }
+            let lineEnd = fold.location - 1 // the header's newline
+            guard lineEnd > document.lineIndex.lineStarts[header] || lineEnd == document.lineIndex.lineStarts[header],
+                  let last = rect(for: NSRange(location: max(document.lineIndex.lineStarts[header], lineEnd - 1), length: 1))
+            else { continue }
+            let rect = NSRect(x: last.maxX + 6, y: last.minY + 1, width: 22, height: max(1, last.height - 2))
+            if rect.intersects(visible) { result.append((rect, header)) }
+        }
+        return result
     }
 
     // MARK: Line geometry (minimap, sticky scroll)
@@ -338,6 +406,8 @@ final class EditorController: NSObject {
 
     /// Text changed without going through the text view (multi-edits, undo of those).
     func textDidChangeProgrammatically() {
+        // Extra cursors don't follow edits made elsewhere (multi-cursor edits set them again after).
+        extraSelections = []
         refreshAfterEdit()
         completion.dismiss()
         hover.dismiss()
@@ -430,6 +500,7 @@ final class EditorController: NSObject {
     }
 
     func reveal(_ range: NSRange) {
+        document.unfold(containing: range)
         let length = document.textStorage.length
         let clamped = NSRange(location: min(range.location, length),
                               length: min(range.length, length - min(range.location, length)))
@@ -498,6 +569,7 @@ extension EditorController: NSTextViewDelegate {
 
     func textDidChange(_ notification: Notification) {
         hover.dismiss()
+        clearExtraCursors() // an edit that bypassed the cursors (paste, completion): positions are stale
         // Highlighting is rescheduled by the document's edit observer.
         gutterView.updateWidth()
         gutterView.needsDisplay = true
@@ -516,6 +588,7 @@ extension EditorController: NSTextViewDelegate {
 
     func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if completion.handle(selector) { return true }
+        if handleMultiCursorCommand(selector) { return true }
         if selector == #selector(NSResponder.complete(_:)) {
             completion.triggerManually()
             return true
@@ -524,6 +597,9 @@ extension EditorController: NSTextViewDelegate {
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
+        diagnosticsOverlay?.needsDisplay = true // extra cursors are drawn there
+        // The cursor went into folded lines (arrow keys, find): show them.
+        if !document.folds.isEmpty { document.unfold(containing: textView.selectedRange()) }
         // The status bar follows the focused editor; other splits move their selection on edits.
         if document.editor === self || document.editor == nil {
             document.updateCursor(forSelectionAt: textView.selectedRange().location)
@@ -587,7 +663,27 @@ final class CodeTextView: NSTextView {
     }
 
     /// ⌘-click: place the cursor there and go to the definition.
+    /// A plain click; returns true if handled (e.g. on a fold's "⋯").
+    var onClick: ((NSPoint) -> Bool)?
+    /// ⌥-click: add or remove a cursor at that character index.
+    var onOptionClick: ((Int) -> Void)?
+    /// Typed text; returns true if handled (several cursors).
+    var onInsertText: ((String) -> Bool)?
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        let text = (string as? NSAttributedString)?.string ?? (string as? String)
+        if replacementRange.location == NSNotFound, !hasMarkedText(), let text, onInsertText?(text) == true { return }
+        super.insertText(string, replacementRange: replacementRange)
+    }
+
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.intersection([.command, .option, .shift, .control]) == .option, event.clickCount == 1,
+           let onOptionClick {
+            onOptionClick(characterIndexForInsertion(at: convert(event.locationInWindow, from: nil)))
+            return
+        }
+        if event.modifierFlags.intersection([.command, .option, .shift, .control]).isEmpty,
+           onClick?(convert(event.locationInWindow, from: nil)) == true { return }
         guard event.modifierFlags.contains(.command), let onCommandClick else { return super.mouseDown(with: event) }
         let point = convert(event.locationInWindow, from: nil)
         setSelectedRange(NSRange(location: characterIndexForInsertion(at: point), length: 0))

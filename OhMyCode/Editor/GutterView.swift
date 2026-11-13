@@ -14,6 +14,25 @@ final class GutterView: NSView {
     var onWidthChange: (() -> Void)?
     /// Called with the zero-based line and its rect (in this view) when the gutter is clicked.
     var onLineClick: ((Int, NSRect) -> Void)?
+    /// Called with the zero-based line when its fold chevron is clicked.
+    var onFoldClick: ((Int) -> Void)?
+    /// Width of the fold chevron column at the right edge.
+    static let foldColumnWidth: CGFloat = 14
+    private var isHovering = false
+    private var hoverArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    // Chevrons for unfolded regions show while the pointer is over the gutter, as in VS Code.
+    override func mouseEntered(with event: NSEvent) { isHovering = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { isHovering = false; needsDisplay = true }
 
     override func mouseDown(with event: NSEvent) {
         guard let textView, let layoutManager = textView.textLayoutManager,
@@ -31,6 +50,10 @@ final class GutterView: NSView {
             line = document.lineIndex.line(containing: offset) + i
         }
         let top = convert(NSPoint(x: 0, y: frame.minY + origin.y), from: textView).y
+        if point.x >= width - Self.foldColumnWidth, document.isFolded(line: line) || document.isFoldable(line: line) {
+            onFoldClick?(line)
+            return
+        }
         onLineClick?(line, NSRect(x: 0, y: top, width: 8, height: frame.height))
     }
 
@@ -55,12 +78,27 @@ final class GutterView: NSView {
         needsDisplay = true
     }
 
+    private static let foldedChevron = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Unfold")
+    private static let openChevron = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Fold")
+
+    private func drawFoldChevron(line: Int, y: CGFloat, height: CGFloat, color: NSColor) {
+        let folded = document.isFolded(line: line)
+        guard folded || (isHovering && document.isFoldable(line: line)),
+              let symbol = folded ? Self.foldedChevron : Self.openChevron else { return }
+        let configuration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+            .applying(.init(paletteColors: [folded ? EditorTheme.current.foreground : color]))
+        guard let image = symbol.withSymbolConfiguration(configuration) else { return }
+        let size = image.size
+        image.draw(in: NSRect(x: width - Self.foldColumnWidth + (Self.foldColumnWidth - size.width) / 2 - 2,
+                              y: y + (height - size.height) / 2, width: size.width, height: size.height))
+    }
+
     func updateWidth() {
         let digits = max(3, String(document.lineCount).count)
         guard digits != digitCount else { return }
         digitCount = digits
         let digitWidth = ("8" as NSString).size(withAttributes: [.font: EditorTheme.gutterFont]).width
-        width = ceil(digitWidth * CGFloat(digits)) + 20
+        width = ceil(digitWidth * CGFloat(digits)) + 20 + Self.foldColumnWidth
         onWidthChange?()
     }
 
@@ -119,8 +157,10 @@ final class GutterView: NSView {
                 let label = String(line + 1) as NSString
                 let attributes = line == currentLine ? currentAttributes : normalAttributes
                 let size = label.size(withAttributes: attributes)
-                label.draw(at: NSPoint(x: self.width - size.width - 10, y: y + (bounds.height - size.height) / 2),
+                label.draw(at: NSPoint(x: self.width - Self.foldColumnWidth - size.width - 6,
+                                       y: y + (bounds.height - size.height) / 2),
                            withAttributes: attributes)
+                self.drawFoldChevron(line: line, y: y, height: bounds.height, color: theme.lineNumber)
             }
             return true
         }

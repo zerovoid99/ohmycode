@@ -110,6 +110,34 @@ struct WorkspaceCommands: Commands {
 
             Divider()
 
+            Button("Add Next Occurrence") { workspace?.activeDocument?.editor?.addNextOccurrence() }
+                .keyboardShortcut("d", modifiers: .command)
+                .disabled(workspace?.activeDocument == nil)
+            Button("Select All Occurrences") { workspace?.activeDocument?.editor?.selectAllOccurrences() }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+                .disabled(workspace?.activeDocument == nil)
+            Button("Add Cursor Above") { workspace?.activeDocument?.editor?.addCursorVertically(-1) }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .disabled(workspace?.activeDocument == nil)
+            Button("Add Cursor Below") { workspace?.activeDocument?.editor?.addCursorVertically(1) }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .disabled(workspace?.activeDocument == nil)
+
+            Divider()
+
+            Button("Fold") { workspace?.activeDocument?.editor?.foldAtCursor(true) }
+                .keyboardShortcut("[", modifiers: [.command, .option])
+                .disabled(workspace?.activeDocument == nil)
+            Button("Unfold") { workspace?.activeDocument?.editor?.foldAtCursor(false) }
+                .keyboardShortcut("]", modifiers: [.command, .option])
+                .disabled(workspace?.activeDocument == nil)
+            Button("Fold All") { workspace?.activeDocument?.foldAll() }
+                .disabled(workspace?.activeDocument == nil)
+            Button("Unfold All") { workspace?.activeDocument?.unfoldAll() }
+                .disabled(workspace?.activeDocument == nil)
+
+            Divider()
+
             Button("Next Editor") { workspace?.selectAdjacentDocument(offset: 1) }
                 .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
                 .disabled((workspace?.activeGroup.documentIDs.count ?? 0) < 2)
