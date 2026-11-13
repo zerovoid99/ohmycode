@@ -72,6 +72,7 @@
 		AAB71F6BE2CE7E5D5864EADF /* DiffHighlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */; };
 		AE3ECD7BB4950C7B8C99D795 /* FileWatchingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63C0BDA667585BA6CF3CCCE0 /* FileWatchingTests.swift */; };
 		B0E0A65FCAE5AF00ED3C5A8B /* MergeConflicts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 252AC0DD4FEBF4CA982DDD5E /* MergeConflicts.swift */; };
+		B48BA65FABF229546105A1F0 /* AmendUndoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B8F8EDE4D1869E66032FBAB /* AmendUndoTests.swift */; };
 		B8FB083D32008F3EE779D9FC /* TabDrag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71D369325866CC9B5DF7B9EA /* TabDrag.swift */; };
 		BAEF5F51E56FA1074B4DEDC9 /* DiagnosticsOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D06B0B21A096AF4D60EC2722 /* DiagnosticsOverlayView.swift */; };
 		BE1246C34BC63012B757AF7A /* TextReplacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C7B60F3A673166AEFC17819 /* TextReplacement.swift */; };
@@ -146,6 +147,7 @@
 		2A31CC2BCD7DAB857B704425 /* BranchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchViews.swift; sourceTree = "<group>"; };
 		2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffHighlightTests.swift; sourceTree = "<group>"; };
 		2B511C0F6AACECBD26C594F8 /* VSCodeTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VSCodeTheme.swift; sourceTree = "<group>"; };
+		2B8F8EDE4D1869E66032FBAB /* AmendUndoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmendUndoTests.swift; sourceTree = "<group>"; };
 		2DC6AC2E53244E0E363EE582 /* MultiCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiCursor.swift; sourceTree = "<group>"; };
 		2E9560FF32AB8A6EEED5F92B /* SyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxHighlighter.swift; sourceTree = "<group>"; };
 		34C6CCE2E22CF5AA37A62ED2 /* FoldingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingTests.swift; sourceTree = "<group>"; };
@@ -318,6 +320,7 @@
 		62E936D0F14C621F151D072E /* OhMyCodeTests */ = {
 			isa = PBXGroup;
 			children = (
+				2B8F8EDE4D1869E66032FBAB /* AmendUndoTests.swift */,
 				0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */,
 				67EAC67DA0BCF2450AAD5F84 /* BlameDiffTests.swift */,
 				0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */,
@@ -672,6 +675,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B48BA65FABF229546105A1F0 /* AmendUndoTests.swift in Sources */,
 				D3F4C2A897DA315C7F9495F4 /* AutoEditTests.swift in Sources */,
 				8314EEB610146D25ED51C5DF /* BlameDiffTests.swift in Sources */,
 				CCF3FEB6ABD8D4B06EE01189 /* BranchOperationTests.swift in Sources */,

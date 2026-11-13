@@ -531,6 +531,55 @@ final class Workspace {
         }
     }
 
+    /// Amends the last commit with what is staged (an empty message keeps its message). Asks
+    /// first if the commit was pushed: rewriting it means force-pushing later.
+    func amend(message: String) async -> Bool {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let repository = gitRepository, gitStatus?.hasCommits == true else { return false }
+        isRunningGitCommand = true
+        defer { isRunningGitCommand = false }
+        let pushed = await Task.detached { Git.isHeadPushed(in: repository) }.value
+        if pushed, !confirm("The last commit is already pushed. Amending rewrites it, so the branch will need a force push. Amend anyway?") {
+            return false
+        }
+        do {
+            try await Task.detached { try Git.amend(message: trimmed, in: repository) }.value
+            refreshGit()
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Undoes the last commit, keeping its changes staged. Returns its message (to put back in
+    /// the message box), or nil if nothing was undone.
+    func undoLastCommit() async -> String? {
+        guard let repository = gitRepository, gitStatus?.hasCommits == true else { return nil }
+        isRunningGitCommand = true
+        defer { isRunningGitCommand = false }
+        let (last, pushed) = await Task.detached { (Git.lastCommit(in: repository), Git.isHeadPushed(in: repository)) }.value
+        guard let last else { return nil }
+        let question = pushed
+            ? "Undo “\(last.message.prefix(60))”? It's already pushed: the branch will need a force push."
+            : "Undo “\(last.message.prefix(60))”? Its changes stay staged."
+        guard confirm(question) else { return nil }
+        do {
+            try await Task.detached { try Git.undoLastCommit(hasParent: last.hasParent, in: repository) }.value
+            refreshGit()
+            return last.message
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// The last commit's message, to edit and amend.
+    func lastCommitMessage() async -> String? {
+        guard let repository = gitRepository, gitStatus?.hasCommits == true else { return nil }
+        return await Task.detached { Git.lastCommit(in: repository)?.message }.value
+    }
+
     private func runGit(_ operation: @escaping @Sendable (Git.Repository) throws -> Void) {
         guard let repository = gitRepository else { return }
         isRunningGitCommand = true

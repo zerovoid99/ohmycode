@@ -16,16 +16,44 @@ struct SourceControlView: View {
                 TextField("Message (⌘↩ to commit on \(status.branch ?? "HEAD"))", text: $message, axis: .vertical)
                     .lineLimit(1...6)
                     .textFieldStyle(.roundedBorder)
-                Button {
-                    Task { if await workspace.commit(message: message) { message = "" } }
-                } label: {
-                    Label("Commit", systemImage: "checkmark").frame(maxWidth: .infinity)
+                HStack(spacing: 4) {
+                    Button {
+                        Task { if await workspace.commit(message: message) { message = "" } }
+                    } label: {
+                        Label("Commit", systemImage: "checkmark").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                              || status.stagedChanges.isEmpty || workspace.isRunningGitCommand)
+                    .help(status.stagedChanges.isEmpty ? "Stage changes to commit them" : "Commit staged changes")
+                    Menu {
+                        Button("Commit (Amend)") {
+                            Task { if await workspace.amend(message: message) { message = "" } }
+                        }
+                        .help("Add what is staged to the last commit; an empty message keeps its message")
+                        Button("Edit Last Commit Message") {
+                            Task { if let last = await workspace.lastCommitMessage() { message = last } }
+                        }
+                        Divider()
+                        Button("Undo Last Commit") {
+                            Task {
+                                // Its message comes back to the box, unless something is typed there.
+                                if let undone = await workspace.undoLastCommit(),
+                                   message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    message = undone
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Amend or undo the last commit")
+                    .disabled(!status.hasCommits || workspace.isRunningGitCommand || status.operation != nil)
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                          || status.stagedChanges.isEmpty || workspace.isRunningGitCommand)
-                .help(status.stagedChanges.isEmpty ? "Stage changes to commit them" : "Commit staged changes")
 
                 List {
                     if !status.stagedChanges.isEmpty {

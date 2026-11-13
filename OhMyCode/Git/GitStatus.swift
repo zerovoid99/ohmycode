@@ -90,6 +90,8 @@ struct GitStatus: Sendable, Equatable {
     var behind = 0
     /// A merge or rebase stopped midway (conflicts, or waiting to continue).
     var operation: GitOperation?
+    /// HEAD points at a commit (false in a repository with no commits yet).
+    var hasCommits = false
     private(set) var files: [String: GitFileStatus] = [:]
     /// Untracked folders git reports as a whole ("dir/"), without listing their contents.
     private(set) var untrackedDirectories: [String] = []
@@ -148,7 +150,9 @@ struct GitStatus: Sendable, Equatable {
             switch kind {
             case "#":
                 let header = record.dropFirst(2)
-                if header.hasPrefix("branch.head ") {
+                if header.hasPrefix("branch.oid ") {
+                    status.hasCommits = header != "branch.oid (initial)"
+                } else if header.hasPrefix("branch.head ") {
                     let name = String(header.dropFirst("branch.head ".count))
                     status.branch = name == "(detached)" ? nil : name
                 } else if header.hasPrefix("branch.upstream ") {
@@ -356,6 +360,37 @@ enum Git {
     /// Discards unstaged changes to tracked files (back to the staged version).
     static func discard(_ paths: [String], in repository: Repository) throws {
         try check(["restore", "--worktree", "--"] + paths, in: repository.root)
+    }
+
+    /// Replaces the last commit with one that also has what is staged; an empty message keeps
+    /// the old one.
+    static func amend(message: String, in repository: Repository) throws {
+        try check(["commit", "--quiet", "--amend"] + (message.isEmpty ? ["--no-edit"] : ["-m", message]),
+                  in: repository.root)
+    }
+
+    /// The last commit's full message and whether it has a parent.
+    static func lastCommit(in repository: Repository) -> (message: String, hasParent: Bool)? {
+        guard let output = run(["log", "-1", "--format=%P%x1f%B"], in: repository.root) else { return nil }
+        let parts = String(decoding: output, as: UTF8.self).split(separator: "\u{1f}", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        return (parts[1].trimmingCharacters(in: .whitespacesAndNewlines), !parts[0].trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
+    /// Whether HEAD is on a remote branch already (rewriting it would need a force push).
+    static func isHeadPushed(in repository: Repository) -> Bool {
+        guard let output = run(["branch", "--remotes", "--contains", "HEAD"], in: repository.root) else { return false }
+        return !String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Takes back the last commit: its changes stay staged. The first commit of a repository
+    /// has no parent to go back to, so the branch is unborn again (everything stays staged).
+    static func undoLastCommit(hasParent: Bool, in repository: Repository) throws {
+        if hasParent {
+            try check(["reset", "--soft", "HEAD~1"], in: repository.root)
+        } else {
+            try check(["update-ref", "-d", "HEAD"], in: repository.root)
+        }
     }
 
     static func commit(message: String, in repository: Repository) throws {
