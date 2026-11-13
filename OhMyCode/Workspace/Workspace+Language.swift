@@ -182,6 +182,7 @@ extension Workspace {
     }
 
     func canFormat(_ document: EditorDocument) -> Bool {
+        if extensions.hasProviders(.formatting, for: document) { return true }
         guard let client = document.languageClient else { return false }
         return client.state == .ready && client.supports(.formatting)
     }
@@ -190,14 +191,21 @@ extension Workspace {
     /// after the user typed are stale and dropped. Returns whether the text changed.
     @discardableResult
     func format(_ document: EditorDocument) async throws -> Bool {
-        guard let client = document.languageClient else { return false }
         let version = document.editVersion
-        let (tabSize, insertSpaces) = document.indentation
-        let edits = try await client.formatting(url: document.url, tabSize: tabSize, insertSpaces: insertSpaces)
+        let edits: [TextReplacement]
+        // An extension's formatter for the language comes first: installing one is a choice.
+        if extensions.hasProviders(.formatting, for: document), let fromExtension = await extensions.formattingEdits(for: document) {
+            edits = fromExtension
+        } else if let client = document.languageClient, client.state == .ready, client.supports(.formatting) {
+            let (tabSize, insertSpaces) = document.indentation
+            edits = try await client.formatting(url: document.url, tabSize: tabSize, insertSpaces: insertSpaces)
+                .map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) }
+        } else {
+            return false
+        }
         // Stale (typed meanwhile) or given up on (format on save timed out and saved already).
         guard document.editVersion == version, !Task.isCancelled else { return false }
-        return try document.apply(edits.map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) },
-                                  actionName: "Format Document")
+        return try document.apply(edits, actionName: "Format Document")
     }
 
     /// ⌘S with format on save: formats (if the setting is on and a server can), then saves. A slow

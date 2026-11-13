@@ -66,8 +66,15 @@ final class HoverController {
         }.sorted { $0.severity.rawValue < $1.severity.rawValue }
 
         var markdown: String?
-        if range.length > 0, let client = document.languageClient, client.state == .ready, client.supports(.hover) {
-            markdown = try? await client.hover(url: document.url, position: document.lspPosition(at: index))
+        if range.length > 0 {
+            // The server's hover, then the extensions'.
+            var server: String?
+            if let client = document.languageClient, client.state == .ready, client.supports(.hover) {
+                server = try? await client.hover(url: document.url, position: document.lspPosition(at: index))
+            }
+            let fromExtensions = await document.extensionHost?.hovers(for: document, at: index) ?? []
+            let parts = [server].compactMap { $0 }.filter { !$0.isEmpty } + fromExtensions
+            markdown = parts.isEmpty ? nil : parts.joined(separator: "\n\n---\n\n")
         }
         guard !Task.isCancelled, document.editVersion == version, markdown != nil || !diagnostics.isEmpty,
               let rect = editor.rect(for: range.length > 0 ? range : NSRange(location: index, length: 1)) else { return false }

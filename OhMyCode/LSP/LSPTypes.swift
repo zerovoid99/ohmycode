@@ -59,6 +59,13 @@ struct Diagnostic: Equatable, Sendable {
     var message: String
     var source: String?
 
+    init(range: LSPRange, severity: Severity, message: String, source: String?) {
+        self.range = range
+        self.severity = severity
+        self.message = message
+        self.source = source
+    }
+
     init?(json: Any?) {
         guard let object = json as? [String: Any], let range = LSPRange(json: object["range"]),
               let message = object["message"] as? String else { return nil }

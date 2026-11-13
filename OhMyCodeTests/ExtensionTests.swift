@@ -632,3 +632,121 @@ struct ExtensionScaffoldTests {
         #expect(await again.value == nil && workspace.errorMessage?.contains("already exists") == true)
     }
 }
+
+@MainActor
+struct ExtensionLanguageTests {
+    static let manifest = """
+    { "id": "test.lang", "name": "Lang", "version": "1", "main": "main.js", "activationEvents": ["onLanguage:plaintext"] }
+    """
+    static let source = """
+    const omc = require('omc');
+    exports.activate = (context) => {
+      const sub = (d) => context.subscriptions.push(d);
+      sub(omc.languages.registerCompletionItemProvider('plaintext', {
+        provideCompletionItems(document, position, ctx) {
+          return [
+            { label: 'apple', detail: 'fruit via ' + (ctx.triggerCharacter || 'typing'), kind: omc.CompletionItemKind.Function },
+            'banana',
+            { label: 'cherry', insertText: 'cherry()', range: new omc.Range(position.line, 0, position.line, position.character) },
+          ];
+        },
+      }, '@'));
+      sub(omc.languages.registerCompletionItemProvider({ language: 'swift' }, { provideCompletionItems: () => ['swifty'] }));
+      sub(omc.languages.registerCompletionItemProvider('*', { provideCompletionItems: () => { throw new Error('broken provider'); } }));
+      sub(omc.languages.registerCompletionItemProvider('*', { provideCompletionItems: () => new Promise(() => {}) }));
+      sub(omc.languages.registerHoverProvider('plaintext', {
+        provideHover(document, position) {
+          const word = document.lineAt(position.line).text.split(' ')[0];
+          return { contents: ['**' + word + '**', 'line ' + position.line] };
+        },
+      }));
+      sub(omc.languages.registerDocumentFormattingEditProvider('plaintext', {
+        provideDocumentFormattingEdits(document, options) {
+          const last = document.lineCount - 1;
+          return [{ range: new omc.Range(0, 0, last, document.lineAt(last).text.length),
+                    newText: document.getText().toUpperCase() + (options.insertSpaces ? '' : '') }];
+        },
+      }));
+      // Not in subscriptions: the app clears it when the extension stops anyway.
+      const loud = omc.languages.createDiagnosticCollection('loud');
+      loud.set('a.txt', [{ range: new omc.Range(0, 0, 0, 5), message: 'Too loud', severity: omc.DiagnosticSeverity.Warning }]);
+      loud.set('b.txt', [{ range: new omc.Range(0, 0, 0, 1), message: 'Shh' }]);
+      sub(omc.commands.registerCommand('lang.quiet', () => loud.delete('a.txt')));
+    };
+    """
+
+    @Test func providesCompletionHoverFormattingAndDiagnostics() async throws {
+        let store = makeStore()
+        try store.install(from: try makeExtension(Self.manifest, source: Self.source))
+        let (workspace, root) = try makeWorkspace(store: store, files: ["a.txt": "hello world\n", "b.txt": "b\n"])
+        let host = workspace.extensions
+        host.providerTimeout = .milliseconds(200)
+        await host.waitUntilIdle()
+        workspace.open(fileAt: root.appending(path: "a.txt"))
+        let document = try #require(workspace.activeDocument)
+        let instance = try #require(host.extensions.first)
+        #expect(try await eventually { instance.state == .active })
+        #expect(document.languageClient == nil) // no server: the extension alone
+
+        // Completion: the plaintext and "*" providers answer; the broken and silent ones are left out.
+        let completions = await host.completions(for: document, at: 5, trigger: "@", firstID: 100)
+        #expect(completions.items.map(\.label) == ["apple", "banana", "cherry"])
+        #expect(completions.items.map(\.id) == [100, 101, 102])
+        #expect(completions.items[0].detail == "fruit via @" && completions.items[0].kind == 3) // Function, as LSP numbers it
+        #expect(completions.items[2].insertText == "cherry()" && completions.items[2].editRange?.start.character == 0)
+        #expect(host.completionTriggers(for: document) == ["@"])
+        #expect(try await eventually { instance.log.contains { $0.message.contains("broken provider") } })
+        #expect(instance.log.contains { $0.message.contains("didn't answer") })
+
+        // Hover.
+        #expect(await host.hovers(for: document, at: 2) == ["**hello**", "line 0"])
+
+        // Diagnostics: on the open file, and waiting for b.txt until it opens.
+        #expect(document.diagnostics.map(\.message) == ["Too loud"] && document.diagnostics.first?.severity == .warning)
+        workspace.open(fileAt: root.appending(path: "b.txt"))
+        let other = try #require(workspace.activeDocument)
+        #expect(other.diagnostics.map(\.message) == ["Shh"] && other.diagnostics.first?.source == "loud")
+        _ = try await host.executeCommand("lang.quiet")
+        #expect(document.diagnostics.isEmpty && other.diagnostics.count == 1)
+
+        // Formatting goes through the extension, as one undo step.
+        #expect(workspace.canFormat(document))
+        #expect(try await workspace.format(document))
+        #expect(document.textStorage.string == "HELLO WORLD\n")
+
+        // Disabled: its providers and diagnostics go.
+        host.setEnabled(instance, false)
+        await host.waitUntilIdle()
+        #expect(other.diagnostics.isEmpty && !workspace.canFormat(document))
+        #expect(await host.completions(for: document, at: 0, trigger: nil, firstID: 0).items.isEmpty)
+        withExtendedLifetime(workspace) {}
+    }
+
+    @Test func editorsShowExtensionCompletionsAndHovers() async throws {
+        let store = makeStore()
+        try store.install(from: try makeExtension(Self.manifest, source: Self.source))
+        let (workspace, root) = try makeWorkspace(store: store, files: ["a.txt": "hello world\n"])
+        workspace.extensions.providerTimeout = .milliseconds(200)
+        await workspace.extensions.waitUntilIdle()
+        workspace.open(fileAt: root.appending(path: "a.txt"))
+        let document = try #require(workspace.activeDocument)
+        #expect(try await eventually { workspace.extensions.extensions.first?.state == .active })
+        let controller = EditorController(document: document)
+        document.editor = controller
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = controller.makeView()
+
+        // Typing the trigger character opens the list with the extension's items.
+        controller.textView.setSelectedRange(NSRange(location: 12, length: 0))
+        document.textStorage.replaceCharacters(in: NSRange(location: 12, length: 0), with: "@")
+        controller.textView.setSelectedRange(NSRange(location: 13, length: 0))
+        controller.completion.textDidChange(typed: "@")
+        #expect(try await eventually { controller.completion.visibleItems.map(\.label) == ["apple", "banana", "cherry"] })
+        controller.completion.dismiss()
+
+        #expect(await controller.hover.show(at: 1))
+        #expect(controller.hover.shownMarkdown == "**hello**\n\n---\n\nline 0")
+        controller.hover.dismiss()
+        withExtendedLifetime((workspace, window)) {}
+    }
+}

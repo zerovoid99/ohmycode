@@ -58,8 +58,10 @@ An extension is a folder with an `extension.json` and its compiled main file:
 - **Keybindings:** `key` is like `cmd+shift+h`, `ctrl+alt+f5` (cmd, ctrl or alt needed, except
   for function keys); `when` can use `editorTextFocus` and `editorLangId == swift`, joined with
   `&&` and negated with `!`. A shortcut a menu item already has stays the menu's.
+- **Language features:** `omc.languages` adds completion, hover and formatting providers and
+  diagnostics for any language, shown together with the language server's.
 - **Limits:** JavaScript that runs 5 seconds without returning is stopped (the extension keeps
-  running); `activate()` gets 10 seconds.
+  running); `activate()` gets 10 seconds, providers 1.5 seconds.
 - **Permissions:** the extension can always use the editor and files in the open folder. It needs
   `process` to run programs, `network` to make requests, and `fileSystem` for files elsewhere. The
   permissions are shown before installing.

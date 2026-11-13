@@ -106,7 +106,7 @@ struct WorkspaceCommands: Commands {
                 .disabled(!supports(.rename))
             Button("Format Document") { workspace?.formatDocument() }
                 .keyboardShortcut("f", modifiers: [.shift, .option])
-                .disabled(!supports(.formatting))
+                .disabled(!(workspace?.activeDocument.map { workspace?.canFormat($0) == true } ?? false))
 
             Divider()
 

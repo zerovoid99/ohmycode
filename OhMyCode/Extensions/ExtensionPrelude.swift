@@ -2,7 +2,7 @@
 /// into the app goes through `call` (answered right away) or `callAsync` (answered later
 /// through `__omcResolve`), with JSON arguments and results.
 enum ExtensionPrelude {
-    static let apiVersion = "0.1.0"
+    static let apiVersion = "0.2.0"
 
     static let source = #"""
 (function (global) {
@@ -202,8 +202,95 @@ enum ExtensionPrelude {
     return (text, ...items) => callAsync("window.showMessage", { kind, message: String(text), items: items.map(String) });
   }
 
+  // Language features: providers live here, the app asks through __omcProvide.
+  const providers = new Map();
+  function languagesOf(selector) {
+    const list = Array.isArray(selector) ? selector : [selector];
+    return list.map((s) => typeof s === "string" ? s : (s && s.language) || "*");
+  }
+  function registerProvider(kind, selector, provider, triggerCharacters) {
+    const id = nextId++;
+    providers.set(id, { kind, provider });
+    call("languages.register", { id, kind, languages: languagesOf(selector), triggerCharacters: triggerCharacters || [] });
+    return new Disposable(() => { providers.delete(id); call("languages.unregister", { id }); });
+  }
+  function plainItem(item) {
+    if (typeof item === "string") return { label: item };
+    const out = { label: String(item.label) };
+    if (item.detail !== undefined) out.detail = String(item.detail);
+    if (typeof item.kind === "number") out.kind = item.kind + 1; // LSP numbers kinds from 1
+    if (item.insertText !== undefined) out.insertText = String(item.insertText);
+    if (item.filterText !== undefined) out.filterText = String(item.filterText);
+    if (item.sortText !== undefined) out.sortText = String(item.sortText);
+    if (item.range) out.textEdit = { range: plainRange(item.range), newText: out.insertText !== undefined ? out.insertText : out.label };
+    return out;
+  }
+  function hoverText(result) {
+    if (result === undefined || result === null) return [];
+    const contents = typeof result === "string" || Array.isArray(result) ? result : result.contents;
+    return (Array.isArray(contents) ? contents : [contents]).filter((c) => c !== undefined && c !== null)
+      .map((c) => typeof c === "string" ? c : c.value !== undefined ? String(c.value) : String(c));
+  }
+  global.__omcProvide = (id, token, argsJSON) => {
+    const entry = providers.get(id);
+    if (!entry) { native.commandDone(token, null, null); return; }
+    const args = JSON.parse(argsJSON);
+    const document = new TextDocument(args.document);
+    const position = args.position ? new Position(args.position.line, args.position.character) : undefined;
+    let result;
+    try {
+      if (entry.kind === "completion") result = entry.provider.provideCompletionItems(document, position, { triggerCharacter: args.triggerCharacter || undefined });
+      else if (entry.kind === "hover") result = entry.provider.provideHover(document, position);
+      else if (entry.kind === "formatting") result = entry.provider.provideDocumentFormattingEdits(document, args.options);
+    } catch (e) { native.commandDone(token, errorText(e), null); return; }
+    Promise.resolve(result).then((value) => {
+      let out = null;
+      if (entry.kind === "completion" && value) {
+        const items = Array.isArray(value) ? value : value.items || [];
+        out = { items: items.map(plainItem), isIncomplete: !Array.isArray(value) && !!value.isIncomplete };
+      } else if (entry.kind === "hover") {
+        out = hoverText(value);
+      } else if (entry.kind === "formatting" && value) {
+        out = value.map((e) => ({ range: plainRange(e.range), newText: String(e.newText) }));
+      }
+      native.commandDone(token, null, toJSON(out));
+    }, (e) => native.commandDone(token, errorText(e), null));
+  };
+
+  const DiagnosticSeverity = { Error: 0, Warning: 1, Information: 2, Hint: 3 };
+  const CompletionItemKind = { Text: 0, Method: 1, Function: 2, Constructor: 3, Field: 4, Variable: 5, Class: 6, Interface: 7,
+    Module: 8, Property: 9, Unit: 10, Value: 11, Enum: 12, Keyword: 13, Snippet: 14, Color: 15, File: 16, Reference: 17,
+    Folder: 18, EnumMember: 19, Constant: 20, Struct: 21, Event: 22, Operator: 23, TypeParameter: 24 };
+  function createDiagnosticCollection(name) {
+    const id = nextId++;
+    const label = name || "extension";
+    const pathOf = (target) => typeof target === "string" ? target : target.path;
+    return {
+      name: label,
+      set(target, diagnostics) {
+        call("diagnostics.set", { id, name: label, path: pathOf(target), diagnostics: (diagnostics || []).map((d) => ({
+          range: plainRange(d.range), message: String(d.message),
+          severity: typeof d.severity === "number" ? d.severity : DiagnosticSeverity.Error,
+          source: d.source !== undefined ? String(d.source) : label,
+        })) });
+      },
+      delete(target) { call("diagnostics.set", { id, name: label, path: pathOf(target), diagnostics: [] }); },
+      clear() { call("diagnostics.clear", { id }); },
+      dispose() { call("diagnostics.clear", { id }); },
+    };
+  }
+
   const omc = {
     version: native.version,
+    DiagnosticSeverity, CompletionItemKind,
+    languages: {
+      registerCompletionItemProvider(selector, provider, ...triggerCharacters) {
+        return registerProvider("completion", selector, provider, triggerCharacters.map(String));
+      },
+      registerHoverProvider(selector, provider) { return registerProvider("hover", selector, provider); },
+      registerDocumentFormattingEditProvider(selector, provider) { return registerProvider("formatting", selector, provider); },
+      createDiagnosticCollection,
+    },
     Disposable, EventEmitter, Position, Range, StatusBarAlignment,
     commands: {
       registerCommand(id, handler, thisArg) {

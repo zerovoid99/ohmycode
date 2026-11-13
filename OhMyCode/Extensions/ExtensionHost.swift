@@ -230,6 +230,150 @@ final class ExtensionHost {
     private func removeContributions(of instance: ExtensionInstance) {
         instance.registeredCommands = []
         statusItems.removeAll { $0.extensionID == instance.id }
+        providers.removeAll { $0.extensionID == instance.id }
+        let collections = Set(diagnostics.values.flatMap(\.keys).filter { $0.hasPrefix(instance.id + "#") })
+        for collection in collections { clearDiagnostics(collection: collection) }
+    }
+
+    // MARK: Language features
+
+    enum ProviderKind: String { case completion, hover, formatting }
+
+    struct Provider {
+        let extensionID: String
+        let id: Int
+        let kind: ProviderKind
+        /// Language ids ("*": every language).
+        let languages: Set<String>
+        let triggerCharacters: [String]
+
+        @MainActor
+        func handles(_ document: EditorDocument) -> Bool {
+            if languages.contains("*") { return true }
+            return languages.contains(document.languageId)
+        }
+    }
+
+    @ObservationIgnored private(set) var providers: [Provider] = []
+    /// Extensions' diagnostics by file path, then by collection ("<extension id>#<number>").
+    @ObservationIgnored private var diagnostics: [String: [String: [Diagnostic]]] = [:]
+    /// How long a provider may take before its answer is left out.
+    @ObservationIgnored var providerTimeout: Duration = .milliseconds(1500)
+
+    private func providers(_ kind: ProviderKind, for document: EditorDocument) -> [Provider] {
+        providers.filter { $0.kind == kind && $0.handles(document) }
+    }
+
+    func hasProviders(_ kind: ProviderKind, for document: EditorDocument) -> Bool {
+        !providers(kind, for: document).isEmpty
+    }
+
+    func completionTriggers(for document: EditorDocument) -> Set<String> {
+        Set(providers(.completion, for: document).flatMap(\.triggerCharacters))
+    }
+
+    /// Asks the providers of `kind` for `document` (all at once, each within the timeout).
+    private func ask(_ kind: ProviderKind, for document: EditorDocument, _ arguments: [String: JSONValue]) async -> [(Provider, JSONValue)] {
+        var payload = arguments
+        payload["document"] = Self.info(document)
+        let json = JSONValue.object(payload).json
+        let asked = providers(kind, for: document).compactMap { provider -> (Provider, ExtensionRuntime, ExtensionInstance)? in
+            guard let instance = extensions.first(where: { $0.id == provider.extensionID }), instance.state == .active,
+                  let runtime = instance.runtime else { return nil }
+            return (provider, runtime, instance)
+        }
+        let timeout = providerTimeout
+        var answers: [(index: Int, provider: Provider, value: JSONValue)] = []
+        await withTaskGroup(of: (Int, String?, String?).self) { group in
+            for (index, entry) in asked.enumerated() {
+                let runtime = entry.1, id = entry.0.id
+                group.addTask {
+                    do {
+                        guard let answer = try await Self.within(timeout, { try await runtime.provide(id, argumentsJSON: json) }) else {
+                            return (index, nil, "didn't answer within \(timeout.components.seconds) s")
+                        }
+                        return (index, answer, nil)
+                    } catch {
+                        return (index, nil, error.localizedDescription)
+                    }
+                }
+            }
+            for await (index, answer, error) in group {
+                let (provider, _, instance) = asked[index]
+                if let error {
+                    instance.append("error", "\(provider.kind.rawValue) provider: \(error)")
+                } else if let answer, let value = JSONValue(json: answer), value != .null {
+                    answers.append((index, provider, value))
+                }
+            }
+        }
+        // In the order the providers were registered, however fast each answered.
+        return answers.sorted { $0.index < $1.index }.map { ($0.provider, $0.value) }
+    }
+
+    private static func position(_ document: EditorDocument, _ offset: Int) -> JSONValue {
+        let position = document.lspPosition(at: min(offset, document.textStorage.length))
+        return .object(["line": .number(Double(position.line)), "character": .number(Double(position.character))])
+    }
+
+    /// Completion items from the extensions (ids from `firstID` up).
+    func completions(for document: EditorDocument, at offset: Int, trigger: String?, firstID: Int) async -> (items: [CompletionItem], isIncomplete: Bool) {
+        let answers = await ask(.completion, for: document, ["position": Self.position(document, offset),
+                                                             "triggerCharacter": trigger.map(JSONValue.string) ?? .null])
+        var items: [CompletionItem] = []
+        var isIncomplete = false
+        for (_, answer) in answers {
+            isIncomplete = isIncomplete || answer["isIncomplete"]?.bool == true
+            for item in answer["items"]?.array ?? [] {
+                let json = try? JSONSerialization.jsonObject(with: Data(item.json.utf8))
+                if let completion = CompletionItem(json: json, id: firstID + items.count) { items.append(completion) }
+            }
+        }
+        return (items, isIncomplete)
+    }
+
+    /// Hover texts (markdown) from the extensions.
+    func hovers(for document: EditorDocument, at offset: Int) async -> [String] {
+        await ask(.hover, for: document, ["position": Self.position(document, offset)])
+            .flatMap { $0.1.array?.compactMap(\.string) ?? [] }.filter { !$0.isEmpty }
+    }
+
+    /// Formatting edits from the first extension formatter that answers; nil when none does.
+    func formattingEdits(for document: EditorDocument) async -> [TextReplacement]? {
+        let (tabSize, insertSpaces) = document.indentation
+        let answers = await ask(.formatting, for: document, ["options": .object(["tabSize": .number(Double(tabSize)),
+                                                                                 "insertSpaces": .bool(insertSpaces)])])
+        guard let edits = answers.first?.1.array else { return nil }
+        return edits.compactMap { edit in
+            guard let range = edit["range"].flatMap(LSPRange.init(value:)) else { return nil }
+            return TextReplacement(range: document.range(for: range), text: edit["newText"]?.string ?? "")
+        }
+    }
+
+    private func applyDiagnostics(to document: EditorDocument) {
+        for (collection, list) in diagnostics[document.url.standardizedFileURL.path] ?? [:] {
+            document.setExtensionDiagnostics(list, collection: collection)
+        }
+    }
+
+    private func clearDiagnostics(collection: String) {
+        for path in Array(diagnostics.keys) where diagnostics[path]?[collection] != nil {
+            diagnostics[path]?[collection] = nil
+            if diagnostics[path]?.isEmpty == true { diagnostics[path] = nil }
+            workspace.document(matching: URL(filePath: path))?.setExtensionDiagnostics([], collection: collection)
+        }
+    }
+
+    /// A diagnostic from the API (severity numbered like VS Code's: 0 error … 3 hint).
+    private static func diagnostic(_ value: JSONValue) -> Diagnostic? {
+        guard let range = value["range"].flatMap(LSPRange.init(value:)), let message = value["message"]?.string else { return nil }
+        let severity: Diagnostic.Severity = switch Int(value["severity"]?.number ?? 0) {
+        case 1: .warning
+        case 2: .information
+        case 3: .hint
+        default: .error
+        }
+        return Diagnostic(range: range, severity: severity, message: message, source: value["source"]?.string)
     }
 
     // MARK: Keybindings
@@ -364,6 +508,8 @@ final class ExtensionHost {
     // MARK: Documents and editors
 
     func documentOpened(_ document: EditorDocument) {
+        document.extensionHost = self
+        applyDiagnostics(to: document)
         document.onDidEdit = { [weak self, weak document] in
             guard let self, let document else { return }
             self.documentChanged(document)
@@ -581,6 +727,30 @@ final class ExtensionHost {
                 statusItems.sort { $0.priority > $1.priority }
             }
             return nil
+        case "languages.register":
+            guard let provider = args["id"]?.number.map(Int.init), let kind = args["kind"]?.string.flatMap(ProviderKind.init) else {
+                throw APIError.badArguments(method)
+            }
+            providers.append(Provider(extensionID: id, id: provider, kind: kind,
+                                      languages: Set(args["languages"]?.array?.compactMap(\.string) ?? ["*"]),
+                                      triggerCharacters: args["triggerCharacters"]?.array?.compactMap(\.string) ?? []))
+            return nil
+        case "languages.unregister":
+            if let provider = args["id"]?.number.map(Int.init) { providers.removeAll { $0.extensionID == id && $0.id == provider } }
+            return nil
+        case "diagnostics.set":
+            guard let collection = args["id"]?.number.map(Int.init), let path = args["path"]?.string else { throw APIError.badArguments(method) }
+            let key = "\(id)#\(collection)"
+            let url = (path.hasPrefix("/") ? URL(filePath: path) : workspace.rootURL?.appending(path: path) ?? URL(filePath: path)).standardizedFileURL
+            let list = (args["diagnostics"]?.array ?? []).compactMap { Self.diagnostic($0) }
+            diagnostics[url.path, default: [:]][key] = list.isEmpty ? nil : list
+            if diagnostics[url.path]?.isEmpty == true { diagnostics[url.path] = nil }
+            workspace.document(matching: url)?.setExtensionDiagnostics(list, collection: key)
+            return nil
+        case "diagnostics.clear":
+            guard let collection = args["id"]?.number.map(Int.init) else { throw APIError.badArguments(method) }
+            clearDiagnostics(collection: "\(id)#\(collection)")
+            return nil
         case "statusBar.remove":
             if let item = args["id"]?.number.map(Int.init) { statusItems.removeAll { $0.extensionID == id && $0.itemID == item } }
             return nil
@@ -777,5 +947,16 @@ enum ExtensionProcess {
                 "stdout": .string(String(decoding: data, as: UTF8.self)),
                 "stderr": .string(String(decoding: errorData, as: UTF8.self)),
             ])
+    }
+}
+
+extension LSPRange {
+    /// From an API range: {start: {line, character}, end: {line, character}}.
+    init?(value: JSONValue) {
+        guard let start = value["start"], let end = value["end"],
+              let startLine = start["line"]?.number, let startCharacter = start["character"]?.number,
+              let endLine = end["line"]?.number, let endCharacter = end["character"]?.number else { return nil }
+        self.init(start: LSPPosition(line: Int(startLine), character: Int(startCharacter)),
+                  end: LSPPosition(line: Int(endLine), character: Int(endCharacter)))
     }
 }

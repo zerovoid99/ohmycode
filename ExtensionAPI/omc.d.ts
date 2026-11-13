@@ -1,4 +1,4 @@
-// Type definitions for the Oh My Code extension API (`require("omc")`), version 0.1.0.
+// Type definitions for the Oh My Code extension API (`require("omc")`), version 0.2.0.
 //
 // Extensions run in JavaScriptCore, one isolated context each, off the main thread. JavaScript
 // that runs 5 seconds without returning (an endless loop) is stopped. The main
@@ -145,6 +145,75 @@ declare module "omc" {
       function readDirectory(path: string): Promise<{ name: string; isDirectory: boolean }[]>;
       function exists(path: string): Promise<boolean>;
     }
+  }
+
+  /** A language id ("swift", "typescript", "plaintext"…), "*" for all, or a list. */
+  export type DocumentSelector = string | { language: string } | (string | { language: string })[];
+
+  export enum CompletionItemKind {
+    Text = 0, Method = 1, Function = 2, Constructor = 3, Field = 4, Variable = 5, Class = 6, Interface = 7,
+    Module = 8, Property = 9, Unit = 10, Value = 11, Enum = 12, Keyword = 13, Snippet = 14, Color = 15, File = 16,
+    Reference = 17, Folder = 18, EnumMember = 19, Constant = 20, Struct = 21, Event = 22, Operator = 23, TypeParameter = 24,
+  }
+
+  export interface CompletionItem {
+    label: string;
+    detail?: string;
+    kind?: CompletionItemKind;
+    /** Inserted instead of the label. */
+    insertText?: string;
+    filterText?: string;
+    sortText?: string;
+    /** What the item replaces (by default the word before the cursor). */
+    range?: Range;
+  }
+
+  type ProviderResult<T> = T | undefined | null | Promise<T | undefined | null>;
+
+  export interface CompletionItemProvider {
+    provideCompletionItems(document: TextDocument, position: Position, context: { triggerCharacter?: string }):
+      ProviderResult<(CompletionItem | string)[] | { items: (CompletionItem | string)[]; isIncomplete?: boolean }>;
+  }
+
+  export interface HoverProvider {
+    /** Markdown: one string, several, or { contents }. */
+    provideHover(document: TextDocument, position: Position): ProviderResult<string | string[] | { contents: string | string[] }>;
+  }
+
+  export interface DocumentFormattingEditProvider {
+    provideDocumentFormattingEdits(document: TextDocument, options: { tabSize: number; insertSpaces: boolean }):
+      ProviderResult<{ range: Range; newText: string }[]>;
+  }
+
+  export enum DiagnosticSeverity { Error = 0, Warning = 1, Information = 2, Hint = 3 }
+
+  export interface Diagnostic {
+    range: Range;
+    message: string;
+    severity?: DiagnosticSeverity;
+    /** Shown with the message; the collection's name by default. */
+    source?: string;
+  }
+
+  export interface DiagnosticCollection {
+    readonly name: string;
+    /** Replaces the file's diagnostics from this collection (a path relative to the open folder, or absolute). */
+    set(document: TextDocument | string, diagnostics: Diagnostic[]): void;
+    delete(document: TextDocument | string): void;
+    clear(): void;
+    dispose(): void;
+  }
+
+  /**
+   * Language features, shown together with the language server's. Each provider has 1.5
+   * seconds to answer; a formatter from an extension is used before the server's.
+   */
+  export namespace languages {
+    function registerCompletionItemProvider(selector: DocumentSelector, provider: CompletionItemProvider, ...triggerCharacters: string[]): Disposable;
+    function registerHoverProvider(selector: DocumentSelector, provider: HoverProvider): Disposable;
+    function registerDocumentFormattingEditProvider(selector: DocumentSelector, provider: DocumentFormattingEditProvider): Disposable;
+    /** Diagnostics are removed when the extension stops. */
+    function createDiagnosticCollection(name?: string): DiagnosticCollection;
   }
 
   /** Needs the "process" permission. Programs are found on the login shell's PATH. */

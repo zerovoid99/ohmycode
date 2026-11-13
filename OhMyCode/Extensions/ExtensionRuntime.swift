@@ -87,6 +87,14 @@ final class ExtensionRuntime: @unchecked Sendable {
         }
     }
 
+    /// Asks one of the extension's language providers; its answer as JSON (nil: none).
+    func provide(_ id: Int, argumentsJSON: String) async throws -> String? {
+        try await perform { token in
+            guard let context = self.context else { throw RuntimeError.stopped }
+            context.objectForKeyedSubscript("__omcProvide").call(withArguments: [id, token, argumentsJSON])
+        }
+    }
+
     /// Delivers an event (`didSaveTextDocument`, …) to the extension's listeners.
     func emit(_ event: String, payloadJSON: String) {
         queue.async {

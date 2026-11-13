@@ -101,6 +101,8 @@ final class EditorDocument: Identifiable {
     }
     /// Whether the file can be blamed (it's in a git repository).
     var canBlame: Bool { blameProvider != nil }
+    /// The window's extensions, for their language features (completion, hover, formatting).
+    @ObservationIgnored weak var extensionHost: ExtensionHost?
     /// Called after each edit and after saving (the window's extensions listen).
     @ObservationIgnored var onDidEdit: (() -> Void)?
     @ObservationIgnored var onDidSave: (() -> Void)?
@@ -227,9 +229,25 @@ final class EditorDocument: Identifiable {
         return (spaces > 0 && twoSpaceSteps * 5 >= spaces ? 2 : 4, true)
     }
 
+    /// The language server's diagnostics (extensions' are added by `setExtensionDiagnostics`).
     func setDiagnostics(_ diagnostics: [Diagnostic]) {
-        guard diagnostics != self.diagnostics else { return }
-        self.diagnostics = diagnostics
+        serverDiagnostics = diagnostics
+        mergeDiagnostics()
+    }
+
+    /// One extension diagnostic collection's diagnostics for this file (empty removes them).
+    func setExtensionDiagnostics(_ diagnostics: [Diagnostic], collection: String) {
+        extensionDiagnostics[collection] = diagnostics.isEmpty ? nil : diagnostics
+        mergeDiagnostics()
+    }
+
+    @ObservationIgnored private var serverDiagnostics: [Diagnostic] = []
+    @ObservationIgnored private var extensionDiagnostics: [String: [Diagnostic]] = [:]
+
+    private func mergeDiagnostics() {
+        let merged = serverDiagnostics + extensionDiagnostics.keys.sorted().flatMap { extensionDiagnostics[$0]! }
+        guard merged != diagnostics else { return }
+        diagnostics = merged
         editors.forEach { $0.applyDiagnostics() }
     }
 

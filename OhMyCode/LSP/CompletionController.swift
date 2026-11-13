@@ -42,11 +42,26 @@ final class CompletionController {
     // MARK: Triggering
 
     /// Called after each text change with what was typed (nil for deletions/programmatic edits).
+    /// The language server, when it's ready.
+    private var client: LanguageClient? {
+        editor.document.languageClient.flatMap { $0.state == .ready ? $0 : nil }
+    }
+
+    /// Whether anything can complete here: the language server or an extension.
+    private var canComplete: Bool {
+        client != nil || editor.document.extensionHost?.hasProviders(.completion, for: editor.document) == true
+    }
+
+    private var triggerCharacters: Set<String> {
+        Set(client?.triggerCharacters ?? []).union(editor.document.extensionHost?.completionTriggers(for: editor.document) ?? [])
+    }
+
     func textDidChange(typed: String?) {
-        guard !isInserting, let client = editor.document.languageClient, client.state == .ready else { return }
+        guard !isInserting, canComplete else { return }
+        let triggerCharacters = triggerCharacters
         let cursor = editor.textView.selectedRange().location
         if isVisible {
-            if cursor < wordStart || (typed.map { !Self.isWordText($0) && !client.triggerCharacters.contains($0) } ?? false) {
+            if cursor < wordStart || (typed.map { !Self.isWordText($0) && !triggerCharacters.contains($0) } ?? false) {
                 dismiss()
             } else if isIncomplete {
                 request(trigger: nil)
@@ -56,7 +71,7 @@ final class CompletionController {
             if isVisible || typed == nil { return }
         }
         guard let typed, typed.count == 1 else { return }
-        if client.triggerCharacters.contains(typed) {
+        if triggerCharacters.contains(typed) {
             request(trigger: typed, delay: .zero)
         } else if Self.isWordText(typed) {
             request(trigger: nil, delay: .milliseconds(60))
@@ -69,7 +84,8 @@ final class CompletionController {
     }
 
     private func request(trigger: String?, delay: Duration = .zero) {
-        guard let client = editor.document.languageClient else { return }
+        guard canComplete else { return }
+        let client = self.client
         requestTask?.cancel()
         let document = editor.document
         requestTask = Task {
@@ -80,10 +96,16 @@ final class CompletionController {
             let cursor = editor.textView.selectedRange().location
             wordStart = Self.wordStart(in: document.textStorage.mutableString, before: cursor)
             let position = document.lspPosition(at: cursor)
-            guard let result = try? await client.completion(url: document.url, position: position, triggerCharacter: trigger),
-                  !Task.isCancelled else { return }
-            items = result.items
-            isIncomplete = result.isIncomplete
+            // The server's items and the extensions' together, asked at the same time.
+            let server = Task { () -> (items: [CompletionItem], isIncomplete: Bool)? in
+                guard let client else { return nil }
+                return try? await client.completion(url: document.url, position: position, triggerCharacter: trigger)
+            }
+            let fromExtensions = await document.extensionHost?.completions(for: document, at: cursor, trigger: trigger, firstID: 1_000_000)
+            let result = await server.value
+            guard !Task.isCancelled, result != nil || fromExtensions?.items.isEmpty == false else { return }
+            items = (result?.items ?? []) + (fromExtensions?.items ?? [])
+            isIncomplete = result?.isIncomplete == true || fromExtensions?.isIncomplete == true
             filter()
         }
     }
