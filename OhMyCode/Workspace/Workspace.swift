@@ -83,6 +83,20 @@ final class Workspace {
     /// The Timeline panel: the commits that changed a file.
     private(set) var fileHistory: FileHistory?
     @ObservationIgnored private var historyTask: Task<Void, Never>?
+
+    /// What the Timeline panel lists: the active file's commits or the whole repository's.
+    enum HistoryScope: String, CaseIterable { case file = "File", repository = "Repository" }
+    var historyScope: HistoryScope = .file
+    /// The repository log (pages of `repoHistoryPageSize`).
+    private(set) var repoHistory: RepoHistory?
+    @ObservationIgnored private var repoHistoryTask: Task<Void, Never>?
+    @ObservationIgnored var repoHistoryPageSize = 200
+    /// Files each commit changed, read when the commit is expanded.
+    private(set) var commitFiles: [String: [CommitFile]] = [:]
+    /// Tests answer these instead of a dialog: the new branch's name (nil cancels), and
+    /// whether to check out a commit.
+    @ObservationIgnored var branchNamePrompt: ((RepoCommit) -> String?)?
+    @ObservationIgnored var checkoutConfirmation: ((RepoCommit) -> Bool)?
     /// Replaces server discovery per language (tests point a workspace at a fake server).
     @ObservationIgnored var languageServerOverrides: [SourceLanguage: LanguageServerConfig] = [:]
     /// One client per language server, shared by all documents it handles.
@@ -326,7 +340,10 @@ final class Workspace {
             for document in self.documents { self.loadDiffBase(for: document) }
             for session in self.diffSessions where session.mode == .staged { self.loadStaged(session) }
             // A commit may have added to the file's history.
-            if self.sidebarMode == .history, let url = self.fileHistory?.url { self.loadHistory(for: url) }
+            if self.sidebarMode == .history {
+                if self.historyScope == .file, let url = self.fileHistory?.url { self.loadHistory(for: url) }
+                if self.historyScope == .repository { self.loadRepoHistory() }
+            }
         }
     }
 
@@ -653,6 +670,92 @@ final class Workspace {
                 session.setLoaded(base: version ?? "", current: nil, isNewFile: false)
             }
         }
+    }
+
+    // MARK: Repository history
+
+    /// Reads the repository log: from the start (as many commits as are listed already, so a
+    /// refresh keeps what was loaded), or the next page (`more`).
+    func loadRepoHistory(more: Bool = false) {
+        guard let repository = gitRepository else { repoHistory = nil; return }
+        if more, repoHistory?.isLoading == true { return }
+        repoHistoryTask?.cancel()
+        let existing = repoHistory?.commits ?? []
+        let pageSize = repoHistoryPageSize
+        let skip = more ? existing.count : 0
+        let limit = more ? pageSize : max(pageSize, existing.count)
+        repoHistory = RepoHistory(commits: existing, isLoading: true, hasMore: repoHistory?.hasMore ?? false)
+        repoHistoryTask = Task {
+            let page = await Task.detached(priority: .utility) {
+                Git.log(in: repository, limit: limit, skip: skip)
+            }.value
+            guard !Task.isCancelled else { return }
+            let commits = more ? existing + (page ?? []) : page ?? []
+            repoHistory = RepoHistory(commits: commits, isLoading: false, hasMore: (page?.count ?? 0) == limit)
+        }
+    }
+
+    /// Waits for the repository log being read (tests).
+    func waitForRepoHistory() async { await repoHistoryTask?.value }
+
+    /// Reads the files a commit changed (once).
+    func loadFiles(of commit: RepoCommit) async {
+        guard commitFiles[commit.sha] == nil, let repository = gitRepository else { return }
+        let files = await Task.detached(priority: .utility) {
+            Git.changedFiles(in: commit, repository: repository)
+        }.value
+        commitFiles[commit.sha] = files ?? []
+    }
+
+    /// The repository's top folder (the workspace folder may be inside it).
+    var repositoryRootURL: URL? {
+        guard let repository = gitRepository else { return nil }
+        let depth = repository.prefix.split(separator: "/").count
+        return (0..<depth).reduce(repository.root) { url, _ in url.deletingLastPathComponent() }
+    }
+
+    /// A commit's change to one file, as a diff tab.
+    @discardableResult
+    func openCommit(_ commit: RepoCommit, file: CommitFile) -> DiffSession? {
+        guard let top = repositoryRootURL else { return nil }
+        return openCommit(commit.change(to: file), for: top.appending(path: file.path))
+    }
+
+    /// Asks for a name, then creates a branch at the commit and switches to it.
+    func createBranch(at commit: RepoCommit) {
+        guard let name = (branchNamePrompt.map { $0(commit) } ?? promptForBranchName(commit))?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return }
+        runGit { try Git.createBranch(name, at: commit.sha, in: $0) }
+    }
+
+    /// Checks the commit out without a branch, after confirming.
+    func checkoutDetached(_ commit: RepoCommit) {
+        let confirmed = checkoutConfirmation.map { $0(commit) } ?? {
+            let alert = NSAlert()
+            alert.messageText = "Check out \(commit.shortSHA)?"
+            alert.informativeText = "“\(commit.summary)”\n\nYou'll be on a detached HEAD: new commits won't belong to a branch "
+                + "until you create one. Uncommitted changes that conflict with this commit stop the checkout."
+            alert.addButton(withTitle: "Check Out")
+            alert.addButton(withTitle: "Cancel")
+            return alert.runModal() == .alertFirstButtonReturn
+        }()
+        guard confirmed else { return }
+        runGit { try Git.checkoutDetached(commit.sha, in: $0) }
+    }
+
+    private func promptForBranchName(_ commit: RepoCommit) -> String? {
+        let alert = NSAlert()
+        alert.messageText = "Create Branch"
+        alert.informativeText = "New branch at \(commit.shortSHA) “\(commit.summary)”. You'll be switched to it."
+        let field = NSTextField(string: "")
+        field.placeholderString = "branch-name"
+        field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Create")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return field.stringValue
     }
 
     // MARK: Terminal

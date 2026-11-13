@@ -280,6 +280,33 @@ enum Git {
         return GitCommit.parseLog(output, currentPath: repository.prefix + path)
     }
 
+    /// The repository's commits, newest first, from `skip` on: every branch's, tag's and remote
+    /// branch's (and a detached HEAD's), not just this folder's. `--date-order` keeps children
+    /// before their parents when dates tie across branches. Nil if git failed.
+    static func log(in repository: Repository, limit: Int = 200, skip: Int = 0) -> [RepoCommit]? {
+        guard let output = run(["log", "--branches", "--tags", "--remotes", "HEAD", "--date-order", "-n", String(limit), "--skip", String(skip),
+                                "--format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s"], in: repository.root) else { return nil }
+        return RepoCommit.parseLog(output)
+    }
+
+    /// The files a commit changed against its first parent (everything, for a root commit).
+    static func changedFiles(in commit: RepoCommit, repository: Repository) -> [CommitFile]? {
+        let arguments = ["diff-tree", "-r", "-M", "--no-commit-id", "--name-status", "-z"]
+            + (commit.parents.first.map { [$0, commit.sha] } ?? ["--root", commit.sha])
+        guard let output = run(arguments, in: repository.root) else { return nil }
+        return CommitFile.parse(output)
+    }
+
+    /// Switches to a new branch starting at `commit`.
+    static func createBranch(_ name: String, at commit: String, in repository: Repository) throws {
+        try check(["switch", "-c", name, commit], in: repository.root)
+    }
+
+    /// Checks out `commit` without a branch (detached HEAD).
+    static func checkoutDetached(_ commit: String, in repository: Repository) throws {
+        try check(["switch", "--detach", commit], in: repository.root)
+    }
+
     /// A file's content at a commit, by its path from the repository root; nil if it isn't there.
     static func content(atCommit commit: String, repositoryPath path: String, in repository: Repository) -> String? {
         guard let output = run(["show", "\(commit):\(path)"], in: repository.root) else { return nil }
@@ -447,4 +474,84 @@ struct FileHistory: Equatable {
     /// Nil when the file isn't in a repository (or while the first read runs).
     let commits: [GitCommit]?
     let isLoading: Bool
+}
+
+/// A commit in the repository log, with the branches and tags pointing at it.
+struct RepoCommit: Sendable, Hashable, Identifiable {
+    let sha: String
+    let parents: [String]
+    let author: String
+    let date: Date
+    let summary: String
+    /// "HEAD -> main", "origin/main", "tag: v1", … as `git log --format=%D` names them.
+    let refs: [String]
+
+    var id: String { sha }
+    var shortSHA: String { String(sha.prefix(7)) }
+
+    /// Parses `git log --format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%D%x1f%s`.
+    static func parseLog(_ data: Data) -> [RepoCommit] {
+        String(decoding: data, as: UTF8.self).split(separator: "\u{1e}").compactMap { record in
+            let line = record.split(separator: "\n", maxSplits: 1).first ?? ""
+            let fields = line.split(separator: "\u{1f}", maxSplits: 5, omittingEmptySubsequences: false)
+            guard fields.count == 6, fields[0].count == 40 else { return nil }
+            return RepoCommit(sha: String(fields[0]), parents: fields[1].split(separator: " ").map(String.init),
+                              author: String(fields[2]), date: Date(timeIntervalSince1970: TimeInterval(fields[3]) ?? 0),
+                              summary: String(fields[5]),
+                              refs: fields[4].split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+                                  .filter { !$0.isEmpty })
+        }
+    }
+
+    /// This commit's change to one file, as the file history shows it (to open its diff).
+    func change(to file: CommitFile) -> GitCommit {
+        GitCommit(sha: sha, parents: parents, author: author, date: date, summary: summary, change: file.change,
+                  path: file.change == .deleted ? nil : file.path,
+                  parentPath: parents.isEmpty || file.change == .added ? nil : file.originalPath ?? file.path)
+    }
+}
+
+/// One file a commit changed (paths from the repository root).
+struct CommitFile: Sendable, Hashable, Identifiable {
+    let change: GitCommit.Change
+    let path: String
+    /// The path before a rename or copy.
+    let originalPath: String?
+
+    var id: String { path }
+    var fileName: String { (path as NSString).lastPathComponent }
+    var directory: String { (path as NSString).deletingLastPathComponent }
+
+    /// Parses `git diff-tree --name-status -z`: "M\0path\0", "R100\0old\0new\0".
+    static func parse(_ data: Data) -> [CommitFile] {
+        let fields = data.split(separator: 0, omittingEmptySubsequences: false).map { String(decoding: $0, as: UTF8.self) }
+        var files: [CommitFile] = []
+        var i = 0
+        while i < fields.count, let code = fields[i].first {
+            if code == "R" || code == "C" {
+                guard i + 2 < fields.count else { break }
+                files.append(CommitFile(change: code == "R" ? .renamed : .added, path: fields[i + 2],
+                                        originalPath: code == "R" ? fields[i + 1] : nil))
+                i += 3
+            } else {
+                guard i + 1 < fields.count else { break }
+                let change: GitCommit.Change = switch code {
+                case "A": .added
+                case "D": .deleted
+                default: .modified
+                }
+                files.append(CommitFile(change: change, path: fields[i + 1], originalPath: nil))
+                i += 2
+            }
+        }
+        return files
+    }
+}
+
+/// The repository log in the Timeline panel.
+struct RepoHistory: Equatable {
+    let commits: [RepoCommit]
+    let isLoading: Bool
+    /// The last page was full: there may be older commits.
+    let hasMore: Bool
 }
