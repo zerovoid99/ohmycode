@@ -272,6 +272,20 @@ enum Git {
         try check(["update-index", "--cacheinfo", "\(fields[0]),\(object),\(repository.prefix + path)"], in: repository.root)
     }
 
+    /// The commits that changed a file, newest first, following renames. Nil if git failed
+    /// (not a repository); empty if the file has no history.
+    static func history(ofRelativePath path: String, in repository: Repository, limit: Int = 300) -> [GitCommit]? {
+        guard let output = run(["log", "--follow", "-M", "-n", String(limit), "--name-status",
+                                "--format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%s", "--", path], in: repository.root) else { return nil }
+        return GitCommit.parseLog(output, currentPath: repository.prefix + path)
+    }
+
+    /// A file's content at a commit, by its path from the repository root; nil if it isn't there.
+    static func content(atCommit commit: String, repositoryPath path: String, in repository: Repository) -> String? {
+        guard let output = run(["show", "\(commit):\(path)"], in: repository.root) else { return nil }
+        return String(data: output, encoding: .utf8)
+    }
+
     /// Who last changed each line of `contents` (the buffer as it is, so unsaved lines show as
     /// not committed and line numbers match the editor). Nil if the file isn't tracked.
     static func blame(relativePath path: String, contents: String, in repository: Repository) -> [BlameLine?]? {
@@ -371,4 +385,66 @@ struct BlameLine: Sendable, Equatable {
         }
         return result
     }
+}
+
+/// One commit in a file's history, with the file's path in it and in its parent (paths from
+/// the repository root, as they were then: renames change them).
+struct GitCommit: Sendable, Hashable, Identifiable {
+    enum Change: Sendable, Hashable { case added, modified, deleted, renamed }
+
+    let sha: String
+    let parents: [String]
+    let author: String
+    let date: Date
+    let summary: String
+    let change: Change
+    /// The file in this commit (nil: deleted here).
+    let path: String?
+    /// The file in the first parent (nil: added here, or a root commit).
+    let parentPath: String?
+
+    var id: String { sha }
+    var shortSHA: String { String(sha.prefix(7)) }
+    var fileName: String { ((path ?? parentPath ?? "") as NSString).lastPathComponent }
+
+    /// Parses `git log --name-status --format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%s`, newest
+    /// first. `currentPath` is the file's path now, for commits git lists without a status
+    /// line (merges): they keep the path the newer commit came from.
+    static func parseLog(_ data: Data, currentPath: String) -> [GitCommit] {
+        var commits: [GitCommit] = []
+        var path = currentPath
+        for record in String(decoding: data, as: UTF8.self).split(separator: "\u{1e}") {
+            let lines = record.split(separator: "\n", omittingEmptySubsequences: true)
+            guard let header = lines.first else { continue }
+            let fields = header.split(separator: "\u{1f}", maxSplits: 4, omittingEmptySubsequences: false)
+            guard fields.count == 5, fields[0].count == 40 else { continue }
+            var change = Change.modified
+            var newPath: String? = path, oldPath: String? = path
+            if let status = lines.dropFirst().last(where: { $0.contains("\t") }) {
+                let parts = status.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+                switch parts[0].first {
+                case "A": change = .added; newPath = parts.last; oldPath = nil
+                case "D": change = .deleted; newPath = nil; oldPath = parts.last
+                case "R", "C" where parts.count >= 3: change = .renamed; oldPath = parts[1]; newPath = parts[2]
+                default: newPath = parts.last; oldPath = parts.last
+                }
+            }
+            let parents = fields[1].split(separator: " ").map(String.init)
+            commits.append(GitCommit(sha: String(fields[0]), parents: parents, author: String(fields[2]),
+                                     date: Date(timeIntervalSince1970: TimeInterval(fields[3]) ?? 0),
+                                     summary: String(fields[4]), change: change,
+                                     path: newPath, parentPath: parents.isEmpty ? nil : oldPath))
+            // Older commits know the file by the name it had before this one.
+            if let oldPath { path = oldPath }
+        }
+        return commits
+    }
+}
+
+/// The Timeline panel's content: a file and the commits that changed it.
+struct FileHistory: Equatable {
+    let url: URL
+    /// Nil when the file isn't in a repository (or while the first read runs).
+    let commits: [GitCommit]?
+    let isLoading: Bool
 }

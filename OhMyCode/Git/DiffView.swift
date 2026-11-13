@@ -2,32 +2,44 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// A side-by-side diff tab. Working tree: the staged (index) version of a file against the
-/// editor's text, following the document live from the hunks the gutter markers use. Staged:
-/// the last commit (HEAD) against the index, re-read whenever git state changes.
+/// A side-by-side diff tab of one file:
+/// - working tree: the staged (index) version against the editor's text, live, from the hunks
+///   the gutter markers use;
+/// - staged: the last commit (HEAD) against the index, re-read whenever git state changes;
+/// - commit: what a commit changed (its parent's version against its own), fixed;
+/// - compare: a commit's version against the editor's text, live.
 @MainActor
 @Observable
 final class DiffSession: Identifiable {
-    enum Mode: Equatable { case workingTree, staged }
+    enum Mode: Hashable {
+        case workingTree, staged
+        case commit(GitCommit)
+        case compare(GitCommit)
+    }
 
     let id = UUID()
     let mode: Mode
     let url: URL
-    /// The open document (working tree mode only).
+    /// The open document (working tree and compare modes).
     let document: EditorDocument?
     /// The document was opened only for this diff (no tab of its own): closing the diff closes it.
     let ownsDocument: Bool
 
-    /// Staged mode: HEAD's lines ([""] for a file new in the index) and the index's lines;
-    /// both nil when nothing is staged for the file.
-    private(set) var headLines: [Substring]?
-    private(set) var indexLines: [Substring]?
-    private(set) var stagedHunks: [DiffHunk] = []
-    /// HEAD had no such file (a newly added one).
+    /// Text loaded from git: the left side (all but working tree mode) and the right side
+    /// (staged and commit modes). Staged mode: HEAD ([""] for a file new in the index) and the
+    /// index, both nil when nothing is staged.
+    private(set) var loadedBase: [Substring]?
+    private(set) var loadedCurrent: [Substring]?
+    private var loadedHunks: [DiffHunk] = []
+    /// Compare mode: hunks of the commit's text against the document's, and the text version
+    /// they were computed for.
+    private var compareHunks: [DiffHunk] = []
+    private var compareVersion: Int?
+    /// The left side had no such file (a newly added one).
     private(set) var isNewFile = false
     private(set) var isLoaded = false
-    /// Bumped when the staged mode's HEAD or index text changes.
-    private(set) var stagedVersion = 0
+    /// Bumped when loaded text changes.
+    private(set) var loadedVersion = 0
 
     /// Syntax colors per line of each side, and the content versions they were made for.
     private(set) var baseSpans: [[LineSpan]]?
@@ -35,8 +47,8 @@ final class DiffSession: Identifiable {
     private var baseSpansVersion: Int?
     private var currentSpansVersion: Int?
 
-    init(document: EditorDocument, ownsDocument: Bool) {
-        mode = .workingTree
+    init(document: EditorDocument, ownsDocument: Bool, comparingWith commit: GitCommit? = nil) {
+        mode = commit.map(Mode.compare) ?? .workingTree
         url = document.url
         self.document = document
         self.ownsDocument = ownsDocument
@@ -49,25 +61,72 @@ final class DiffSession: Identifiable {
         ownsDocument = false
     }
 
+    init(commit: GitCommit, of url: URL) {
+        mode = .commit(commit)
+        self.url = url
+        document = nil
+        ownsDocument = false
+    }
+
     var fileName: String { url.lastPathComponent }
-    var title: String { mode == .staged ? "\(fileName) (Staged)" : "\(fileName) (Changes)" }
-    var help: String { mode == .staged ? "\(url.path) — HEAD ↔ staged" : "\(url.path) — staged ↔ working tree" }
+    var isStaged: Bool { mode == .staged }
+    /// The left side follows the editor's text (and edits there show up live).
+    var followsDocument: Bool { document != nil }
+
+    var title: String {
+        switch mode {
+        case .workingTree: "\(fileName) (Changes)"
+        case .staged: "\(fileName) (Staged)"
+        case .commit(let commit): "\(fileName) (\(commit.shortSHA))"
+        case .compare(let commit): "\(fileName) (\(commit.shortSHA) ↔ Current)"
+        }
+    }
+
+    var help: String {
+        switch mode {
+        case .workingTree: "\(url.path) — staged ↔ working tree"
+        case .staged: "\(url.path) — HEAD ↔ staged"
+        case .commit(let commit): "\(url.path) — \(commit.summary) (\(commit.shortSHA))"
+        case .compare(let commit): "\(url.path) — \(commit.shortSHA) ↔ working tree"
+        }
+    }
+
+    /// Names of the two sides, for the header.
+    var sideLabels: (base: String, current: String) {
+        switch mode {
+        case .workingTree: ("Staged", "Working Tree")
+        case .staged: ("HEAD", "Staged")
+        case .commit(let commit): (commit.parents.first.map { String($0.prefix(7)) } ?? "(none)", commit.shortSHA)
+        case .compare(let commit): (commit.shortSHA, "Working Tree")
+        }
+    }
+
+    // Aliases for staged mode.
+    var headLines: [Substring]? { isStaged ? loadedBase : nil }
+    var indexLines: [Substring]? { isStaged ? loadedCurrent : nil }
+    var stagedHunks: [DiffHunk] { isStaged ? loadedHunks : [] }
 
     /// The left side of the diff (nil: nothing to compare with).
-    var baseLines: [Substring]? { mode == .staged ? headLines : document?.diffBaseLines }
+    var baseLines: [Substring]? { mode == .workingTree ? document?.diffBaseLines : loadedBase }
 
     /// The right side.
     var currentLines: [Substring] {
-        if mode == .staged { return indexLines ?? [] }
+        guard followsDocument else { return loadedCurrent ?? [] }
         guard let document else { return [] }
         _ = document.diffTextVersion // re-read the text when it was diffed again
         return LineDiff.lines(document.textStorage.mutableString as String)
     }
 
-    var hunks: [DiffHunk] { mode == .staged ? stagedHunks : document?.diffHunks ?? [] }
+    var hunks: [DiffHunk] {
+        switch mode {
+        case .workingTree: document?.diffHunks ?? []
+        case .compare: compareHunks
+        case .staged, .commit: loadedHunks
+        }
+    }
 
-    var baseVersion: Int { mode == .staged ? stagedVersion : document?.diffBaseVersion ?? 0 }
-    var currentVersion: Int { mode == .staged ? stagedVersion : document?.diffTextVersion ?? 0 }
+    var baseVersion: Int { mode == .workingTree ? document?.diffBaseVersion ?? 0 : loadedVersion }
+    var currentVersion: Int { followsDocument ? document?.diffTextVersion ?? 0 : loadedVersion }
 
     /// Colors the sides whose text changed since they were last colored. Old colors stay up
     /// until the new ones are ready (spans past a line's end are skipped when drawing).
@@ -82,12 +141,11 @@ final class DiffSession: Identifiable {
         }
         if currentSpansVersion != current {
             let text: String
-            if mode == .staged {
-                guard let lines = indexLines else { return }
-                text = lines.joined(separator: "\n")
-            } else {
-                guard let document else { return }
+            if let document, followsDocument {
                 text = document.textStorage.mutableString as String
+            } else {
+                guard let lines = loadedCurrent else { return }
+                text = lines.joined(separator: "\n")
             }
             let spans = await DiffSyntax.highlight(text, language: language)
             guard !Task.isCancelled, current == currentVersion else { return }
@@ -96,16 +154,39 @@ final class DiffSession: Identifiable {
         }
     }
 
+    /// Compare mode: diffs the commit's text against the document's current text (off the main
+    /// thread), unless that text was already diffed.
+    func refreshCompare() async {
+        guard case .compare = mode, let document, let base = loadedBase else { return }
+        let version = document.diffTextVersion
+        guard compareVersion != version || loadedVersion != comparedLoadedVersion else { return }
+        let loaded = loadedVersion
+        let text = document.textStorage.mutableString as String
+        let hunks = await Task.detached(priority: .utility) {
+            LineDiff.hunks(base: base, current: LineDiff.lines(text))
+        }.value
+        guard !Task.isCancelled, version == document.diffTextVersion, loaded == loadedVersion else { return }
+        compareHunks = hunks
+        compareVersion = version
+        comparedLoadedVersion = loaded
+    }
+    private var comparedLoadedVersion: Int?
+
     func setStaged(head: String?, index: String?) {
-        isNewFile = head == nil && index != nil
-        let headLines = index == nil ? nil : LineDiff.lines(head ?? "")
-        let indexLines = index.map(LineDiff.lines)
+        setLoaded(base: index == nil ? nil : head ?? "", current: index, isNewFile: head == nil && index != nil)
+    }
+
+    /// Sets the text loaded from git (`current` is ignored in modes that follow the document).
+    func setLoaded(base: String?, current: String?, isNewFile: Bool) {
+        self.isNewFile = isNewFile
+        let baseLines = base.map(LineDiff.lines)
+        let currentLines = current.map(LineDiff.lines)
         isLoaded = true
-        guard headLines != self.headLines || indexLines != self.indexLines else { return }
-        self.headLines = headLines
-        self.indexLines = indexLines
-        stagedVersion += 1
-        stagedHunks = headLines.flatMap { head in indexLines.map { LineDiff.hunks(base: head, current: $0) } } ?? []
+        guard baseLines != loadedBase || currentLines != loadedCurrent else { return }
+        loadedBase = baseLines
+        loadedCurrent = currentLines
+        loadedVersion += 1
+        loadedHunks = baseLines.flatMap { base in currentLines.map { LineDiff.hunks(base: base, current: $0) } } ?? []
     }
 }
 
@@ -174,6 +255,8 @@ struct DiffView: View {
     }
 
     private var isStaged: Bool { session.mode == .staged }
+    /// Staging and reverting only make sense between the index and the working tree.
+    private var canEdit: Bool { session.mode == .workingTree || session.mode == .staged }
 
     var body: some View {
         let base = session.baseLines ?? []
@@ -192,28 +275,29 @@ struct DiffView: View {
                     } else {
                         ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                } else {
+                } else if session.mode == .workingTree {
                     ContentUnavailableView("Not in Git", systemImage: "questionmark.folder",
                                            description: Text("This file isn't tracked, so there's nothing to compare it with."))
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else if hunks.isEmpty {
                 ContentUnavailableView(isStaged ? "Nothing Staged" : "No Changes", systemImage: "checkmark.circle",
-                                       description: Text(isStaged ? "The staged version matches the last commit."
-                                                                  : "The file matches the staged version."))
+                                       description: Text(emptyDescription))
             } else {
                 ScrollViewReader { proxy in
                     ScrollView([.vertical]) {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(rows) { row in
                                 VStack(spacing: 0) {
-                                    if let hunk = row.hunk, starts.first(where: { $0.hunk == hunk })?.row == row.id,
+                                    if canEdit, let hunk = row.hunk, starts.first(where: { $0.hunk == hunk })?.row == row.id,
                                        hunks.indices.contains(hunk) {
                                         hunkBar(hunks[hunk], all: hunks)
                                     }
                                     DiffRowView(row: row, base: base, current: current,
                                                 baseSpans: session.baseSpans, currentSpans: session.currentSpans,
                                                 isSelected: selection.contains(row.pair),
-                                                onToggle: row.hunk == nil ? nil : {
+                                                onToggle: row.hunk == nil || !canEdit ? nil : {
                                                     if selection.remove(row.pair) == nil { selection.insert(row.pair) }
                                                 },
                                                 onExpand: {
@@ -233,10 +317,20 @@ struct DiffView: View {
         }
         .background(Color(nsColor: EditorTheme.observed.background))
         .task(id: [session.baseVersion, session.currentVersion]) {
+            await session.refreshCompare()
             await session.refreshHighlights()
         }
         // Rows are line numbers: after the text or the index changes they may mean other lines.
         .onChange(of: [session.baseVersion, session.currentVersion]) { selection = [] }
+    }
+
+    private var emptyDescription: String {
+        switch session.mode {
+        case .workingTree: "The file matches the staged version."
+        case .staged: "The staged version matches the last commit."
+        case .commit: "This commit didn't change the file's content."
+        case .compare: "The file matches this commit's version."
+        }
     }
 
     /// Actions for one change, above its lines.
@@ -291,7 +385,7 @@ struct DiffView: View {
         let removed = hunks.reduce(0) { $0 + max(0, $1.oldCount - $1.newCount) }
         let changed = hunks.reduce(0) { $0 + min($1.oldCount, $1.newCount) }
         return HStack(spacing: 10) {
-            Text(isStaged ? "HEAD" : "Staged").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(session.sideLabels.base).font(.caption.weight(.semibold).monospaced()).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 6) {
                 Text("+\(added)").foregroundStyle(.green)
@@ -303,15 +397,17 @@ struct DiffView: View {
                 .help("Previous Change").disabled(count == 0)
             Button { currentChange = min(count - 1, currentChange + 1) } label: { Image(systemName: "arrow.down") }
                 .help("Next Change").disabled(count == 0)
-            Button {
-                workspace.openChanges(for: session.url, staged: !isStaged)
-            } label: { Image(systemName: isStaged ? "pencil.and.list.clipboard" : "tray.full") }
-                .help(isStaged ? "Show Working Tree Changes" : "Show Staged Changes")
+            if canEdit {
+                Button {
+                    workspace.openChanges(for: session.url, staged: !isStaged)
+                } label: { Image(systemName: isStaged ? "pencil.and.list.clipboard" : "tray.full") }
+                    .help(isStaged ? "Show Working Tree Changes" : "Show Staged Changes")
+            }
             Button {
                 workspace.open(fileAt: session.url)
             } label: { Image(systemName: "doc.text") }
                 .help("Open File")
-            Text(isStaged ? "Staged" : "Working Tree").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(session.sideLabels.current).font(.caption.weight(.semibold).monospaced()).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .buttonStyle(.borderless)

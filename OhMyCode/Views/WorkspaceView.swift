@@ -11,6 +11,7 @@ struct WorkspaceView: View {
                     Image(systemName: "magnifyingglass").help("Search (⇧⌘F)").tag(Workspace.SidebarMode.search)
                     Image(systemName: "arrow.triangle.branch").help(changeCountLabel + " (⌃⇧G)")
                         .tag(Workspace.SidebarMode.sourceControl)
+                    Image(systemName: "clock.arrow.circlepath").help("Timeline").tag(Workspace.SidebarMode.history)
                     if workspace.references != nil {
                         Image(systemName: "link").help("References").tag(Workspace.SidebarMode.references)
                     }
@@ -31,6 +32,8 @@ struct WorkspaceView: View {
                     SourceControlView(workspace: workspace)
                 case .references:
                     ReferencesView(workspace: workspace)
+                case .history:
+                    TimelineView(workspace: workspace)
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)

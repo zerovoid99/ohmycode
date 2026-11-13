@@ -38,6 +38,7 @@ final class Workspace {
         case search = "Search"
         case sourceControl = "Source Control"
         case references = "References"
+        case history = "Timeline"
     }
 
     @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
@@ -79,6 +80,9 @@ final class Workspace {
     private(set) var isRunningGitCommand = false
     @ObservationIgnored private(set) var gitRepository: Git.Repository?
     @ObservationIgnored private var gitTask: Task<Void, Never>?
+    /// The Timeline panel: the commits that changed a file.
+    private(set) var fileHistory: FileHistory?
+    @ObservationIgnored private var historyTask: Task<Void, Never>?
     /// Replaces server discovery per language (tests point a workspace at a fake server).
     @ObservationIgnored var languageServerOverrides: [SourceLanguage: LanguageServerConfig] = [:]
     /// One client per language server, shared by all documents it handles.
@@ -321,6 +325,8 @@ final class Workspace {
             if self.gitStatus != result?.1 { self.gitStatus = result?.1 }
             for document in self.documents { self.loadDiffBase(for: document) }
             for session in self.diffSessions where session.mode == .staged { self.loadStaged(session) }
+            // A commit may have added to the file's history.
+            if self.sidebarMode == .history, let url = self.fileHistory?.url { self.loadHistory(for: url) }
         }
     }
 
@@ -558,6 +564,94 @@ final class Workspace {
                 (Git.headContent(ofRelativePath: path, in: repository), Git.indexContent(ofRelativePath: path, in: repository))
             }.value
             session.setStaged(head: head, index: index)
+        }
+    }
+
+    // MARK: History
+
+    /// The file the Timeline follows: the active editor's, or the active diff tab's.
+    var activeFileURL: URL? {
+        activeDocument?.url ?? diffSession(id: activeGroup.activeDocumentID)?.url
+    }
+
+    /// Git: Show File History.
+    func showFileHistory() {
+        sidebarMode = .history
+        if let url = activeFileURL { loadHistory(for: url) }
+    }
+
+    /// Reads the file's commits (newest first), keeping the current list up until the new one
+    /// is ready when it's the same file.
+    func loadHistory(for url: URL) {
+        historyTask?.cancel()
+        guard let repository = gitRepository, let path = relativePath(of: url) else {
+            fileHistory = FileHistory(url: url, commits: nil, isLoading: false)
+            return
+        }
+        if fileHistory?.url != url { fileHistory = FileHistory(url: url, commits: nil, isLoading: true) }
+        historyTask = Task {
+            let commits = await Task.detached(priority: .utility) {
+                Git.history(ofRelativePath: path, in: repository)
+            }.value
+            guard !Task.isCancelled else { return }
+            fileHistory = FileHistory(url: url, commits: commits ?? [], isLoading: false)
+        }
+    }
+
+    /// Waits for the history being read (tests).
+    func waitForHistory() async { await historyTask?.value }
+
+    /// A commit's changes to the file, as a diff tab (its parent's version against its own).
+    @discardableResult
+    func openCommit(_ commit: GitCommit, for url: URL) -> DiffSession {
+        if let existing = diffSessions.first(where: { $0.mode == .commit(commit) }) {
+            activeGroup.show(existing.id)
+            return existing
+        }
+        let session = DiffSession(commit: commit, of: url)
+        diffSessions.append(session)
+        loadCommit(session, commit)
+        activeGroup.show(session.id)
+        return session
+    }
+
+    /// The file as it was in a commit against the editor's text now (live).
+    @discardableResult
+    func compare(_ commit: GitCommit, with url: URL) -> DiffSession? {
+        let canonical = FileWatcher.canonicalPath(url)
+        if let existing = diffSessions.first(where: { $0.mode == .compare(commit) && FileWatcher.canonicalPath($0.url) == canonical }) {
+            activeGroup.show(existing.id)
+            return existing
+        }
+        let wasOpen = document(matching: url) != nil
+        guard let document = document(matching: url) ?? openWithoutTab(url) else { return nil }
+        let session = DiffSession(document: document, ownsDocument: !wasOpen, comparingWith: commit)
+        diffSessions.append(session)
+        loadCommit(session, commit)
+        activeGroup.show(session.id)
+        return session
+    }
+
+    /// Loads a commit's version of the file (and, to show the commit, its parent's).
+    private func loadCommit(_ session: DiffSession, _ commit: GitCommit) {
+        guard let repository = gitRepository else {
+            session.setLoaded(base: nil, current: nil, isNewFile: false)
+            return
+        }
+        let wantsParent: Bool
+        if case .commit = session.mode { wantsParent = true } else { wantsParent = false }
+        Task {
+            let (parent, version) = await Task.detached(priority: .utility) { () -> (String?, String?) in
+                let version = commit.path.flatMap { Git.content(atCommit: commit.sha, repositoryPath: $0, in: repository) }
+                guard wantsParent, let parent = commit.parents.first, let parentPath = commit.parentPath else { return (nil, version) }
+                return (Git.content(atCommit: parent, repositoryPath: parentPath, in: repository), version)
+            }.value
+            if wantsParent {
+                // Added in the commit: nothing before; deleted: nothing after.
+                session.setLoaded(base: parent ?? "", current: version ?? "", isNewFile: parent == nil)
+            } else {
+                session.setLoaded(base: version ?? "", current: nil, isNewFile: false)
+            }
         }
     }
 

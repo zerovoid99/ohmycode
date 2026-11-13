@@ -42,6 +42,11 @@ struct TabBarView: View {
                         Button("Close") { workspace.closeTab(tab.id, in: group) }
                         if let document {
                             Button("Open Changes") { workspace.openChanges(for: document.url) }
+                            Button("Show File History") {
+                                workspace.activeGroupID = group.id
+                                workspace.activeDocumentID = document.id
+                                workspace.showFileHistory()
+                            }
                             Divider()
                             Button("Split Right") {
                                 workspace.activeGroupID = group.id
