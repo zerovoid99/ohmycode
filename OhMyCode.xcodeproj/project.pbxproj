@@ -105,6 +105,7 @@
 		D86FB78730A855286043A1FF /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7257FD6D9E15285EEF71E95 /* TabBarView.swift */; };
 		DB9F317917C0AACE91A02A98 /* TerminalRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A84B684B87EB09C7E0B6F720 /* TerminalRenderer.swift */; };
 		DD013878FE76ABAEDEE70D5E /* LineIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F973E946D73AF21BFAE0D75 /* LineIndex.swift */; };
+		DDA43816F9307AB375DD1B6D /* CompareRefsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A28E2CDB1E00D5CC43EE4F /* CompareRefsTests.swift */; };
 		DE6F63AEA1DD8D5A8697925F /* PaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C774D488B792D7089D1DAB /* PaletteTests.swift */; };
 		E1AD3FCB68345C20CCD3CAC5 /* EditorChromeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */; };
 		E2972D4DDC0AF619518EA175 /* TreeSitterGo in Frameworks */ = {isa = PBXBuildFile; productRef = 249C0FB551E41D055CAFFC10 /* TreeSitterGo */; };
@@ -234,6 +235,7 @@
 		EBBC78B08D2E20847B26819B /* StashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StashTests.swift; sourceTree = "<group>"; };
 		ECE0378D95499508CFB1DBD0 /* OhMyCodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OhMyCodeApp.swift; sourceTree = "<group>"; };
 		F2903C4AF8D35ECFA693E971 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		F3A28E2CDB1E00D5CC43EE4F /* CompareRefsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompareRefsTests.swift; sourceTree = "<group>"; };
 		F5526368FD02C2215106BF09 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanel.swift; sourceTree = "<group>"; };
 		F6163A12092027D9DED0CC99 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
 		F8E5167B549E6D5354AE1D47 /* HunkPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HunkPopoverView.swift; sourceTree = "<group>"; };
@@ -344,6 +346,7 @@
 				CD1EE59BB50DF03FDACEC29F /* CherryPickRevertTests.swift */,
 				914B50B9C32C4D129975E6BF /* CommitGraphTests.swift */,
 				1564029D78A9D5DCDEF90529 /* CommitSearchTests.swift */,
+				F3A28E2CDB1E00D5CC43EE4F /* CompareRefsTests.swift */,
 				2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */,
 				16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */,
 				63C0BDA667585BA6CF3CCCE0 /* FileWatchingTests.swift */,
@@ -709,6 +712,7 @@
 				020BDA84409FA41D7BA2F892 /* CherryPickRevertTests.swift in Sources */,
 				70BE660B9B25C427A5DE8207 /* CommitGraphTests.swift in Sources */,
 				46AB56208F370EA5D1265CC3 /* CommitSearchTests.swift in Sources */,
+				DDA43816F9307AB375DD1B6D /* CompareRefsTests.swift in Sources */,
 				AAB71F6BE2CE7E5D5864EADF /* DiffHighlightTests.swift in Sources */,
 				E1AD3FCB68345C20CCD3CAC5 /* EditorChromeTests.swift in Sources */,
 				AE3ECD7BB4950C7B8C99D795 /* FileWatchingTests.swift in Sources */,

@@ -20,6 +20,7 @@ struct TimelineView: View {
             switch workspace.historyScope {
             case .file: fileTimeline
             case .repository: RepositoryLogView(workspace: workspace)
+            case .compare: CompareView(workspace: workspace)
             }
         }
     }
@@ -326,6 +327,10 @@ private struct RepositoryLogView: View {
         Button("Interactive Rebase from Here…") { Task { await workspace.planInteractiveRebase(from: commit) } }
             .help("Reorder, reword, squash or drop this commit and the ones after it")
         Divider()
+        Button("Compare with HEAD") {
+            Task { await workspace.compare(commit.shortSHA, with: "HEAD", sinceCommonAncestor: false) }
+        }
+        .help("Every difference between this commit and the current one")
         Button("Copy Commit Hash") {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(commit.sha, forType: .string)
@@ -391,5 +396,168 @@ private struct RefBadge: View {
             .foregroundStyle(isHead ? Color.accentColor : .secondary)
             .background(Capsule().fill((isHead ? Color.accentColor : Color.secondary).opacity(0.15)))
             .fixedSize()
+    }
+}
+
+/// Compares two branches, tags or commits: how far apart they are and the files that differ.
+private struct CompareView: View {
+    let workspace: Workspace
+    @State private var base: String
+    @State private var target: String
+    @State private var sinceCommonAncestor: Bool
+
+    init(workspace: Workspace) {
+        self.workspace = workspace
+        let comparison = workspace.comparison
+        _base = State(initialValue: comparison?.base ?? workspace.gitStatus?.branch ?? "HEAD")
+        _target = State(initialValue: comparison?.target ?? "")
+        _sinceCommonAncestor = State(initialValue: comparison?.sinceCommonAncestor ?? true)
+    }
+
+    private var canCompare: Bool {
+        !base.trimmingCharacters(in: .whitespaces).isEmpty && !target.trimmingCharacters(in: .whitespaces).isEmpty
+            && !workspace.isComparing
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            form
+            Divider()
+            result
+        }
+        .task { if workspace.branches == nil { await workspace.loadBranches() } }
+        // A comparison started elsewhere (a branch's or commit's menu) shows its refs here.
+        .onChange(of: workspace.comparison) { _, comparison in
+            guard let comparison else { return }
+            base = comparison.base
+            target = comparison.target
+            sinceCommonAncestor = comparison.sinceCommonAncestor
+        }
+    }
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            refField("Base", text: $base)
+            refField("Compare", text: $target)
+            HStack {
+                Toggle("Since common ancestor", isOn: $sinceCommonAncestor)
+                    .toggleStyle(.checkbox)
+                    .help("Only what “Compare” changed since it diverged from “Base”, as a pull request shows. "
+                          + "Off: every difference between the two.")
+                Spacer()
+                Button("Swap", systemImage: "arrow.up.arrow.down") { swap(&base, &target) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .help("Swap base and compare")
+                Button("Compare") { run() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canCompare)
+            }
+            .font(.callout)
+        }
+        .padding(8)
+    }
+
+    private func refField(_ title: String, text: Binding<String>) -> some View {
+        HStack(spacing: 6) {
+            Text(title).font(.callout).foregroundStyle(.secondary).frame(width: 58, alignment: .leading)
+            TextField("branch, tag or commit", text: text)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { if canCompare { run() } }
+            Menu {
+                Button("HEAD") { text.wrappedValue = "HEAD" }
+                let branches = workspace.branches ?? []
+                Section("Branches") {
+                    ForEach(branches.filter { !$0.isRemote }) { branch in Button(branch.name) { text.wrappedValue = branch.name } }
+                }
+                Section("Remote Branches") {
+                    ForEach(branches.filter(\.isRemote)) { branch in Button(branch.name) { text.wrappedValue = branch.name } }
+                }
+            } label: {
+                Image(systemName: "arrow.triangle.branch")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Pick a branch")
+        }
+    }
+
+    private func run() {
+        let base = base.trimmingCharacters(in: .whitespaces), target = target.trimmingCharacters(in: .whitespaces)
+        Task { await workspace.compare(base, with: target, sinceCommonAncestor: sinceCommonAncestor) }
+    }
+
+    @ViewBuilder
+    private var result: some View {
+        if workspace.isComparing {
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let comparison = workspace.comparison {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(comparison.target) \(comparison.sinceCommonAncestor ? "since" : "vs") \(comparison.base)")
+                            .font(.callout.weight(.semibold))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text(summary(comparison)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Close", systemImage: "xmark") { workspace.clearComparison() }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .help("Close the comparison")
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                Divider()
+                if comparison.files.isEmpty {
+                    ContentUnavailableView("No Differences", systemImage: "equal.circle",
+                                           description: Text("The files are the same in both."))
+                } else {
+                    List(comparison.files) { file in
+                        HStack(spacing: 6) {
+                            Text(letter(file.change))
+                                .font(.caption.weight(.semibold).monospaced())
+                                .foregroundStyle(color(file.change))
+                                .frame(width: 12)
+                            Text(file.fileName).strikethrough(file.change == .deleted).lineLimit(1)
+                            Text(file.directory).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture { workspace.openComparison(file) }
+                        .help(file.originalPath.map { "\($0) → \(file.path)" } ?? file.path)
+                    }
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
+                }
+            }
+        } else {
+            ContentUnavailableView("Compare", systemImage: "arrow.left.arrow.right",
+                                   description: Text("Pick two branches, tags or commits to see the files that differ."))
+        }
+    }
+
+    private func summary(_ comparison: RefComparison) -> String {
+        let files = "\(comparison.files.count) file\(comparison.files.count == 1 ? "" : "s") changed"
+        func commits(_ count: Int) -> String { "\(count) commit\(count == 1 ? "" : "s")" }
+        return "\(files) · \(commits(comparison.ahead)) ahead, \(commits(comparison.behind)) behind"
+    }
+
+    private func letter(_ change: GitCommit.Change) -> String {
+        switch change {
+        case .added: "A"
+        case .deleted: "D"
+        case .renamed: "R"
+        case .modified: "M"
+        }
+    }
+
+    private func color(_ change: GitCommit.Change) -> Color {
+        switch change {
+        case .added: .green
+        case .deleted: .red
+        case .renamed, .modified: .orange
+        }
     }
 }

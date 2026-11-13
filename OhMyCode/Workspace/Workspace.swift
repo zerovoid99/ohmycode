@@ -85,7 +85,10 @@ final class Workspace {
     @ObservationIgnored private var historyTask: Task<Void, Never>?
 
     /// What the Timeline panel lists: the active file's commits or the whole repository's.
-    enum HistoryScope: String, CaseIterable { case file = "File", repository = "Repository" }
+    enum HistoryScope: String, CaseIterable { case file = "File", repository = "Repository", compare = "Compare" }
+    /// Two refs compared (the Timeline's Compare tab); nil until one is picked.
+    private(set) var comparison: RefComparison?
+    private(set) var isComparing = false
     var historyScope: HistoryScope = .file
     /// The repository log (pages of `repoHistoryPageSize`), narrowed by `repoHistoryFilter`.
     private(set) var repoHistory: RepoHistory?
@@ -834,6 +837,52 @@ final class Workspace {
     func openCommit(_ commit: RepoCommit, file: CommitFile) -> DiffSession? {
         guard let top = repositoryRootURL else { return nil }
         return openCommit(commit.change(to: file), for: top.appending(path: file.path))
+    }
+
+    // MARK: Comparing refs
+
+    /// Compares two branches, tags or commits and shows the result in the Timeline.
+    /// `sinceCommonAncestor`: what `target` changed since it diverged from `base` (as a pull
+    /// request shows); otherwise every difference between the two.
+    func compare(_ base: String, with target: String, sinceCommonAncestor: Bool) async {
+        sidebarMode = .history
+        historyScope = .compare
+        guard let repository = gitRepository else { return }
+        isComparing = true
+        defer { isComparing = false }
+        let result = await Task.detached(priority: .userInitiated) { () -> Result<RefComparison, Git.CommandError> in
+            guard let baseSHA = Git.resolveCommit(base, in: repository) else {
+                return .failure(Git.CommandError(message: "“\(base)” isn't a branch, tag or commit."))
+            }
+            guard let targetSHA = Git.resolveCommit(target, in: repository) else {
+                return .failure(Git.CommandError(message: "“\(target)” isn't a branch, tag or commit."))
+            }
+            var from = baseSHA
+            if sinceCommonAncestor {
+                guard let common = Git.mergeBase(baseSHA, targetSHA, in: repository) else {
+                    return .failure(Git.CommandError(message: "\(base) and \(target) have no commit in common."))
+                }
+                from = common
+            }
+            let files = Git.changedFiles(from: from, to: targetSHA, in: repository) ?? []
+            let counts = Git.aheadBehind(base: baseSHA, target: targetSHA, in: repository) ?? (0, 0)
+            return .success(RefComparison(base: base, target: target, sinceCommonAncestor: sinceCommonAncestor,
+                                          baseSHA: from, targetSHA: targetSHA, files: files,
+                                          ahead: counts.ahead, behind: counts.behind))
+        }.value
+        switch result {
+        case .success(let comparison): self.comparison = comparison
+        case .failure(let error): errorMessage = error.localizedDescription
+        }
+    }
+
+    func clearComparison() { comparison = nil }
+
+    /// One file's difference in the comparison, as a diff tab.
+    @discardableResult
+    func openComparison(_ file: CommitFile) -> DiffSession? {
+        guard let comparison else { return nil }
+        return openCommit(comparison.asCommit, file: file)
     }
 
     // MARK: Blame commits

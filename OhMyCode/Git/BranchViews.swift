@@ -192,6 +192,12 @@ struct BranchPicker: View {
             .disabled(branch.isCurrent)
         Button("Rebase \(current) onto \(branch.name)") { dismiss(); workspace.rebaseCurrent(onto: branch) }
             .disabled(branch.isCurrent)
+        Button("Compare with \(current)") {
+            dismiss()
+            Task { await workspace.compare(current, with: branch.name, sinceCommonAncestor: true) }
+        }
+        .disabled(branch.isCurrent)
+        .help("What \(branch.name) changed since it diverged from \(current)")
         if !branch.isRemote {
             Divider()
             Button("Rename…") { dismiss(); workspace.renameBranch(branch) }

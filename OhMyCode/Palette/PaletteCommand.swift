@@ -158,6 +158,11 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.gitRepository != nil }, perform: { workspace in
                            Task { @MainActor in await workspace.loadRemotes(); workspace.addRemote() }
                        }),
+        PaletteCommand(id: "git.compare", title: "Git: Compare Branches…", icon: "arrow.left.arrow.right", shortcut: nil,
+                       isAvailable: { $0.gitStatus?.hasCommits == true }, perform: { workspace in
+                           workspace.sidebarMode = .history
+                           workspace.historyScope = .compare
+                       }),
         PaletteCommand(id: "git.toggleBlameColumn", title: "Git: Toggle Blame Column", icon: "sidebar.leading", shortcut: nil,
                        isAvailable: { $0.activeDocument?.canBlame == true },
                        perform: { $0.activeDocument?.editor?.toggleBlameColumn() }),

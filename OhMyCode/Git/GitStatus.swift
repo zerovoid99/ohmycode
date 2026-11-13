@@ -593,6 +593,36 @@ enum Git {
         return RepoCommit.parseLog(output).first
     }
 
+    // MARK: Comparing
+
+    /// The commit a name (branch, tag, hash) resolves to.
+    static func resolveCommit(_ name: String, in repository: Repository) -> String? {
+        guard let output = run(["rev-parse", "--verify", "--quiet", "--end-of-options", name + "^{commit}"], in: repository.root)
+        else { return nil }
+        let sha = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return sha.count == 40 ? sha : nil
+    }
+
+    /// The best common ancestor of two commits (nil: unrelated histories).
+    static func mergeBase(_ a: String, _ b: String, in repository: Repository) -> String? {
+        guard let output = run(["merge-base", a, b], in: repository.root) else { return nil }
+        let sha = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return sha.count == 40 ? sha : nil
+    }
+
+    /// The files that differ between two commits (renames detected).
+    static func changedFiles(from base: String, to target: String, in repository: Repository) -> [CommitFile]? {
+        guard let output = run(["diff", "-M", "--name-status", "-z", base, target, "--"], in: repository.root) else { return nil }
+        return CommitFile.parse(output)
+    }
+
+    /// Commits only `base` has (behind) and only `target` has (ahead).
+    static func aheadBehind(base: String, target: String, in repository: Repository) -> (ahead: Int, behind: Int)? {
+        guard let output = run(["rev-list", "--left-right", "--count", "\(base)...\(target)"], in: repository.root) else { return nil }
+        let numbers = String(decoding: output, as: UTF8.self).split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
+        return numbers.count == 2 ? (numbers[1], numbers[0]) : nil
+    }
+
     /// The files a commit changed against its first parent (everything, for a root commit).
     static func changedFiles(in commit: RepoCommit, repository: Repository) -> [CommitFile]? {
         let arguments = ["diff-tree", "-r", "-M", "--no-commit-id", "--name-status", "-z"]
@@ -682,6 +712,28 @@ enum Git {
     }
 }
 
+
+/// Two commits (or branches, tags) compared: the files that differ and how far apart they are.
+struct RefComparison: Sendable, Equatable {
+    /// What the user picked (branch, tag or hash), as shown.
+    let base: String
+    let target: String
+    /// Compared from the common ancestor (what `target` changed since it left `base`, as a pull
+    /// request shows) rather than from `base` itself.
+    let sinceCommonAncestor: Bool
+    /// The commits diffed: the common ancestor (or `base`) and `target`.
+    let baseSHA: String
+    let targetSHA: String
+    let files: [CommitFile]
+    let ahead: Int
+    let behind: Int
+
+    /// A commit that turns `baseSHA` into `targetSHA`, to open one file's diff like a commit's.
+    var asCommit: RepoCommit {
+        RepoCommit(sha: targetSHA, parents: [baseSHA], author: "", date: Date(timeIntervalSince1970: 0),
+                   summary: "\(base) \(sinceCommonAncestor ? "..." : "..") \(target)", refs: [])
+    }
+}
 
 /// A remote and where it fetches from and pushes to.
 struct GitRemote: Sendable, Hashable, Identifiable {
