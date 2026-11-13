@@ -1258,11 +1258,22 @@ final class Workspace {
     func save(_ document: EditorDocument) -> Bool {
         do {
             try document.save()
+            stageIfConflictResolved(document)
             return true
         } catch {
             errorMessage = error.localizedDescription
             return false
         }
+    }
+
+    /// After a save: a file git still reports as conflicted, now without conflict markers, is
+    /// resolved, so it's staged (marking it resolved for git, like `git add` after a merge).
+    private func stageIfConflictResolved(_ document: EditorDocument) {
+        guard AppSettings.shared.stagesResolvedConflicts, let path = relativePath(of: document.url),
+              gitStatus?.changes.contains(where: { $0.path == path && $0.isConflicted }) == true,
+              // Read the saved text now: the debounced scan may not have run since the last edit.
+              ConflictParser.conflicts(in: document.textStorage.mutableString).isEmpty else { return }
+        stage([path])
     }
 
     /// Asks to save unsaved changes. Returns `false` if the user cancelled.

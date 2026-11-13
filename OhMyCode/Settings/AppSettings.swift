@@ -47,6 +47,8 @@ final class AppSettings {
     var formatOnSave: Bool { didSet { changed() } }
     /// Git blame of the cursor's line, shown at its end.
     var showsLineBlame: Bool { didSet { changed() } }
+    /// Saving a file git reports as conflicted, with no conflict markers left, stages it.
+    var stagesResolvedConflicts: Bool { didSet { changed() } }
     /// Closing brackets and quotes typed for you.
     var autoClosePairs: Bool { didSet { changed() } }
 
@@ -66,6 +68,7 @@ final class AppSettings {
         stickyScroll = defaults.object(forKey: Keys.stickyScroll) as? Bool ?? true
         formatOnSave = defaults.object(forKey: Keys.formatOnSave) as? Bool ?? false
         showsLineBlame = defaults.object(forKey: Keys.showsLineBlame) as? Bool ?? true
+        stagesResolvedConflicts = defaults.object(forKey: Keys.stagesResolvedConflicts) as? Bool ?? true
         autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
         isLoading = false
     }
@@ -81,6 +84,7 @@ final class AppSettings {
         static let stickyScroll = "stickyScroll"
         static let formatOnSave = "formatOnSave"
         static let showsLineBlame = "showsLineBlame"
+        static let stagesResolvedConflicts = "stagesResolvedConflicts"
         static let autoClosePairs = "autoClosePairs"
     }
 
@@ -106,6 +110,7 @@ final class AppSettings {
         defaults.set(stickyScroll, forKey: Keys.stickyScroll)
         defaults.set(formatOnSave, forKey: Keys.formatOnSave)
         defaults.set(showsLineBlame, forKey: Keys.showsLineBlame)
+        defaults.set(stagesResolvedConflicts, forKey: Keys.stagesResolvedConflicts)
         defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
         EditorTheme.invalidate()
@@ -183,6 +188,7 @@ final class AppSettings {
         stickyScroll = true
         formatOnSave = false
         showsLineBlame = true
+        stagesResolvedConflicts = true
         autoClosePairs = true
         resetZoom()
     }

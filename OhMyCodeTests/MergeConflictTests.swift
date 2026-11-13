@@ -154,6 +154,85 @@ struct MergeConflictEditorTests {
         withExtendedLifetime((workspace, window)) {}
     }
 
+    @Test func savingAResolvedFileStagesIt() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-autostage-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        func git(_ arguments: [String]) throws {
+            let process = Process()
+            process.executableURL = URL(filePath: "/usr/bin/git")
+            process.arguments = ["-C", root.path, "-c", "user.name=A", "-c", "user.email=a@example.invalid",
+                                 "-c", "commit.gpgsign=false"] + arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            process.waitUntilExit()
+        }
+        let file = root.appending(path: "f.txt"), other = root.appending(path: "other.txt")
+        try git(["init", "-q", "-b", "main"])
+        try ("1\n" + String(repeating: "mid\n", count: 10) + "2\n").write(to: file, atomically: true, encoding: .utf8)
+        try "plain\n".write(to: other, atomically: true, encoding: .utf8)
+        try git(["add", "."]); try git(["commit", "-qm", "base"])
+        try git(["switch", "-qc", "side"])
+        try ("SIDE1\n" + String(repeating: "mid\n", count: 10) + "SIDE2\n").write(to: file, atomically: true, encoding: .utf8)
+        try git(["commit", "-qam", "side"])
+        try git(["switch", "-q", "main"])
+        try ("MAIN1\n" + String(repeating: "mid\n", count: 10) + "MAIN2\n").write(to: file, atomically: true, encoding: .utf8)
+        try git(["commit", "-qam", "main"])
+        try git(["merge", "side"])
+
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        let deadline = ContinuousClock.now + .seconds(5)
+        func eventually(_ condition: () -> Bool) async throws -> Bool {
+            while !condition() {
+                if ContinuousClock.now > deadline { return false }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            return true
+        }
+        func isConflicted() -> Bool? { workspace.gitStatus?.changes.first { $0.path == "f.txt" }?.isConflicted }
+        #expect(try await eventually { isConflicted() == true && workspace.gitStatus?.operation == .merge })
+        workspace.open(fileAt: file)
+        let document = try #require(workspace.activeDocument)
+        #expect(document.conflicts.count == 2) // far enough apart for git to keep them separate
+
+        // Still a conflict left: saving doesn't stage.
+        document.resolve([document.conflicts[0]], with: .incoming)
+        #expect(workspace.save(document))
+        try await Task.sleep(for: .milliseconds(400))
+        workspace.refreshGit()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(isConflicted() == true)
+
+        // Resolved, but the setting is off: not staged either.
+        let setting = AppSettings.shared.stagesResolvedConflicts
+        defer { AppSettings.shared.stagesResolvedConflicts = setting }
+        AppSettings.shared.stagesResolvedConflicts = false
+        document.resolve(ConflictParser.conflicts(in: document.textStorage.mutableString), with: .current) // no debounce wait
+        #expect(workspace.save(document))
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(isConflicted() == true)
+
+        // On: the next save stages it, and the merge has no conflicts left.
+        AppSettings.shared.stagesResolvedConflicts = true
+        document.textStorage.replaceCharacters(in: NSRange(location: document.textStorage.length, length: 0), with: "end\n")
+        #expect(workspace.save(document))
+        #expect(try await eventually { isConflicted() == false })
+        let change = try #require(workspace.gitStatus?.changes.first { $0.path == "f.txt" })
+        #expect(change.isStaged && workspace.gitStatus?.changes.filter(\.isConflicted).isEmpty == true)
+
+        // Saving a file that wasn't conflicted never stages it.
+        workspace.open(fileAt: other)
+        let plain = try #require(workspace.activeDocument)
+        plain.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "edited ")
+        #expect(workspace.save(plain))
+        try await Task.sleep(for: .milliseconds(400))
+        workspace.refreshGit()
+        #expect(try await eventually { workspace.gitStatus?.changes.contains { $0.path == "other.txt" } == true })
+        #expect(workspace.gitStatus?.changes.first { $0.path == "other.txt" }?.isStaged == false)
+        withExtendedLifetime(workspace) {}
+    }
+
     /// A conflict as git writes it.
     @Test func readsAConflictGitMade() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "omc-gitconflict-\(UUID().uuidString)")
