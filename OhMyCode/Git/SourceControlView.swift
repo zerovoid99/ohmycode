@@ -55,6 +55,33 @@ struct SourceControlView: View {
                             }
                         }
                     }
+                    if !workspace.stashes.isEmpty || !status.changes.isEmpty {
+                        Section {
+                            ForEach(workspace.stashes) { stash in
+                                StashRow(workspace: workspace, stash: stash)
+                            }
+                        } header: {
+                            HStack(spacing: 6) {
+                                Text("Stashes")
+                                Text("\(workspace.stashes.count)").foregroundStyle(.secondary)
+                                Spacer()
+                                Menu {
+                                    Button("Stash Changes…") { workspace.stash(.all) }
+                                    Button("Stash Including Untracked…") { workspace.stash(.includingUntracked) }
+                                    Button("Stash Staged Changes…") { workspace.stash(.staged) }
+                                        .disabled(status.stagedChanges.isEmpty)
+                                } label: {
+                                    Label("Stash", systemImage: "archivebox")
+                                }
+                                .menuStyle(.borderlessButton)
+                                .menuIndicator(.hidden)
+                                .fixedSize()
+                                .labelStyle(.iconOnly)
+                                .help("Stash changes")
+                                .disabled(status.changes.isEmpty || workspace.isRunningGitCommand)
+                            }
+                        }
+                    }
                 }
                 .listStyle(.sidebar)
             }
@@ -142,5 +169,84 @@ private struct ChangeRow: View {
             }
         }
         .help("\(change.path) — \(status?.label ?? "")")
+    }
+}
+
+/// A stash entry: expand it for its files; apply, pop or drop it.
+private struct StashRow: View {
+    let workspace: Workspace
+    let stash: GitStash
+    @State private var isExpanded = false
+    @State private var isHovering = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            if let files = workspace.stashFiles[stash.sha] {
+                ForEach(files) { file in
+                    HStack(spacing: 6) {
+                        Text(file.isUntracked ? "U" : letter(file.file.change))
+                            .font(.caption.weight(.semibold).monospaced())
+                            .foregroundStyle(file.isUntracked || file.file.change == .added ? .green
+                                             : file.file.change == .deleted ? .red : .orange)
+                            .frame(width: 12)
+                        Text(file.file.fileName).lineLimit(1)
+                        Text(file.file.directory).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { workspace.openStashFile(stash, file) }
+                    .help(file.file.path)
+                }
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "archivebox").foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(stash.message).lineLimit(1)
+                    HStack(spacing: 4) {
+                        if let branch = stash.branch { Text(branch) ; Text("·") }
+                        Text(stash.date, format: .relative(presentation: .named))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if isHovering {
+                    Group {
+                        Button("Apply", systemImage: "arrow.down.doc") { workspace.applyStash(stash, pop: false) }
+                            .help("Apply (keep the stash)")
+                        Button("Pop", systemImage: "arrow.up.bin") { workspace.applyStash(stash, pop: true) }
+                            .help("Pop (apply, then drop the stash)")
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .disabled(workspace.isRunningGitCommand)
+                }
+            }
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+            .contextMenu {
+                Button("Apply Stash") { workspace.applyStash(stash, pop: false) }
+                Button("Pop Stash") { workspace.applyStash(stash, pop: true) }
+                Button("Create Branch from Stash…") { workspace.branchFromStash(stash) }
+                Divider()
+                Button("Drop Stash…", role: .destructive) { workspace.dropStash(stash) }
+            }
+            .help("\(stash.ref): \(stash.subject)")
+        }
+        .onChange(of: isExpanded) { _, expanded in
+            if expanded { Task { await workspace.loadFiles(of: stash) } }
+        }
+    }
+
+    private func letter(_ change: GitCommit.Change) -> String {
+        switch change {
+        case .added: "A"
+        case .deleted: "D"
+        case .renamed: "R"
+        case .modified: "M"
+        }
     }
 }

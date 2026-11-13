@@ -18,6 +18,7 @@
 		1CAACB5E1539BC428AF5F78F /* ReferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B2EE7BE3BFA8F86486EE2E /* ReferencesView.swift */; };
 		1D3022887233E995E0CC9A98 /* TerminalKeyMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DA477C6C5DD7FADEA27948 /* TerminalKeyMap.swift */; };
 		1F6340BD53600AC51FF68193 /* VSCodeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B511C0F6AACECBD26C594F8 /* VSCodeTheme.swift */; };
+		2173832CE7C6545543DE5181 /* StashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC78B08D2E20847B26819B /* StashTests.swift */; };
 		21EDC22CA862562303AA0ABF /* LanguageServerConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7C57B7EB44D1B9076110A5 /* LanguageServerConnection.swift */; };
 		234640D26A9F03EFA06D017E /* CommitGraph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F75F53CE900295074EEE285 /* CommitGraph.swift */; };
 		24B7957B0621B9E84225341C /* SearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43F3388BA148B4E8F22F589 /* SearchTests.swift */; };
@@ -212,6 +213,7 @@
 		E43F3388BA148B4E8F22F589 /* SearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchTests.swift; sourceTree = "<group>"; };
 		E80C26D0340BB82FFDA82C16 /* TerminalShaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalShaders.swift; sourceTree = "<group>"; };
 		E900D8E8A233E7EC65D90EB6 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		EBBC78B08D2E20847B26819B /* StashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StashTests.swift; sourceTree = "<group>"; };
 		ECE0378D95499508CFB1DBD0 /* OhMyCodeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OhMyCodeApp.swift; sourceTree = "<group>"; };
 		F2903C4AF8D35ECFA693E971 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		F5526368FD02C2215106BF09 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanel.swift; sourceTree = "<group>"; };
@@ -338,6 +340,7 @@
 				E43F3388BA148B4E8F22F589 /* SearchTests.swift */,
 				235C4B58C44E541E5D4CCE51 /* SettingsTests.swift */,
 				761D7DD6B19C1B92A0D77DE6 /* SplitEditorTests.swift */,
+				EBBC78B08D2E20847B26819B /* StashTests.swift */,
 				283BBF8CB8D107A54E380B0E /* SyntaxHighlighterTests.swift */,
 				062545FE7797841B1F4B7A4A /* TerminalTests.swift */,
 				CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */,
@@ -690,6 +693,7 @@
 				24B7957B0621B9E84225341C /* SearchTests.swift in Sources */,
 				A7691BACE48515FE4E24533A /* SettingsTests.swift in Sources */,
 				D3FBB6809B020C010DBE4836 /* SplitEditorTests.swift in Sources */,
+				2173832CE7C6545543DE5181 /* StashTests.swift in Sources */,
 				811E4E5D449959BFF694A5A8 /* SyntaxHighlighterTests.swift in Sources */,
 				C1B812E94CAE7B6150426CB0 /* TerminalTests.swift in Sources */,
 				D7A7FF2C9BF229A9AD1993F2 /* VSCodeThemeTests.swift in Sources */,

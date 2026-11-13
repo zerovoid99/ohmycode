@@ -97,6 +97,10 @@ final class Workspace {
     /// whether to check out a commit.
     @ObservationIgnored var branchNamePrompt: ((RepoCommit) -> String?)?
     @ObservationIgnored var checkoutConfirmation: ((RepoCommit) -> Bool)?
+    /// Stash entries, newest first (read with `git status`).
+    private(set) var stashes: [GitStash] = []
+    /// Files of each stash, read when it's expanded.
+    private(set) var stashFiles: [String: [StashFile]] = [:]
     /// Local and remote branches, read when the branch picker opens.
     private(set) var branches: [GitBranch]?
     /// Tests answer these instead of dialogs: a name typed for a new or renamed branch (given
@@ -335,14 +339,15 @@ final class Workspace {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
             }
-            let result = await Task.detached(priority: .utility) { () -> (Git.Repository, GitStatus)? in
+            let result = await Task.detached(priority: .utility) { () -> (Git.Repository, GitStatus, [GitStash])? in
                 guard let repository = knownRepository ?? Git.repository(at: rootURL),
                       let status = Git.status(of: repository) else { return nil }
-                return (repository, status)
+                return (repository, status, Git.stashes(in: repository) ?? [])
             }.value
             guard !Task.isCancelled, self.rootURL == rootURL else { return }
             self.gitRepository = result?.0
             if self.gitStatus != result?.1 { self.gitStatus = result?.1 }
+            if self.stashes != result?.2 ?? [] { self.stashes = result?.2 ?? [] }
             for document in self.documents { self.loadDiffBase(for: document) }
             for session in self.diffSessions where session.mode == .staged { self.loadStaged(session) }
             // A commit may have added to the file's history.
@@ -926,6 +931,69 @@ final class Workspace {
         }
         let trimmed = answer?.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    // MARK: Stash
+
+    /// Stashes the changes, asking for an optional message. Edits not saved yet aren't
+    /// stashed (git takes the files on disk), so they're asked about first.
+    func stash(_ scope: GitStash.Scope) {
+        guard confirmUnsavedBeforeCheckout(), let message = askStashMessage(scope) else { return }
+        runGit { try Git.stash(scope, message: message, in: $0) }
+    }
+
+    /// Apply (keep the stash) or pop (drop it once applied).
+    func applyStash(_ stash: GitStash, pop: Bool) {
+        guard confirmUnsavedBeforeCheckout() else { return }
+        runGit { try Git.applyStash(stash, pop: pop, in: $0) }
+    }
+
+    func dropStash(_ stash: GitStash) {
+        guard confirm("Delete the stash “\(stash.message)”? Its changes will be lost.") else { return }
+        runGit { try Git.dropStash(stash, in: $0) }
+    }
+
+    /// A new branch where the stash was made, with the stash applied there.
+    func branchFromStash(_ stash: GitStash) {
+        guard confirmUnsavedBeforeCheckout(),
+              let name = ask("Create Branch from Stash",
+                             message: "A new branch at the commit “\(stash.message)” was made on, with the stash applied and dropped.",
+                             placeholder: "branch-name") else { return }
+        runGit { try Git.branch(name, fromStash: stash, in: $0) }
+    }
+
+    func loadFiles(of stash: GitStash) async {
+        guard stashFiles[stash.sha] == nil, let repository = gitRepository else { return }
+        let files = await Task.detached(priority: .utility) { Git.files(in: stash, repository: repository) }.value
+        stashFiles[stash.sha] = files ?? []
+    }
+
+    /// One stashed file's changes, as a diff tab.
+    @discardableResult
+    func openStashFile(_ stash: GitStash, _ file: StashFile) -> DiffSession? {
+        guard let top = repositoryRootURL else { return nil }
+        return openCommit(stash.change(to: file), for: top.appending(path: file.file.path))
+    }
+
+    /// nil if cancelled; "" for no message.
+    private func askStashMessage(_ scope: GitStash.Scope) -> String? {
+        if let textPrompt { return textPrompt("Stash").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) } }
+        let alert = NSAlert()
+        alert.messageText = switch scope {
+        case .all: "Stash Changes"
+        case .includingUntracked: "Stash Changes (Including Untracked)"
+        case .staged: "Stash Staged Changes"
+        }
+        alert.informativeText = "A message to find it by later (optional):"
+        let field = NSTextField(string: "")
+        field.placeholderString = "Message"
+        field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Stash")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: Terminal

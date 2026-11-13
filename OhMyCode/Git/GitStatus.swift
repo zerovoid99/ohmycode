@@ -281,6 +281,53 @@ enum Git {
         }
     }
 
+    // MARK: Stash
+
+    static func stashes(in repository: Repository) -> [GitStash]? {
+        guard let output = run(["stash", "list", "--format=%gd%x1f%H%x1f%P%x1f%at%x1f%gs"], in: repository.root) else { return nil }
+        return GitStash.parse(output)
+    }
+
+    /// Stashes changes: everything tracked, also untracked files, or only what is staged.
+    static func stash(_ scope: GitStash.Scope, message: String?, in repository: Repository) throws {
+        var arguments = ["stash", "push"]
+        switch scope {
+        case .all: break
+        case .includingUntracked: arguments.append("--include-untracked")
+        case .staged: arguments.append("--staged")
+        }
+        if let message, !message.isEmpty { arguments += ["--message", message] }
+        try check(arguments, in: repository.root)
+    }
+
+    /// Applies a stash; `pop` also drops it (git keeps it if applying conflicts).
+    static func applyStash(_ stash: GitStash, pop: Bool, in repository: Repository) throws {
+        try check(["stash", pop ? "pop" : "apply", stash.ref], in: repository.root)
+    }
+
+    static func dropStash(_ stash: GitStash, in repository: Repository) throws {
+        try check(["stash", "drop", stash.ref], in: repository.root)
+    }
+
+    /// A new branch at the stash's base commit, with the stash applied (and dropped).
+    static func branch(_ name: String, fromStash stash: GitStash, in repository: Repository) throws {
+        try check(["stash", "branch", name, stash.ref], in: repository.root)
+    }
+
+    /// The files a stash holds: its tracked changes, then the untracked files it took along.
+    static func files(in stash: GitStash, repository: Repository) -> [StashFile]? {
+        guard let tracked = changedFiles(in: stash.trackedChanges, repository: repository) else { return nil }
+        var files = tracked.map { StashFile(file: $0, isUntracked: false) }
+        if let untracked = stash.untrackedCommit,
+           let output = run(["ls-tree", "-r", "-z", "--name-only", untracked], in: repository.root) {
+            files += output.split(separator: 0).map {
+                StashFile(file: CommitFile(change: .added, path: String(decoding: $0, as: UTF8.self), originalPath: nil),
+                          isUntracked: true)
+            }
+        }
+        return files
+    }
+
     static func remotes(in repository: Repository) -> [String] {
         guard let output = run(["remote"], in: repository.root) else { return [] }
         return String(decoding: output, as: UTF8.self).split(separator: "\n").map(String.init)
@@ -694,4 +741,62 @@ struct GitBranch: Sendable, Hashable, Identifiable {
         }
         return branches.filter { !$0.isRemote } + branches.filter(\.isRemote)
     }
+}
+
+/// A stash entry: `stash@{n}`, a commit whose parents are the base commit, the stashed index
+/// and (with untracked files) a commit holding those.
+struct GitStash: Sendable, Hashable, Identifiable {
+    enum Scope: Sendable { case all, includingUntracked, staged }
+
+    let ref: String
+    let sha: String
+    let parents: [String]
+    let date: Date
+    /// "On main: message" or "WIP on main: abc1234 last commit".
+    let subject: String
+
+    var id: String { sha }
+    /// The branch it was made on.
+    var branch: String? {
+        let head = subject.hasPrefix("WIP on ") ? subject.dropFirst(7) : subject.hasPrefix("On ") ? subject.dropFirst(3) : nil
+        return head.flatMap { $0.split(separator: ":", maxSplits: 1).first.map(String.init) }
+    }
+    /// The message, or for an unnamed stash the commit it was made on.
+    var message: String {
+        guard let colon = subject.firstIndex(of: ":") else { return subject }
+        return subject[subject.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+    }
+    var hasUntrackedFiles: Bool { parents.count > 2 }
+    var untrackedCommit: String? { hasUntrackedFiles ? parents[2] : nil }
+
+    /// The tracked changes as a commit on its base (diffing against the first parent).
+    var trackedChanges: RepoCommit {
+        RepoCommit(sha: sha, parents: Array(parents.prefix(1)), author: "", date: date, summary: message, refs: [ref])
+    }
+
+    /// Parses `git stash list --format=%gd%x1f%H%x1f%P%x1f%at%x1f%gs`.
+    static func parse(_ data: Data) -> [GitStash] {
+        String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { line in
+            let fields = line.split(separator: "\u{1f}", maxSplits: 4, omittingEmptySubsequences: false).map(String.init)
+            guard fields.count == 5, fields[1].count == 40 else { return nil }
+            return GitStash(ref: fields[0], sha: fields[1], parents: fields[2].split(separator: " ").map(String.init),
+                            date: Date(timeIntervalSince1970: TimeInterval(fields[3]) ?? 0), subject: fields[4])
+        }
+    }
+
+    /// A file of the stash as a commit change, to open its diff: tracked files against the base,
+    /// untracked ones as new files.
+    func change(to file: StashFile) -> GitCommit {
+        if file.isUntracked, let untrackedCommit {
+            return RepoCommit(sha: untrackedCommit, parents: [], author: "", date: date, summary: message, refs: [])
+                .change(to: file.file)
+        }
+        return trackedChanges.change(to: file.file)
+    }
+}
+
+struct StashFile: Sendable, Hashable, Identifiable {
+    let file: CommitFile
+    let isUntracked: Bool
+    var id: String { (isUntracked ? "u:" : "t:") + file.path }
 }
