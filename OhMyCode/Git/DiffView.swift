@@ -257,6 +257,10 @@ struct DiffView: View {
                         .help("Remove the selected lines (in every change) from the staged version")
                 } else if let document = session.document {
                     let rows = selection
+                    Button("Revert \(count)", systemImage: "arrow.uturn.backward.square") {
+                        workspace.revertRows(of: document) { $0 == hunks ? rows : nil }
+                    }
+                    .help("Revert only the selected lines to the staged version (undoable)")
                     Button("Stage \(count)", systemImage: "plus.square") {
                         // Only if the diff is still the one the rows were picked from.
                         workspace.stageRows(of: document) { $0 == hunks ? rows : nil }

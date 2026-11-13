@@ -415,6 +415,7 @@ final class EditorController: NSObject {
     @objc private func contextRename(_ sender: Any?) { perform(.rename) }
     @objc private func contextFormat(_ sender: Any?) { perform(.format) }
     @objc private func contextStageLines(_ sender: Any?) { perform(.stageSelectedLines) }
+    @objc private func contextRevertLines(_ sender: Any?) { perform(.revertSelectedLines) }
 
     /// Language actions at the top of the editor's context menu.
     fileprivate func languageMenuItems() -> [NSMenuItem] {
@@ -609,7 +610,9 @@ extension EditorController: NSTextViewDelegate {
         if document.stageHunkAction != nil, !document.diffHunks.isEmpty {
             let stage = NSMenuItem(title: "Stage Selected Lines", action: #selector(contextStageLines), keyEquivalent: "")
             stage.target = self
-            items += [stage, .separator()]
+            let revert = NSMenuItem(title: "Revert Selected Lines", action: #selector(contextRevertLines), keyEquivalent: "")
+            revert.target = self
+            items += [stage, revert, .separator()]
         }
         for (offset, item) in items.enumerated() { menu.insertItem(item, at: offset) }
         return menu
@@ -782,7 +785,7 @@ extension EditorController: SyntaxHighlighterClient {
 
 /// Language actions an editor asks its workspace to run (⌘-click, context menu).
 enum EditorCommand: String {
-    case goToDefinition, findReferences, rename, format, stageSelectedLines
+    case goToDefinition, findReferences, rename, format, stageSelectedLines, revertSelectedLines
 }
 
 extension Notification.Name {

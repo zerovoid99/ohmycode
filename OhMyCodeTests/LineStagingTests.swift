@@ -40,6 +40,34 @@ struct LineMixingTests {
     }
 }
 
+struct RevertLinesTests {
+    /// For every subset of rows: the edits, applied to the current text, give the current text
+    /// with exactly those rows taken from the old one.
+    @Test(arguments: [
+        ("a\nb\nc\nd\nx\ny\n", "A\nB\nc\nd\ny\ne\n"),     // changed pair, removal, addition at the end
+        ("a\nb\nc", "a\nB\nc\nd"),                          // no final newline, addition at the very end
+        ("a\nb\nc\nd\n", "a\nd\n"),                          // pure deletion in the middle
+        ("a\nb\n", "x\ny\nz\na\nb\n"),                        // pure addition at the start
+        ("a\nb\nc\n", "a\nb\n"),                              // deletion of the last line
+        ("p\nq\nr\ns\n", "P\nr\nS\nT\nU\n"),                  // uneven hunks
+    ])
+    func revertingAnySubsetMatchesMixing(old oldText: String, new newText: String) throws {
+        let old = LineDiff.lines(oldText), new = LineDiff.lines(newText)
+        let hunks = LineDiff.hunks(base: old, current: new)
+        let rows = hunks.flatMap(LineDiff.pairs)
+        let text = newText as NSString
+        let lineStarts = LineIndex(string: text).lineStarts
+        for mask in 0..<(1 << rows.count) {
+            let chosen = Set(rows.indices.filter { mask & (1 << $0) != 0 }.map { rows[$0] })
+            let edits = LineDiff.revertEdits(rows: chosen, hunks: hunks, old: old, new: new, text: text, lineStarts: lineStarts)
+            let result = try TextReplacement.apply(edits.map { TextReplacement(range: $0.range, text: $0.replacement) },
+                                                   to: newText)
+            let expected = LineDiff.mixing(old: old, new: new, hunks: hunks, useNew: { !chosen.contains($0) })
+            #expect(result == expected, "rows \(chosen.map { "\($0.old.map(String.init) ?? "-")/\($0.new.map(String.init) ?? "-")" })")
+        }
+    }
+}
+
 @MainActor
 struct LineStagingWorkspaceTests {
     private func git(_ arguments: [String], in directory: URL) throws {
@@ -122,6 +150,47 @@ struct LineStagingWorkspaceTests {
         workspace.stageRows(of: document) { $0 == picked ? [DiffLinePair(old: 1, new: 1)] : nil }
         try await Task.sleep(for: .milliseconds(200))
         #expect(try index("f.txt", in: root) == before)
+        withExtendedLifetime((workspace, window)) {}
+    }
+
+    @Test func revertsTheSelectedLinesAsOneUndoableEdit() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-revert-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try git(["init", "-q"], in: root)
+        try "one\ntwo\nthree\nfour\nfive\n".write(to: root.appending(path: "f.txt"), atomically: true, encoding: .utf8)
+        try git(["add", "."], in: root)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        #expect(try await eventually { workspace.gitRepository != nil })
+        workspace.open(fileAt: root.appending(path: "f.txt"))
+        let document = try #require(workspace.activeDocument)
+        #expect(try await eventually { document.diffBaseLines != nil })
+        let controller = EditorController(document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = controller.makeView()
+        window.layoutIfNeeded()
+        document.attach(controller)
+        document.editor = controller
+
+        let text = document.textStorage.mutableString
+        document.textStorage.replaceCharacters(in: text.range(of: "two\nthree\nfour"), with: "TWO\nTHREE\nFOUR")
+        document.textStorage.replaceCharacters(in: NSRange(location: text.length, length: 0), with: "six\n")
+        await document.waitForDiff()
+        document.undoManager.removeAllActions()
+        // The selection runs over THREE and FOUR; TWO and the added "six" stay.
+        controller.textView.setSelectedRange(NSRange(location: text.range(of: "THREE").location,
+                                                     length: NSMaxRange(text.range(of: "FO")) - text.range(of: "THREE").location))
+        workspace.revertSelectedLines()
+        #expect(document.textStorage.string == "one\nTWO\nthree\nfour\nfive\nsix\n")
+        #expect(document.undoManager.undoActionName == "Revert Selected Lines")
+        document.undoManager.undo()
+        #expect(document.textStorage.string == "one\nTWO\nTHREE\nFOUR\nfive\nsix\n")
+
+        // Nothing changed under the cursor: refused, text untouched.
+        controller.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        workspace.revertSelectedLines()
+        #expect(document.textStorage.string == "one\nTWO\nTHREE\nFOUR\nfive\nsix\n")
         withExtendedLifetime((workspace, window)) {}
     }
 }

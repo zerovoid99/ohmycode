@@ -95,19 +95,26 @@ enum LineDiff {
     /// Applying it makes those lines equal the base again.
     static func revertEdit(for hunk: DiffHunk, base: [Substring], text: NSString,
                            lineStarts: [Int]) -> (range: NSRange, replacement: String) {
+        replaceEdit(for: hunk, with: Array(base[hunk.oldStart..<(hunk.oldStart + hunk.oldCount)]),
+                    text: text, lineStarts: lineStarts)
+    }
+
+    /// The edit that turns the hunk's lines in `text` into `lines` (any number, none deletes them).
+    static func replaceEdit(for hunk: DiffHunk, with lines: [Substring], text: NSString,
+                            lineStarts: [Int]) -> (range: NSRange, replacement: String) {
         let lineCount = lineStarts.count
-        let baseLines = base[hunk.oldStart..<(hunk.oldStart + hunk.oldCount)].joined(separator: "\n")
+        let baseLines = lines.joined(separator: "\n")
         let endsAtEnd = hunk.newStart + hunk.newCount >= lineCount
         if hunk.newCount == 0 {
+            let at = hunk.newStart < lineCount ? lineStarts[hunk.newStart] : text.length
+            guard !lines.isEmpty else { return (NSRange(location: at, length: 0), "") } // nothing to put back
             // Lines were deleted: put them back before line newStart (or after the last line).
-            if hunk.newStart < lineCount {
-                return (NSRange(location: lineStarts[hunk.newStart], length: 0), baseLines + "\n")
-            }
+            if hunk.newStart < lineCount { return (NSRange(location: at, length: 0), baseLines + "\n") }
             return (NSRange(location: text.length, length: 0), "\n" + baseLines)
         }
         var start = lineStarts[hunk.newStart]
         let end = endsAtEnd ? text.length : lineStarts[hunk.newStart + hunk.newCount]
-        if hunk.oldCount == 0 {
+        if lines.isEmpty {
             // Added lines go away entirely; at the end of the file, so does the newline before them.
             if endsAtEnd && start > 0 { start -= 1 }
             return (NSRange(location: start, length: end - start), "")
@@ -175,6 +182,18 @@ enum LineDiff {
             for pair in pairs(in: hunk) where pair.new.map(lines.contains) ?? true { selected.insert(pair) }
         }
         return selected
+    }
+
+    /// Edits that revert the chosen rows of `hunks` in the current text to `old`, leaving the
+    /// other rows as they are: one edit per hunk touched, in the current text's coordinates.
+    static func revertEdits(rows: Set<DiffLinePair>, hunks: [DiffHunk], old: [Substring], new: [Substring],
+                            text: NSString, lineStarts: [Int]) -> [(range: NSRange, replacement: String)] {
+        hunks.compactMap { hunk in
+            let pairs = pairs(in: hunk)
+            guard pairs.contains(where: rows.contains) else { return nil }
+            let lines = pairs.compactMap { pair in rows.contains(pair) ? pair.old.map { old[$0] } : pair.new.map { new[$0] } }
+            return replaceEdit(for: hunk, with: lines, text: text, lineStarts: lineStarts)
+        }
     }
 
     static func lines(_ text: String) -> [Substring] {

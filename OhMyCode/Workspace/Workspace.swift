@@ -278,6 +278,7 @@ final class Workspace {
         case .rename: renameSymbol(in: document)
         case .format: formatDocument(document)
         case .stageSelectedLines: stageSelectedLines(in: document)
+        case .revertSelectedLines: revertSelectedLines(in: document)
         }
     }
 
@@ -341,6 +342,38 @@ final class Workspace {
     /// (every cursor's), leaving the rest of each change unstaged.
     func stageSelectedLines(in target: EditorDocument? = nil) {
         guard let document = target ?? activeDocument else { NSSound.beep(); return }
+        let lines = selectedLines(in: document)
+        stageRows(of: document) { LineDiff.rows(touching: lines, in: $0) }
+    }
+
+    /// Git: Revert Selected Lines — puts the changed lines the selections touch back to the
+    /// staged version, as one undoable edit; the rest of each change stays.
+    func revertSelectedLines(in target: EditorDocument? = nil) {
+        guard let document = target ?? activeDocument else { NSSound.beep(); return }
+        let lines = selectedLines(in: document)
+        revertRows(of: document) { LineDiff.rows(touching: lines, in: $0) }
+    }
+
+    /// Reverts chosen rows of the editor's changes to the staged version (undoable). `rows`
+    /// picks them from the hunks as they are now; nil or none refuses.
+    func revertRows(of document: EditorDocument, _ rows: ([DiffHunk]) -> Set<DiffLinePair>?) {
+        guard let base = document.diffBaseLines else { NSSound.beep(); return }
+        let text = document.textStorage.mutableString
+        let current = LineDiff.lines(text as String)
+        let hunks = LineDiff.hunks(base: base, current: current)
+        guard let selected = rows(hunks), !selected.isEmpty else { NSSound.beep(); return }
+        let edits = LineDiff.revertEdits(rows: selected, hunks: hunks, old: base, new: current, text: text,
+                                         lineStarts: document.lineIndex.lineStarts)
+        do {
+            _ = try document.apply(edits.map { TextReplacement(range: $0.range, text: $0.replacement) },
+                                   actionName: "Revert Selected Lines")
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Zero-based lines touched by the editor's selections (every cursor's).
+    private func selectedLines(in document: EditorDocument) -> Set<Int> {
         let ranges = document.editor.map { [$0.textView.selectedRange()] + $0.extraSelections }
             ?? document.viewState.map { [$0.selection] } ?? []
         var lines = Set<Int>()
@@ -349,7 +382,7 @@ final class Workspace {
             let last = document.lineIndex.line(containing: max(range.location, NSMaxRange(range) - 1))
             lines.formUnion(first...last)
         }
-        stageRows(of: document) { LineDiff.rows(touching: lines, in: $0) }
+        return lines
     }
 
     /// Stages chosen rows of the editor's changes (unsaved edits included). `rows` picks them
