@@ -33,6 +33,8 @@ struct WorkspaceView: View {
                     ReferencesView(workspace: workspace)
                 }
             }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .themedBackground(.sidebar, fallback: .clear)
             .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 480)
         } detail: {
             VStack(spacing: 0) {

@@ -40,6 +40,7 @@
 		7ACEC9BB55E27BD7C88EC300 /* LineDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 257D4B1DFFEADE990E86AC2F /* LineDiff.swift */; };
 		7C38F08A05F05728C4005924 /* SwiftTreeSitter in Frameworks */ = {isa = PBXBuildFile; productRef = F1CE83A05017EBD7031E980D /* SwiftTreeSitter */; };
 		811E4E5D449959BFF694A5A8 /* SyntaxHighlighterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 283BBF8CB8D107A54E380B0E /* SyntaxHighlighterTests.swift */; };
+		85FEC831829AF27DCBF673AF /* ThemeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD24CD25D1A3855BF3816B4B /* ThemeStyle.swift */; };
 		885EB771E5C8AF05523D9F2B /* GitStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FE1528841757CF0824617C /* GitStatus.swift */; };
 		89FF2F3F048DED247C101AA6 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 1DB02258B857C771FD1F3771 /* Fixtures */; };
 		8C1C0AAC96AD09D8A39F1550 /* FileTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEDEE1E43EDF21D7D2A5757E /* FileTreeView.swift */; };
@@ -148,6 +149,7 @@
 		C0DA477C6C5DD7FADEA27948 /* TerminalKeyMap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalKeyMap.swift; sourceTree = "<group>"; };
 		C36812F51B050541F79C1862 /* GitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitTests.swift; sourceTree = "<group>"; };
 		CCCA5F034FB1A1D75C15F673 /* FileWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatcher.swift; sourceTree = "<group>"; };
+		CD24CD25D1A3855BF3816B4B /* ThemeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeStyle.swift; sourceTree = "<group>"; };
 		CD379088235C2421A7031BC4 /* LSPTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LSPTests.swift; sourceTree = "<group>"; };
 		D06B0B21A096AF4D60EC2722 /* DiagnosticsOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsOverlayView.swift; sourceTree = "<group>"; };
 		D0B2EE7BE3BFA8F86486EE2E /* ReferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferencesView.swift; sourceTree = "<group>"; };
@@ -245,6 +247,7 @@
 				DEDEE1E43EDF21D7D2A5757E /* FileTreeView.swift */,
 				B14BECEA4F9A853D675100EC /* StatusBarView.swift */,
 				D7257FD6D9E15285EEF71E95 /* TabBarView.swift */,
+				CD24CD25D1A3855BF3816B4B /* ThemeStyle.swift */,
 				E900D8E8A233E7EC65D90EB6 /* WelcomeView.swift */,
 				796D31D35763D8DDD9A8020B /* WorkspaceView.swift */,
 			);
@@ -558,6 +561,7 @@
 				9A7723213A4E42A98A941F06 /* TerminalView.swift in Sources */,
 				BE1246C34BC63012B757AF7A /* TextReplacement.swift in Sources */,
 				A09C0787798D6942C1467B9B /* TextSearch.swift in Sources */,
+				85FEC831829AF27DCBF673AF /* ThemeStyle.swift in Sources */,
 				C6CBA1171534B6D1B3BF508F /* WelcomeView.swift in Sources */,
 				D477F7BD99917931B16AB872 /* Workspace+Language.swift in Sources */,
 				F0CE384F222A160A7BAEB5AF /* Workspace.swift in Sources */,

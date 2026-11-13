@@ -32,7 +32,7 @@ struct TerminalPanel: View {
                 .padding(.trailing, 8)
             }
             .frame(height: 30)
-            .background(.bar)
+            .themedBackground(.panel, fallback: .bar)
 
             Divider()
 

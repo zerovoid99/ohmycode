@@ -45,7 +45,7 @@ struct TabBarView: View {
             }
         }
         .frame(height: 32)
-        .background(.bar)
+        .themedBackground(.tabBar, fallback: .bar)
     }
 }
 
@@ -75,7 +75,7 @@ private struct TabItemView: View {
         }
         .padding(.horizontal, 12)
         .frame(maxHeight: .infinity)
-        .background(isActive ? Color(nsColor: .textBackgroundColor) : .clear)
+        .background(isActive ? Color(nsColor: EditorTheme.observed.background) : .clear)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }

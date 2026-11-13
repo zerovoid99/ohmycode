@@ -1,4 +1,5 @@
 import AppKit
+import simd
 import Testing
 @testable import Oh_My_Code
 
@@ -36,6 +37,34 @@ struct SettingsTests {
                 && restored.editorFontSize == AppSettings.defaultEditorFontSize && restored.appearance == .system)
     }
 
+    @Test func fixedThemesSetTheAppearance() {
+        let settings = AppSettings(defaults: scratch())
+        settings.appearance = .light
+        #expect(settings.effectiveAppearance?.name == .aqua)
+        #expect(!settings.themeSetsAppearance)
+        settings.themeID = "monokai" // dark theme wins over the Light setting
+        #expect(settings.themeSetsAppearance)
+        #expect(settings.effectiveAppearance?.name == .darkAqua)
+        settings.themeID = "solarized-light"
+        settings.appearance = .dark
+        #expect(settings.effectiveAppearance?.name == .aqua)
+        settings.themeID = EditorTheme.defaultTheme.id
+        settings.appearance = .system
+        #expect(settings.effectiveAppearance == nil)
+    }
+
+    @Test func terminalPaletteExtendsTheThemeColors() throws {
+        let palette = try #require(EditorTheme.monokai.terminalPalette)
+        #expect(palette.count == 256)
+        #expect(Array(palette.prefix(16)) == EditorTheme.monokai.ansi)
+        #expect(palette[16] == 0x000000 && palette[21] == 0x0000FF && palette[231] == 0xFFFFFF)
+        #expect(palette[232] == 0x080808 && palette[255] == 0xEEEEEE)
+        #expect(EditorTheme.defaultTheme.terminalPalette == nil)
+        for theme in EditorTheme.themes where theme.isDark != nil {
+            #expect(theme.chrome != nil && theme.ansi?.count == 16, "\(theme.name) lacks UI or terminal colors")
+        }
+    }
+
     @Test func fontsFallBackToSystemMonospaced() {
         #expect(AppSettings.font(family: "", size: 14).isFixedPitch)
         #expect(AppSettings.font(family: "No Such Font", size: 14).pointSize == 14)
@@ -56,6 +85,7 @@ struct SettingsTests {
             settings.editorFontSize = original.1
             settings.terminalFontSize = original.2
             settings.editorFontFamily = original.3
+            #expect(NSApp.appearance == nil)
         }
 
         let url = FileManager.default.temporaryDirectory.appending(path: "omc-theme-\(UUID().uuidString).swift")
@@ -74,6 +104,12 @@ struct SettingsTests {
         terminalWindow.contentView = terminal
         terminal.session = session
 
+        session.feed(Data("\u{1b}[31mRED\u{1b}[0m\r\n".utf8))
+        let red = SIMD3<Float>(Float(0xF9) / 255, Float(0x26) / 255, Float(0x72) / 255) // Monokai's red
+        func hasRed(_ frame: TerminalFrame) -> Bool {
+            frame.glyphs.contains { simd_distance(SIMD3($0.color.x, $0.color.y, $0.color.z), red) < 0.02 }
+        }
+        #expect(!hasRed(terminal.makeFrame(scale: 2)))
         let gutterWidth = controller.gutterView.width
         let columns = session.columns
         let cellWidth = terminal.cellWidth
@@ -98,6 +134,8 @@ struct SettingsTests {
         #expect(terminal.cellWidth > cellWidth)
         #expect(session.columns < columns)
         let frame = terminal.makeFrame(scale: 2)
+        #expect(hasRed(frame), "ANSI red doesn't use the theme's palette")
+        #expect(NSApp.appearance?.name == .darkAqua, "a dark theme sets the app's appearance")
         let background = try #require(monokai.background.usingColorSpace(.sRGB))
         #expect(abs(Double(frame.clearColor.x) - background.redComponent) < 0.01)
         #expect(abs(Double(frame.clearColor.z) - background.blueComponent) < 0.01)

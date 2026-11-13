@@ -54,7 +54,7 @@ struct StatusBarView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .frame(height: 22)
-        .background(.bar)
+        .themedBackground(.statusBar, fallback: .bar)
     }
 }
 

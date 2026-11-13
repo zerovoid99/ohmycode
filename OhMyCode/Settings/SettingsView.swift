@@ -21,6 +21,11 @@ struct SettingsView: View {
                 ForEach(AppSettings.Appearance.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
+            .disabled(settings.themeSetsAppearance)
+            if settings.themeSetsAppearance {
+                Text("The selected theme sets light or dark for the whole window.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
 
             Section("Color Theme") {
                 ForEach(EditorTheme.themes) { theme in

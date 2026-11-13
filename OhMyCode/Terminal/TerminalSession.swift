@@ -223,10 +223,23 @@ final class TerminalSession: Identifiable {
         return tracking
     }
 
-    func setDefaultColors(foreground: GhosttyColorRgb, background: GhosttyColorRgb) {
+    /// Default colors, and optionally the cursor color and the 256-color palette (nil resets
+    /// them to Ghostty's built-in defaults).
+    func setDefaultColors(foreground: GhosttyColorRgb, background: GhosttyColorRgb,
+                          cursor: GhosttyColorRgb? = nil, palette: [GhosttyColorRgb]? = nil) {
         var fg = foreground, bg = background
         ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND, &fg)
         ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND, &bg)
+        if var cursor {
+            ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, &cursor)
+        } else {
+            ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_COLOR_CURSOR, nil)
+        }
+        if var palette, palette.count == 256 {
+            palette.withUnsafeMutableBufferPointer { _ = ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_COLOR_PALETTE, $0.baseAddress) }
+        } else {
+            ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_COLOR_PALETTE, nil)
+        }
         onContentChange?()
     }
 

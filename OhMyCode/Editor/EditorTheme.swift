@@ -14,6 +14,32 @@ struct EditorThemeDefinition: Identifiable {
     let currentLineNumber: NSColor
     /// Colors per syntax role: keyword, string, comment, number, type, function, property, attribute.
     let syntax: [String: NSColor]
+    /// Window chrome around the editor; nil keeps the system's materials.
+    var chrome: ChromeColors? = nil
+    /// The 16 ANSI terminal colors (black…white, then bright); nil keeps Ghostty's defaults.
+    var ansi: [UInt32]? = nil
+
+    struct ChromeColors {
+        let sidebar: NSColor
+        let tabBar: NSColor
+        let statusBar: NSColor
+        /// Header strip of the terminal panel.
+        let panel: NSColor
+    }
+
+    /// The terminal's 256-color palette: the theme's 16 colors, then the standard xterm 6×6×6
+    /// color cube and grayscale ramp.
+    var terminalPalette: [UInt32]? {
+        guard let ansi, ansi.count == 16 else { return nil }
+        var palette = ansi
+        let levels: [UInt32] = [0, 95, 135, 175, 215, 255]
+        for r in levels { for g in levels { for b in levels { palette.append(r << 16 | g << 8 | b) } } }
+        for i in 0..<24 {
+            let v = UInt32(8 + i * 10)
+            palette.append(v << 16 | v << 8 | v)
+        }
+        return palette
+    }
 
     /// The appearance editors using this theme should draw with (nil: inherit the window's).
     var appearance: NSAppearance? {
@@ -56,6 +82,13 @@ enum EditorTheme {
         cachedFont = nil
         cachedTheme = nil
         resolvedColors.removeAll()
+    }
+
+    /// `current`, read so SwiftUI views re-render when the theme changes (the cache itself
+    /// isn't observable).
+    static var observed: EditorThemeDefinition {
+        _ = AppSettings.shared.themeID
+        return current
     }
 
     static var baseAttributes: [NSAttributedString.Key: Any] {
@@ -124,13 +157,22 @@ enum EditorTheme {
         id: "solarized-light", name: "Solarized Light", isDark: false,
         background: hex(0xFDF6E3), foreground: hex(0x657B83), selection: hex(0xEEE8D5), cursor: hex(0x586E75),
         lineNumber: hex(0x93A1A1), currentLineNumber: hex(0x586E75),
-        syntax: solarizedAccents.merging(["comment": hex(0x93A1A1)]) { $1 })
+        syntax: solarizedAccents.merging(["comment": hex(0x93A1A1)]) { $1 },
+        chrome: .init(sidebar: hex(0xEEE8D5), tabBar: hex(0xDDD6C1), statusBar: hex(0xEEE8D5), panel: hex(0xEEE8D5)),
+        ansi: solarizedANSI)
 
     static let solarizedDark = EditorThemeDefinition(
         id: "solarized-dark", name: "Solarized Dark", isDark: true,
         background: hex(0x002B36), foreground: hex(0x839496), selection: hex(0x073642), cursor: hex(0x93A1A1),
         lineNumber: hex(0x586E75), currentLineNumber: hex(0x93A1A1),
-        syntax: solarizedAccents.merging(["comment": hex(0x586E75)]) { $1 })
+        syntax: solarizedAccents.merging(["comment": hex(0x586E75)]) { $1 },
+        chrome: .init(sidebar: hex(0x00212B), tabBar: hex(0x004052), statusBar: hex(0x00212B), panel: hex(0x00212B)),
+        ansi: solarizedANSI)
+
+    private static let solarizedANSI: [UInt32] = [
+        0x073642, 0xDC322F, 0x859900, 0xB58900, 0x268BD2, 0xD33682, 0x2AA198, 0xEEE8D5,
+        0x002B36, 0xCB4B16, 0x586E75, 0x657B83, 0x839496, 0x6C71C4, 0x93A1A1, 0xFDF6E3,
+    ]
 
     static let monokai = EditorThemeDefinition(
         id: "monokai", name: "Monokai", isDark: true,
@@ -139,6 +181,11 @@ enum EditorTheme {
         syntax: [
             "keyword": hex(0xF92672), "string": hex(0xE6DB74), "comment": hex(0x75715E), "number": hex(0xAE81FF),
             "type": hex(0x66D9EF), "function": hex(0xA6E22E), "property": hex(0xFD971F), "attribute": hex(0xA6E22E),
+        ],
+        chrome: .init(sidebar: hex(0x1E1F1C), tabBar: hex(0x1E1F1C), statusBar: hex(0x414339), panel: hex(0x1E1F1C)),
+        ansi: [
+            0x272822, 0xF92672, 0xA6E22E, 0xF4BF75, 0x66D9EF, 0xAE81FF, 0xA1EFE4, 0xF8F8F2,
+            0x75715E, 0xF92672, 0xA6E22E, 0xF4BF75, 0x66D9EF, 0xAE81FF, 0xA1EFE4, 0xF9F8F5,
         ])
 
     static func hex(_ value: UInt32) -> NSColor {

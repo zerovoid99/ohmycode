@@ -90,14 +90,26 @@ final class AppSettings {
         NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 
-    /// Sets the app-wide light/dark appearance.
-    func applyAppearance() {
-        guard NSApp != nil else { return }
-        let target: NSAppearance? = switch appearance {
+    /// A light or dark theme decides the appearance; the Default theme follows the setting.
+    var themeSetsAppearance: Bool {
+        EditorTheme.themes.first { $0.id == themeID }?.isDark != nil
+    }
+
+    var effectiveAppearance: NSAppearance? {
+        if let isDark = EditorTheme.themes.first(where: { $0.id == themeID })?.isDark {
+            return NSAppearance(named: isDark ? .darkAqua : .aqua)
+        }
+        return switch appearance {
         case .system: nil
         case .light: NSAppearance(named: .aqua)
         case .dark: NSAppearance(named: .darkAqua)
         }
+    }
+
+    /// Sets the app-wide light/dark appearance (windows, sidebar, menus).
+    func applyAppearance() {
+        guard NSApp != nil else { return }
+        let target = effectiveAppearance
         if NSApp.appearance != target { NSApp.appearance = target }
     }
 

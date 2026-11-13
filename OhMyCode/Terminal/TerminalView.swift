@@ -179,11 +179,16 @@ final class TerminalView: NSView {
         guard let session else { return }
         var foreground = GhosttyColorRgb(), background = GhosttyColorRgb()
         let theme = EditorTheme.current
+        var cursor: GhosttyColorRgb?
         (theme.appearance ?? effectiveAppearance).performAsCurrentDrawingAppearance {
             foreground = Self.rgb(theme.foreground)
             background = Self.rgb(theme.background)
+            if theme.isDark != nil { cursor = Self.rgb(theme.cursor) } // fixed themes only
         }
-        session.setDefaultColors(foreground: foreground, background: background)
+        let palette = theme.terminalPalette?.map {
+            GhosttyColorRgb(r: UInt8($0 >> 16 & 0xFF), g: UInt8($0 >> 8 & 0xFF), b: UInt8($0 & 0xFF))
+        }
+        session.setDefaultColors(foreground: foreground, background: background, cursor: cursor, palette: palette)
         rowCache.removeAll()
     }
 

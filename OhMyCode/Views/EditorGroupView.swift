@@ -32,7 +32,7 @@ struct EditorGroupView: View {
                     description: Text("Select a file in the sidebar to open it.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(nsColor: .textBackgroundColor))
+                .editorBackground()
             }
         }
     }
