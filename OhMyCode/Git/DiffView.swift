@@ -164,6 +164,14 @@ struct DiffView: View {
     let workspace: Workspace
     @State private var expanded: Set<Int> = []
     @State private var currentChange = 0
+    /// Changed rows picked by clicking their line numbers, to stage or unstage only those.
+    @State private var selection: Set<DiffLinePair> = []
+
+    init(session: DiffSession, workspace: Workspace, selection: Set<DiffLinePair> = []) {
+        self.session = session
+        self.workspace = workspace
+        _selection = State(initialValue: selection)
+    }
 
     private var isStaged: Bool { session.mode == .staged }
 
@@ -200,10 +208,15 @@ struct DiffView: View {
                                 VStack(spacing: 0) {
                                     if let hunk = row.hunk, starts.first(where: { $0.hunk == hunk })?.row == row.id,
                                        hunks.indices.contains(hunk) {
-                                        hunkBar(hunks[hunk])
+                                        hunkBar(hunks[hunk], all: hunks)
                                     }
                                     DiffRowView(row: row, base: base, current: current,
-                                                baseSpans: session.baseSpans, currentSpans: session.currentSpans, onExpand: {
+                                                baseSpans: session.baseSpans, currentSpans: session.currentSpans,
+                                                isSelected: selection.contains(row.pair),
+                                                onToggle: row.hunk == nil ? nil : {
+                                                    if selection.remove(row.pair) == nil { selection.insert(row.pair) }
+                                                },
+                                                onExpand: {
                                         if let old = row.old { expanded.insert(old) }
                                     })
                                 }
@@ -222,12 +235,35 @@ struct DiffView: View {
         .task(id: [session.baseVersion, session.currentVersion]) {
             await session.refreshHighlights()
         }
+        // Rows are line numbers: after the text or the index changes they may mean other lines.
+        .onChange(of: [session.baseVersion, session.currentVersion]) { selection = [] }
     }
 
     /// Actions for one change, above its lines.
-    private func hunkBar(_ hunk: DiffHunk) -> some View {
-        HStack(spacing: 12) {
+    private func hunkBar(_ hunk: DiffHunk, all hunks: [DiffHunk]) -> some View {
+        let picked = selection.intersection(LineDiff.pairs(in: hunk))
+        return HStack(spacing: 12) {
+            if picked.isEmpty {
+                Text("Click line numbers to pick lines").foregroundStyle(.tertiary)
+            } else {
+                Button("Clear", systemImage: "xmark") { selection.subtract(picked) }
+                    .labelStyle(.titleOnly)
+            }
             Spacer()
+            if !picked.isEmpty {
+                let count = "\(selection.count) Selected Line\(selection.count == 1 ? "" : "s")"
+                if isStaged {
+                    Button("Unstage \(count)", systemImage: "minus.square") { workspace.unstageRows(selection, in: session) }
+                        .help("Remove the selected lines (in every change) from the staged version")
+                } else if let document = session.document {
+                    let rows = selection
+                    Button("Stage \(count)", systemImage: "plus.square") {
+                        // Only if the diff is still the one the rows were picked from.
+                        workspace.stageRows(of: document) { $0 == hunks ? rows : nil }
+                    }
+                    .help("Stage only the selected lines (in every change)")
+                }
+            }
             if isStaged {
                 Button("Unstage Change", systemImage: "minus") { workspace.unstageHunk(hunk, in: session) }
                     .help("Remove this change from the staged version")
@@ -282,6 +318,8 @@ struct DiffView: View {
 }
 
 extension DiffRow {
+    var pair: DiffLinePair { DiffLinePair(old: old, new: new) }
+
     var isSkipped: Bool { if case .skipped = kind { return true } else { return false } }
 
     /// The first row of each hunk, in order (for previous/next change and the hunk actions).
@@ -300,6 +338,9 @@ private struct DiffRowView: View {
     let current: [Substring]
     let baseSpans: [[LineSpan]]?
     let currentSpans: [[LineSpan]]?
+    var isSelected = false
+    /// Picks or unpicks the row (changed rows only).
+    var onToggle: (() -> Void)? = nil
     let onExpand: () -> Void
 
     var body: some View {
@@ -337,14 +378,21 @@ private struct DiffRowView: View {
         let lineSpans = line.flatMap { spans?.indices.contains($0) == true ? spans?[$0] : nil }
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Text(line.map { String($0 + 1) } ?? "")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                .fontWeight(isSelected ? .bold : nil)
                 .frame(width: 44, alignment: .trailing)
+                .contentShape(Rectangle())
+                .onTapGesture { onToggle?() }
+                .help(onToggle == nil ? "" : (isSelected ? "Unpick this line" : "Pick this line to stage it alone"))
             Text(DiffLineStyle.attributed(text ?? "", spans: lineSpans, words: words, wordTint: tint?.opacity(0.4)))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: .infinity, alignment: .top)
         .font(Font(EditorTheme.font))
         .padding(.vertical, 1)
-        .background(line == nil ? Color.secondary.opacity(0.06) : (tint?.opacity(0.15) ?? .clear))
+        .background(line == nil ? Color.secondary.opacity(0.06) : (tint?.opacity(isSelected ? 0.3 : 0.15) ?? .clear))
+        .overlay(alignment: .leading) {
+            if isSelected { Rectangle().fill(Color.accentColor).frame(width: 3) }
+        }
     }
 }

@@ -414,6 +414,7 @@ final class EditorController: NSObject {
     @objc private func contextFindReferences(_ sender: Any?) { perform(.findReferences) }
     @objc private func contextRename(_ sender: Any?) { perform(.rename) }
     @objc private func contextFormat(_ sender: Any?) { perform(.format) }
+    @objc private func contextStageLines(_ sender: Any?) { perform(.stageSelectedLines) }
 
     /// Language actions at the top of the editor's context menu.
     fileprivate func languageMenuItems() -> [NSMenuItem] {
@@ -603,7 +604,13 @@ extension EditorController: NSTextViewDelegate {
         if !(NSLocationInRange(charIndex, selection) || (selection.length == 0 && charIndex == selection.location)) {
             view.setSelectedRange(NSRange(location: charIndex, length: 0))
         }
-        let items = languageMenuItems()
+        var items = languageMenuItems()
+        // In a git repository, with changes: stage what the selection touches.
+        if document.stageHunkAction != nil, !document.diffHunks.isEmpty {
+            let stage = NSMenuItem(title: "Stage Selected Lines", action: #selector(contextStageLines), keyEquivalent: "")
+            stage.target = self
+            items += [stage, .separator()]
+        }
         for (offset, item) in items.enumerated() { menu.insertItem(item, at: offset) }
         return menu
     }
@@ -775,7 +782,7 @@ extension EditorController: SyntaxHighlighterClient {
 
 /// Language actions an editor asks its workspace to run (⌘-click, context menu).
 enum EditorCommand: String {
-    case goToDefinition, findReferences, rename, format
+    case goToDefinition, findReferences, rename, format, stageSelectedLines
 }
 
 extension Notification.Name {

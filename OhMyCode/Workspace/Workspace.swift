@@ -277,6 +277,7 @@ final class Workspace {
         case .findReferences: findReferences(in: document)
         case .rename: renameSymbol(in: document)
         case .format: formatDocument(document)
+        case .stageSelectedLines: stageSelectedLines(in: document)
         }
     }
 
@@ -334,6 +335,49 @@ final class Workspace {
         let expected = base.joined(separator: "\n")
         let content = LineDiff.applying(hunk, old: base, new: current)
         runGit { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
+    }
+
+    /// Git: Stage Selected Lines — stages the changed lines the editor's selections touch
+    /// (every cursor's), leaving the rest of each change unstaged.
+    func stageSelectedLines(in target: EditorDocument? = nil) {
+        guard let document = target ?? activeDocument else { NSSound.beep(); return }
+        let ranges = document.editor.map { [$0.textView.selectedRange()] + $0.extraSelections }
+            ?? document.viewState.map { [$0.selection] } ?? []
+        var lines = Set<Int>()
+        for range in ranges {
+            let first = document.lineIndex.line(containing: range.location)
+            let last = document.lineIndex.line(containing: max(range.location, NSMaxRange(range) - 1))
+            lines.formUnion(first...last)
+        }
+        stageRows(of: document) { LineDiff.rows(touching: lines, in: $0) }
+    }
+
+    /// Stages chosen rows of the editor's changes (unsaved edits included). `rows` picks them
+    /// from the hunks as they are now; nil or none refuses (e.g. the diff they were picked
+    /// from has changed since).
+    func stageRows(of document: EditorDocument, _ rows: ([DiffHunk]) -> Set<DiffLinePair>?) {
+        guard let base = document.diffBaseLines, let path = relativePath(of: document.url) else { NSSound.beep(); return }
+        let current = LineDiff.lines(document.textStorage.mutableString as String)
+        let hunks = LineDiff.hunks(base: base, current: current)
+        guard let selected = rows(hunks), !selected.isEmpty else { NSSound.beep(); return }
+        let content = LineDiff.mixing(old: base, new: current, hunks: hunks, useNew: selected.contains)
+        let expected = base.joined(separator: "\n")
+        runGit { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
+    }
+
+    /// Takes chosen rows back out of the staged version (the working tree keeps them).
+    func unstageRows(_ rows: Set<DiffLinePair>, in session: DiffSession) {
+        guard session.mode == .staged, let head = session.headLines, let index = session.indexLines,
+              let path = relativePath(of: session.url) else { NSSound.beep(); return }
+        let hunks = session.stagedHunks
+        guard !rows.isDisjoint(with: hunks.flatMap(LineDiff.pairs)) else { NSSound.beep(); return }
+        let content = LineDiff.mixing(old: head, new: index, hunks: hunks, useNew: { !rows.contains($0) })
+        let expected = index.joined(separator: "\n")
+        if session.isNewFile && content.isEmpty {
+            runGit { try Git.unstage([path], in: $0) }
+        } else {
+            runGit { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
+        }
     }
 
     /// Git: Stage Change at Cursor.

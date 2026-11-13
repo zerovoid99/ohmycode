@@ -20,6 +20,12 @@ struct DiffHunk: Sendable, Equatable {
     }
 }
 
+/// One row of a hunk: a changed line pair, or a line only removed (`new` nil) or only added.
+struct DiffLinePair: Hashable, Sendable {
+    let old: Int?
+    let new: Int?
+}
+
 /// Line-level diff between the index version and the buffer, for gutter markers.
 enum LineDiff {
     /// Above this many differing lines (after trimming the common prefix/suffix) the middle is
@@ -125,6 +131,50 @@ enum LineDiff {
         result.replaceSubrange(hunk.newStart..<(hunk.newStart + hunk.newCount),
                                with: old[hunk.oldStart..<(hunk.oldStart + hunk.oldCount)])
         return result.joined(separator: "\n")
+    }
+
+    /// The rows of a hunk as the diff view shows them: old and new lines paired in order, then
+    /// the extra removed or added lines.
+    static func pairs(in hunk: DiffHunk) -> [DiffLinePair] {
+        let paired = min(hunk.oldCount, hunk.newCount)
+        return (0..<paired).map { DiffLinePair(old: hunk.oldStart + $0, new: hunk.newStart + $0) }
+            + (paired..<hunk.oldCount).map { DiffLinePair(old: hunk.oldStart + $0, new: nil) }
+            + (paired..<hunk.newCount).map { DiffLinePair(old: nil, new: hunk.newStart + $0) }
+    }
+
+    /// `old` with the changed rows for which `useNew` is true taken from `new`: a changed pair
+    /// becomes its new line, a removed line goes, an added line comes in. Rows left out stay as
+    /// in `old`. Staging selected lines (old = index, new = working tree) gives the new index;
+    /// unstaging them (old = HEAD, new = index) uses the rows *not* selected.
+    static func mixing(old: [Substring], new: [Substring], hunks: [DiffHunk],
+                       useNew: (DiffLinePair) -> Bool) -> String {
+        var result: [Substring] = []
+        var oldLine = 0
+        for hunk in hunks {
+            result.append(contentsOf: old[oldLine..<hunk.oldStart])
+            for pair in pairs(in: hunk) {
+                let line = useNew(pair) ? pair.new.map { new[$0] } : pair.old.map { old[$0] }
+                if let line { result.append(line) }
+            }
+            oldLine = hunk.oldStart + hunk.oldCount
+        }
+        result.append(contentsOf: old[oldLine...])
+        return result.joined(separator: "\n")
+    }
+
+    /// Which rows a selection of lines in the new text (zero-based) covers. Removed lines have
+    /// no line there: they count when the selection touches their hunk's new lines, or for a
+    /// pure deletion, the line it sits on or the one above.
+    static func rows(touching lines: Set<Int>, in hunks: [DiffHunk]) -> Set<DiffLinePair> {
+        var selected = Set<DiffLinePair>()
+        for hunk in hunks {
+            let touched = hunk.newCount == 0
+                ? lines.contains(hunk.newStart) || lines.contains(hunk.newStart - 1)
+                : (hunk.newStart..<(hunk.newStart + hunk.newCount)).contains { lines.contains($0) }
+            guard touched else { continue }
+            for pair in pairs(in: hunk) where pair.new.map(lines.contains) ?? true { selected.insert(pair) }
+        }
+        return selected
     }
 
     static func lines(_ text: String) -> [Substring] {
