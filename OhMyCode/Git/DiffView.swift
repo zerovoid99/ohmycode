@@ -15,6 +15,8 @@ final class DiffSession: Identifiable {
         case workingTree, staged
         case commit(GitCommit)
         case compare(GitCommit)
+        /// The two sides of a merge conflict, as they were when compared.
+        case conflict(ConflictComparison)
     }
 
     let id = UUID()
@@ -68,6 +70,14 @@ final class DiffSession: Identifiable {
         ownsDocument = false
     }
 
+    init(conflict: ConflictComparison, of url: URL) {
+        mode = .conflict(conflict)
+        self.url = url
+        document = nil
+        ownsDocument = false
+        setLoaded(base: conflict.current, current: conflict.incoming, isNewFile: false)
+    }
+
     var fileName: String { url.lastPathComponent }
     var isStaged: Bool { mode == .staged }
     /// The left side follows the editor's text (and edits there show up live).
@@ -79,6 +89,7 @@ final class DiffSession: Identifiable {
         case .staged: "\(fileName) (Staged)"
         case .commit(let commit): "\(fileName) (\(commit.shortSHA))"
         case .compare(let commit): "\(fileName) (\(commit.shortSHA) ↔ Current)"
+        case .conflict: "\(fileName) (Current ↔ Incoming)"
         }
     }
 
@@ -88,6 +99,7 @@ final class DiffSession: Identifiable {
         case .staged: "\(url.path) — HEAD ↔ staged"
         case .commit(let commit): "\(url.path) — \(commit.summary) (\(commit.shortSHA))"
         case .compare(let commit): "\(url.path) — \(commit.shortSHA) ↔ working tree"
+        case .conflict(let conflict): "\(url.path) — merge conflict: \(conflict.currentLabel) ↔ \(conflict.incomingLabel)"
         }
     }
 
@@ -98,6 +110,7 @@ final class DiffSession: Identifiable {
         case .staged: ("HEAD", "Staged")
         case .commit(let commit): (commit.parents.first.map { String($0.prefix(7)) } ?? "(none)", commit.shortSHA)
         case .compare(let commit): (commit.shortSHA, "Working Tree")
+        case .conflict(let conflict): ("Current: \(conflict.currentLabel)", "Incoming: \(conflict.incomingLabel)")
         }
     }
 
@@ -121,7 +134,7 @@ final class DiffSession: Identifiable {
         switch mode {
         case .workingTree: document?.diffHunks ?? []
         case .compare: compareHunks
-        case .staged, .commit: loadedHunks
+        case .staged, .commit, .conflict: loadedHunks
         }
     }
 
@@ -330,6 +343,7 @@ struct DiffView: View {
         case .staged: "The staged version matches the last commit."
         case .commit: "This commit didn't change the file's content."
         case .compare: "The file matches this commit's version."
+        case .conflict: "Both sides of the conflict are the same."
         }
     }
 
@@ -495,4 +509,12 @@ private struct DiffRowView: View {
             if isSelected { Rectangle().fill(Color.accentColor).frame(width: 3) }
         }
     }
+}
+
+/// A merge conflict's two sides, for a diff tab.
+struct ConflictComparison: Hashable, Sendable {
+    let current: String
+    let incoming: String
+    let currentLabel: String
+    let incomingLabel: String
 }

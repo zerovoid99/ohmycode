@@ -555,6 +555,10 @@ final class Workspace {
     }
 
     private func loadDiffBase(for document: EditorDocument) {
+        document.compareConflictAction = { [weak self, weak document] conflict in
+            guard let self, let document else { return }
+            self.compareConflict(conflict, in: document)
+        }
         guard let repository = gitRepository, let path = relativePath(of: document.url) else {
             document.setDiffBase(nil)
             return
@@ -652,6 +656,22 @@ final class Workspace {
         let session = DiffSession(document: document, ownsDocument: !wasOpen, comparingWith: commit)
         diffSessions.append(session)
         loadCommit(session, commit)
+        activeGroup.show(session.id)
+        return session
+    }
+
+    /// A merge conflict's current and incoming sides, side by side (as they are now; the tab
+    /// doesn't follow later edits).
+    @discardableResult
+    func compareConflict(_ conflict: MergeConflict, in document: EditorDocument) -> DiffSession {
+        let comparison = conflict.comparison(in: document.textStorage.mutableString)
+        let canonical = document.canonicalPath
+        if let existing = diffSessions.first(where: { $0.mode == .conflict(comparison) && FileWatcher.canonicalPath($0.url) == canonical }) {
+            activeGroup.show(existing.id)
+            return existing
+        }
+        let session = DiffSession(conflict: comparison, of: document.url)
+        diffSessions.append(session)
         activeGroup.show(session.id)
         return session
     }

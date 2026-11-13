@@ -29,6 +29,27 @@ struct MergeConflict: Equatable {
         case both = "Accept Both"
     }
 
+    /// What the links after the `<<<<<<<` line do.
+    enum Action: Equatable, CaseIterable {
+        case accept(Resolution)
+        case compare
+
+        static let allCases: [Action] = Resolution.allCases.map(Action.accept) + [.compare]
+
+        var title: String {
+            switch self {
+            case .accept(let resolution): resolution.rawValue
+            case .compare: "Compare"
+            }
+        }
+    }
+
+    /// Its two sides, for a diff tab.
+    func comparison(in string: NSString) -> ConflictComparison {
+        ConflictComparison(current: string.substring(with: current), incoming: string.substring(with: incoming),
+                           currentLabel: currentLabel, incomingLabel: incomingLabel)
+    }
+
     /// The text that replaces the conflict.
     func text(for resolution: Resolution, in string: NSString) -> String {
         switch resolution {
@@ -129,18 +150,18 @@ extension EditorDocument {
 
 extension EditorController {
     /// Where a conflict's actions are drawn: after its `<<<<<<<` line. Also the click targets.
-    func conflictActionRects() -> [(rect: NSRect, conflict: MergeConflict, resolution: MergeConflict.Resolution)] {
+    func conflictActionRects() -> [(rect: NSRect, conflict: MergeConflict, action: MergeConflict.Action)] {
         let visible = textView.visibleRect.insetBy(dx: 0, dy: -200)
         let font = Self.conflictActionFont
-        var result: [(NSRect, MergeConflict, MergeConflict.Resolution)] = []
+        var result: [(NSRect, MergeConflict, MergeConflict.Action)] = []
         for conflict in visibleConflicts() {
             guard let line = rect(for: conflict.startMarker.length > 0 ? conflict.startMarker
                                                                        : NSRange(location: conflict.startMarker.location, length: 0)),
                   line.intersects(visible) else { continue }
             var x = line.maxX + 18
-            for resolution in MergeConflict.Resolution.allCases {
-                let width = (resolution.rawValue as NSString).size(withAttributes: [.font: font]).width
-                result.append((NSRect(x: x, y: line.minY, width: width, height: line.height), conflict, resolution))
+            for action in MergeConflict.Action.allCases {
+                let width = (action.title as NSString).size(withAttributes: [.font: font]).width
+                result.append((NSRect(x: x, y: line.minY, width: width, height: line.height), conflict, action))
                 x += width + 14
             }
         }
@@ -189,8 +210,18 @@ extension EditorController {
     /// Runs the action under a click; true if there was one.
     func handleConflictClick(at point: NSPoint) -> Bool {
         guard let hit = conflictActionRects().first(where: { $0.rect.insetBy(dx: -3, dy: 0).contains(point) }) else { return false }
-        document.resolve([hit.conflict], with: hit.resolution)
+        switch hit.action {
+        case .accept(let resolution): document.resolve([hit.conflict], with: resolution)
+        case .compare: compareConflict(hit.conflict)
+        }
         return true
+    }
+
+    /// Opens the conflict's two sides in a diff tab (the workspace does; beeps without one).
+    func compareConflict(_ conflict: MergeConflict? = nil) {
+        guard let conflict = conflict ?? document.conflict(at: textView.selectedRange().location),
+              let compare = document.compareConflictAction else { NSSound.beep(); return }
+        compare(conflict)
     }
 
     /// Resolves the conflict at the cursor (palette); beeps if there is none.

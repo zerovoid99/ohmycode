@@ -16,7 +16,7 @@ final class DiagnosticsOverlayView: NSView {
     var blameAnnotation: (() -> (text: String, origin: NSPoint)?)?
     /// Merge conflicts: tinted sides, and the actions after each `<<<<<<<` line.
     var conflictBands: (() -> [(rect: NSRect, kind: ConflictBand)])?
-    var conflictActions: (() -> [(rect: NSRect, conflict: MergeConflict, resolution: MergeConflict.Resolution)])?
+    var conflictActions: (() -> [(rect: NSRect, conflict: MergeConflict, action: MergeConflict.Action)])?
 
     init(textView: NSTextView, document: EditorDocument) {
         self.textView = textView
@@ -70,7 +70,7 @@ final class DiagnosticsOverlayView: NSView {
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: EditorController.conflictActionFont, .foregroundColor: NSColor.linkColor,
             ]
-            let text = action.resolution.rawValue as NSString
+            let text = action.action.title as NSString
             let size = text.size(withAttributes: attributes)
             text.draw(at: NSPoint(x: action.rect.minX, y: action.rect.midY - size.height / 2), withAttributes: attributes)
             // "|" between the actions of one conflict.

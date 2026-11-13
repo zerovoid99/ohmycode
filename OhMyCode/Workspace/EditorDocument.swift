@@ -88,6 +88,8 @@ final class EditorDocument: Identifiable {
     /// Merge conflicts left in the text (`<<<<<<<` … `>>>>>>>`), re-read shortly after edits.
     @ObservationIgnored private(set) var conflicts: [MergeConflict] = []
     @ObservationIgnored private var conflictTask: Task<Void, Never>?
+    /// Opens a conflict's two sides in a diff tab (set by the workspace).
+    @ObservationIgnored var compareConflictAction: ((MergeConflict) -> Void)?
     /// Stages one hunk of this document (set by the workspace for files in a git repository).
     @ObservationIgnored var stageHunkAction: ((DiffHunk) -> Void)?
 

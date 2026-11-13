@@ -95,12 +95,12 @@ struct MergeConflictEditorTests {
         let (controller, window) = show(document)
 
         let actions = controller.conflictActionRects()
-        #expect(actions.count == 6)
+        #expect(actions.count == 8)
         #expect(controller.conflictBands().filter { $0.kind == .current }.count == 2)
         // Actions sit after the "<<<<<<<" line, left to right.
         let marker = try #require(controller.rect(for: document.conflicts[0].startMarker))
         #expect(actions[0].rect.minX > marker.maxX && abs(actions[0].rect.minY - marker.minY) < 1)
-        #expect(actions.map(\.resolution).prefix(3) == [.current, .incoming, .both])
+        #expect(actions.map(\.action).prefix(4) == [.accept(.current), .accept(.incoming), .accept(.both), .compare])
 
         let incoming = actions[1]
         #expect(controller.handleConflictClick(at: NSPoint(x: incoming.rect.midX, y: incoming.rect.midY)))
@@ -124,6 +124,34 @@ struct MergeConflictEditorTests {
         #expect(document.textStorage.string == "a\nmine\nb\n1\n")
         #expect(document.undoManager.undoActionName == "Accept Current (All)")
         withExtendedLifetime(window) {}
+    }
+
+    @Test func compareOpensBothSidesInADiffTab() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-compare-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appending(path: "Cart.swift")
+        try "struct Cart {\n<<<<<<< HEAD\n    var total = 1\n    var tax = 0\n=======\n    var total = 2\n    var tax = 0\n>>>>>>> feature\n}\n"
+            .write(to: url, atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: url)
+        let document = try #require(workspace.activeDocument)
+        let (controller, window) = show(document)
+
+        let compare = try #require(controller.conflictActionRects().first { $0.action == .compare })
+        #expect(controller.handleConflictClick(at: NSPoint(x: compare.rect.midX, y: compare.rect.midY)))
+        let session = try #require(workspace.diffSession(id: workspace.activeGroup.activeDocumentID))
+        #expect(workspace.tabInfo(session.id)?.title == "Cart.swift (Current ↔ Incoming)")
+        #expect(session.sideLabels.base == "Current: HEAD" && session.sideLabels.current == "Incoming: feature")
+        #expect(session.baseLines == ["    var total = 1", "    var tax = 0", ""])
+        #expect(session.hunks == [DiffHunk(oldStart: 0, oldCount: 1, newStart: 0, newCount: 1)])
+        #expect(document.textStorage.string.contains("<<<<<<<")) // comparing changes nothing
+
+        // The same conflict again: the same tab.
+        controller.textView.setSelectedRange(NSRange(location: document.conflicts[0].current.location, length: 0))
+        controller.compareConflict()
+        #expect(workspace.diffSessions.count == 1 && workspace.activeGroup.activeDocumentID == session.id)
+        withExtendedLifetime((workspace, window)) {}
     }
 
     /// A conflict as git writes it.
