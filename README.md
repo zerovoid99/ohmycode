@@ -97,11 +97,13 @@ local images). It updates as you type and scrolls with the editor both ways; dou
 of the preview to go to its source. Scripts in the Markdown don't run.
 
 ## Testing
-The Testing sidebar lists the folder's tests, found by reading test files: Swift packages (XCTest
-and Swift Testing), Go, Python (pytest if it's installed, else unittest), Jest, Vitest and Rust.
+The Testing sidebar lists the folder's tests, found by reading test files: Swift packages and Xcode
+projects (XCTest and Swift Testing), Go, Python (pytest if it's installed, else unittest), Jest, Vitest and Rust.
 ⌘U runs them all, ⌃⌥⌘U the test at the cursor; the ▶ in the gutter runs one test or suite and
 then shows ✓ or ✗. Failures appear under the test, in the editor and in Problems; the run's output
-is in the Tasks panel. (Xcode projects aren't supported: their tests need `xcodebuild`.)
+is in the Tasks panel. Xcode projects and workspaces (without a Package.swift) run with
+`xcodebuild test`: the project's own scheme, on the Mac or, for an iOS project, the first iPhone
+simulator; their test files are the Swift files in the test targets' folders.
 
 ## Keyboard shortcuts
 Settings → Keyboard Shortcuts lists every command (extensions' too): double-click one and press new
