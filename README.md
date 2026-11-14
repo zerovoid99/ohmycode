@@ -26,6 +26,41 @@ xcodebuild -scheme OhMyCode -destination 'platform=macOS' test
 - [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter) and tree-sitter grammars
   (MIT): syntax highlighting.
 
+## Tasks and Problems
+Terminal → Run Task… runs a folder's commands; ⇧⌘B runs the default build task. Tasks are found in
+Package.swift, package.json (npm, yarn, pnpm or bun scripts), Makefile, Cargo.toml and go.mod, and
+can be added in `.omc/tasks.json` (Configure Tasks… writes one listing the found tasks):
+
+```json
+{
+  "tasks": [{
+    "label": "Build",
+    "command": "swift build",
+    "group": "build",
+    "isDefault": true,
+    "cwd": "${workspaceFolder}",
+    "env": {}
+  }]
+}
+```
+
+The output shows in the Tasks panel; errors in it (swiftc, clang, gcc, TypeScript, Rust, Go and
+ESLint's unix format) are links, appear in the editor and in Problems (⇧⌘M), which lists every
+error and warning in the folder (language servers, extensions and tasks), open files or not.
+`"problemMatcher": "none"` leaves a task's output alone.
+
+## Snippets
+Snippets come up in completion and expand with Tab after their prefix (`guard⇥`); Tab and ⇧Tab
+then move between their placeholders, typing in a repeated one changes every copy, Esc finishes.
+Built-in ones cover Swift, Python, Rust, Go, C/C++, JavaScript/TypeScript, shell, Markdown and HTML.
+Your own, in VS Code's format, go in `~/Library/Application Support/OhMyCode/Snippets/<language>.json`
+(*Snippets: Configure User Snippets*) or the folder's `.omc/snippets/` and `.vscode/*.code-snippets`.
+
+## Markdown preview
+⇧⌘V shows a Markdown file rendered beside it (GitHub-style tables, task lists, highlighted code,
+local images). It updates as you type and scrolls with the editor both ways; double-click a part
+of the preview to go to its source. Scripts in the Markdown don't run.
+
 ## Debugging
 Run and Debug (⇧⌘D, F5) debugs with LLDB through the Debug Adapter Protocol (`lldb-dap`, part of
 Xcode): Swift, C, C++ and Objective-C. A Swift package's executables are found by themselves
