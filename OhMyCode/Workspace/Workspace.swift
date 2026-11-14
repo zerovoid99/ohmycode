@@ -14,6 +14,7 @@ final class Workspace {
                 attachBreakpoints(to: document)
                 applyTaskProblems(to: document)
                 document.workspaceRoot = rootURL
+                document.workspace = self
                 attachTests(to: document)
             }
             // Tell the extensions (only once they're running: opening a folder starts them).
@@ -377,6 +378,9 @@ final class Workspace {
                 } catch {
                     return // server missing or failed to launch: the editor works without it
                 }
+                client.onApplyEdit = { [weak self] edit, label in
+                    self?.applyServerEdit(edit, actionName: label ?? "\(config.name) Edit") ?? false
+                }
                 let source = "lsp:" + config.name
                 client.onDiagnostics = { [weak self] url, diagnostics in
                     guard let self else { return }
@@ -417,6 +421,7 @@ final class Workspace {
         case .findReferences: findReferences(in: document)
         case .goToImplementation: goToImplementation(in: document)
         case .callHierarchy: showCallHierarchy(in: document)
+        case .codeActions: showCodeActions(in: document)
         case .rename: renameSymbol(in: document)
         case .format: formatDocument(document)
         case .stageSelectedLines: stageSelectedLines(in: document)

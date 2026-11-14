@@ -131,6 +131,8 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored var pendingReplacement: (range: NSRange, length: Int)?
     /// The folder it's open in (for the folder's snippets).
     @ObservationIgnored var workspaceRoot: URL?
+    /// The window's workspace it's open in.
+    @ObservationIgnored weak var workspace: Workspace?
     @ObservationIgnored var onDidSave: (() -> Void)?
     /// What the blame popover can do with a line's commit (set by the workspace).
     @ObservationIgnored var blameActions: BlameActions?

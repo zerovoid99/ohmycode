@@ -62,7 +62,7 @@ final class LanguageClient {
                 "general": ["positionEncodings": ["utf-16"]],
                 "window": ["workDoneProgress": true],
                 "workspace": [
-                    "workspaceFolders": true, "configuration": true, "applyEdit": false,
+                    "workspaceFolders": true, "configuration": true, "applyEdit": true,
                     "symbol": [String: Any](),
                     "workspaceEdit": ["documentChanges": true],
                 ],
@@ -81,6 +81,21 @@ final class LanguageClient {
                     "implementation": ["linkSupport": true],
                     "typeDefinition": ["linkSupport": true],
                     "callHierarchy": [String: Any](),
+                    "codeAction": [
+                        "codeActionLiteralSupport": ["codeActionKind": ["valueSet": [
+                            "", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite",
+                            "source", "source.organizeImports", "source.fixAll",
+                        ]]],
+                        "isPreferredSupport": true, "disabledSupport": true, "dataSupport": true,
+                        "resolveSupport": ["properties": ["edit"]],
+                    ],
+                    "signatureHelp": [
+                        "signatureInformation": [
+                            "documentationFormat": ["markdown", "plaintext"],
+                            "parameterInformation": ["labelOffsetSupport": true], "activeParameterSupport": true,
+                        ],
+                        "contextSupport": true,
+                    ],
                     "publishDiagnostics": ["relatedInformation": false],
                 ],
             ],
@@ -191,6 +206,8 @@ final class LanguageClient {
         case typeDefinition = "typeDefinitionProvider"
         case callHierarchy = "callHierarchyProvider"
         case workspaceSymbol = "workspaceSymbolProvider"
+        case codeAction = "codeActionProvider"
+        case signatureHelp = "signatureHelpProvider"
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -206,6 +223,54 @@ final class LanguageClient {
     func workspaceSymbols(query: String) async throws -> [WorkspaceSymbol] {
         let result = try await request("workspace/symbol", params: ["query": query])
         return (result as? [[String: Any]] ?? []).compactMap(WorkspaceSymbol.init(json:))
+    }
+
+    // MARK: Code actions
+
+    /// Fixes and refactorings for `range`, given the diagnostics there; `only` limits the kinds.
+    func codeActions(url: URL, range: LSPRange, diagnostics: [Diagnostic], only: [String]? = nil) async throws -> [CodeAction] {
+        var context: [String: Any] = ["diagnostics": diagnostics.map(\.json), "triggerKind": 1]
+        if let only { context["only"] = only }
+        let result = try await request("textDocument/codeAction", params: [
+            "textDocument": ["uri": url.absoluteString], "range": range.json, "context": context,
+        ])
+        return (result as? [Any] ?? []).compactMap(CodeAction.init(json:))
+    }
+
+    /// Whether the server fills in actions' edits only when asked (`codeAction/resolve`).
+    var resolvesCodeActions: Bool {
+        (capabilities["codeActionProvider"] as? [String: Any])?["resolveProvider"] as? Bool ?? false
+    }
+
+    func resolve(_ action: CodeAction) async throws -> CodeAction {
+        CodeAction(json: try await request("codeAction/resolve", params: action.json)) ?? action
+    }
+
+    func executeCommand(_ command: [String: Any]) async throws {
+        var params: [String: Any] = ["command": command["command"] as? String ?? ""]
+        if let arguments = command["arguments"] { params["arguments"] = arguments }
+        _ = try await request("workspace/executeCommand", params: params)
+    }
+
+    /// The server asks to change files (after a command): answered with whether it was done.
+    var onApplyEdit: ((WorkspaceEdit, String?) -> Bool)?
+
+    // MARK: Signature help
+
+    func signatureHelp(url: URL, position: LSPPosition, trigger: String?, isRetrigger: Bool) async throws -> SignatureHelp? {
+        var context: [String: Any] = ["triggerKind": trigger == nil ? (isRetrigger ? 3 : 1) : 2, "isRetrigger": isRetrigger]
+        if let trigger { context["triggerCharacter"] = trigger }
+        let result = try await request("textDocument/signatureHelp", params: [
+            "textDocument": ["uri": url.absoluteString], "position": position.json, "context": context,
+        ])
+        return SignatureHelp(json: result)
+    }
+
+    /// Characters that open signature help ("(", ","), and those that update it once open.
+    var signatureHelpTriggers: (open: Set<String>, update: Set<String>) {
+        let options = capabilities["signatureHelpProvider"] as? [String: Any]
+        let open = Set(options?["triggerCharacters"] as? [String] ?? [])
+        return (open, open.union(options?["retriggerCharacters"] as? [String] ?? []))
     }
 
     // MARK: Call hierarchy
@@ -344,6 +409,10 @@ final class LanguageClient {
         case "workspace/configuration":
             let items = (params as? [String: Any])?["items"] as? [Any] ?? []
             response["result"] = Array(repeating: NSNull(), count: items.count)
+        case "workspace/applyEdit":
+            let object = params as? [String: Any]
+            let applied = WorkspaceEdit(json: object?["edit"]).map { onApplyEdit?($0, object?["label"] as? String) ?? false } ?? false
+            response["result"] = ["applied": applied]
         case "workspace/workspaceFolders":
             response["result"] = [["uri": rootURL.absoluteString, "name": rootURL.lastPathComponent]]
         case "window/workDoneProgress/create", "client/registerCapability", "client/unregisterCapability",

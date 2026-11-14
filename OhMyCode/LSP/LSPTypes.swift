@@ -58,6 +58,8 @@ struct Diagnostic: Equatable, Sendable {
     var severity: Severity
     var message: String
     var source: String?
+    /// The server's own JSON for it (with its code and data): sent back when asking for fixes.
+    var serverJSON: String?
 
     init(range: LSPRange, severity: Severity, message: String, source: String?) {
         self.range = range
@@ -73,6 +75,15 @@ struct Diagnostic: Equatable, Sendable {
         self.severity = (object["severity"] as? Int).flatMap(Severity.init) ?? .error
         self.message = message
         self.source = object["source"] as? String
+        serverJSON = (try? JSONSerialization.data(withJSONObject: object)).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    /// As LSP JSON (the server's own when it sent it).
+    var json: [String: Any] {
+        if let serverJSON, let object = (try? JSONSerialization.jsonObject(with: Data(serverJSON.utf8))) as? [String: Any] { return object }
+        var object: [String: Any] = ["range": range.json, "severity": severity.rawValue, "message": message]
+        if let source { object["source"] = source }
+        return object
     }
 }
 
@@ -312,5 +323,106 @@ struct CallHierarchyItem: @unchecked Sendable, Equatable {
 
     static func == (a: CallHierarchyItem, b: CallHierarchyItem) -> Bool {
         a.name == b.name && a.url == b.url && a.range == b.range && a.kind == b.kind
+    }
+}
+
+/// A fix or refactoring a server offers (a CodeAction, or a bare Command).
+struct CodeAction: @unchecked Sendable, Equatable {
+    let json: [String: Any]
+    let title: String
+    /// "quickfix", "refactor.extract", "source.organizeImports"…
+    let kind: String
+    let isPreferred: Bool
+    /// Why it can't run now (shown, not run).
+    let disabledReason: String?
+    let edit: WorkspaceEdit?
+    /// A command to run on the server (after the edit), as sent.
+    let command: [String: Any]?
+
+    init?(json: Any?) {
+        guard let object = json as? [String: Any], let title = object["title"] as? String else { return nil }
+        self.json = object
+        self.title = title
+        if object["command"] is String {
+            // A bare Command: running it is the action.
+            kind = ""
+            isPreferred = false
+            disabledReason = nil
+            edit = nil
+            command = object
+        } else {
+            kind = object["kind"] as? String ?? ""
+            isPreferred = object["isPreferred"] as? Bool ?? false
+            disabledReason = (object["disabled"] as? [String: Any])?["reason"] as? String
+            edit = WorkspaceEdit(json: object["edit"])
+            command = object["command"] as? [String: Any]
+        }
+    }
+
+    var isQuickFix: Bool { kind.hasPrefix("quickfix") }
+    var isRefactor: Bool { kind.hasPrefix("refactor") }
+    var isSource: Bool { kind.hasPrefix("source") }
+
+    static func == (a: CodeAction, b: CodeAction) -> Bool { a.title == b.title && a.kind == b.kind }
+}
+
+/// `textDocument/signatureHelp`: the signatures of the call being typed, and where in it the cursor is.
+struct SignatureHelp: Equatable, Sendable {
+    struct Signature: Equatable, Sendable {
+        var label: String
+        var documentation: String?
+        /// Each parameter's range in `label` (UTF-16) and its documentation.
+        var parameters: [(range: NSRange, documentation: String?)]
+        var activeParameter: Int?
+
+        static func == (a: Signature, b: Signature) -> Bool {
+            a.label == b.label && a.activeParameter == b.activeParameter && a.parameters.map(\.range) == b.parameters.map(\.range)
+        }
+    }
+
+    var signatures: [Signature]
+    var activeSignature: Int
+    var activeParameter: Int
+
+    /// The parameter to highlight in `signatures[activeSignature]` (its own index wins).
+    var highlighted: NSRange? {
+        guard signatures.indices.contains(activeSignature) else { return nil }
+        let signature = signatures[activeSignature]
+        let index = signature.activeParameter ?? activeParameter
+        return signature.parameters.indices.contains(index) ? signature.parameters[index].range : nil
+    }
+
+    init(signatures: [Signature], activeSignature: Int, activeParameter: Int) {
+        self.signatures = signatures
+        self.activeSignature = activeSignature
+        self.activeParameter = activeParameter
+    }
+
+    init?(json: Any?) {
+        guard let object = json as? [String: Any], let list = object["signatures"] as? [[String: Any]], !list.isEmpty else { return nil }
+        signatures = list.compactMap { entry in
+            guard let label = entry["label"] as? String else { return nil }
+            let text = label as NSString
+            let parameters: [(range: NSRange, documentation: String?)] = (entry["parameters"] as? [[String: Any]] ?? []).compactMap { parameter in
+                let documentation = HoverContent.markdown(from: parameter["documentation"])
+                if let offsets = parameter["label"] as? [Int], offsets.count == 2 {
+                    return (NSRange(location: offsets[0], length: offsets[1] - offsets[0]), documentation)
+                }
+                if let name = parameter["label"] as? String {
+                    let range = text.range(of: name)
+                    return range.location == NSNotFound ? nil : (range, documentation)
+                }
+                return nil
+            }
+            return Signature(label: label, documentation: HoverContent.markdown(from: entry["documentation"]),
+                             parameters: parameters, activeParameter: entry["activeParameter"] as? Int)
+        }
+        guard !signatures.isEmpty else { return nil }
+        activeSignature = min(object["activeSignature"] as? Int ?? 0, signatures.count - 1)
+        activeParameter = object["activeParameter"] as? Int ?? 0
+    }
+
+    static func == (a: SignatureHelp, b: SignatureHelp) -> Bool {
+        a.signatures == b.signatures && a.activeSignature == b.activeSignature && a.activeParameter == b.activeParameter
     }
 }

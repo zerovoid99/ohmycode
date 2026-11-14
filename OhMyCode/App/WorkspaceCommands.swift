@@ -201,6 +201,15 @@ struct WorkspaceCommands: Commands {
             Button("Rename Symbol…") { workspace?.renameSymbol() }
                 .keyboardShortcut(keys.shortcut("edit.rename"))
                 .disabled(!supports(.rename))
+            Button("Quick Fix & Refactor…") { workspace?.showCodeActions() }
+                .keyboardShortcut(keys.shortcut("edit.codeActions"))
+                .disabled(!supports(.codeAction))
+            Button("Organize Imports") { workspace?.organizeImports() }
+                .keyboardShortcut(keys.shortcut("edit.organizeImports"))
+                .disabled(!supports(.codeAction))
+            Button("Trigger Parameter Hints") { workspace?.activeDocument?.editor?.signatureHelp.trigger() }
+                .keyboardShortcut(keys.shortcut("edit.parameterHints"))
+                .disabled(!supports(.signatureHelp))
             Button("Format Document") { workspace?.formatDocument() }
                 .keyboardShortcut(keys.shortcut("edit.format"))
                 .disabled(!(workspace?.activeDocument.map { workspace?.canFormat($0) == true } ?? false))

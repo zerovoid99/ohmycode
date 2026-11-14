@@ -132,6 +132,8 @@ def occurrences(word):
 while True:
     msg = read()
     method, mid, params = msg.get("method"), msg.get("id"), msg.get("params", {})
+    if method is None:
+        continue  # the client answering our own request (workspace/applyEdit)
     if method == "initialize":
         root = path_of(params["rootUri"])
         send({"jsonrpc": "2.0", "id": mid, "result": {"capabilities": {
@@ -139,7 +141,8 @@ while True:
             "hoverProvider": True, "referencesProvider": True, "renameProvider": {"prepareProvider": True},
             "documentFormattingProvider": True, "documentSymbolProvider": True,
             "implementationProvider": True, "typeDefinitionProvider": True, "callHierarchyProvider": True,
-            "workspaceSymbolProvider": True}}})
+            "workspaceSymbolProvider": True, "codeActionProvider": {"resolveProvider": True},
+            "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]}}}})
     elif method == "textDocument/hover":
         word, rng = word_at(params["textDocument"]["uri"], params["position"])
         result = None
@@ -251,6 +254,54 @@ while True:
                 result.append({"to": item(name, other_uri, other_number, other_line), "fromRanges": [
                     {"start": {"line": number, "character": c}, "end": {"line": number, "character": c + len(units(name))}} for c in starts]})
         send({"jsonrpc": "2.0", "id": mid, "result": result})
+    elif method == "textDocument/codeAction":
+        uri = params["textDocument"]["uri"]
+        actions = []
+        for diagnostic in params["context"]["diagnostics"]:
+            if diagnostic.get("source") == "fake":  # one of ours: its JSON came back as sent
+                actions.append({"title": "Replace BAD with good", "kind": "quickfix", "isPreferred": True,
+                                "diagnostics": [diagnostic],
+                                "edit": {"changes": {uri: [{"range": diagnostic["range"], "newText": "good"}]}}})
+        line = params["range"]["start"]["line"]
+        actions.append({"title": "Add a comment above", "kind": "refactor.rewrite",
+                        "command": {"title": "comment", "command": "fake.comment", "arguments": [uri, line]}})
+        actions.append({"title": "Upper-case the line", "kind": "refactor.rewrite", "data": {"uri": uri, "line": line}})
+        actions.append({"title": "Not now", "kind": "refactor", "disabled": {"reason": "fake says no"}})
+        actions.append({"title": "Organize imports", "kind": "source.organizeImports",
+                        "edit": {"changes": {uri: [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
+                                                    "newText": "import Sorted\n"}]}}})
+        only = params["context"].get("only")
+        if only:
+            actions = [a for a in actions if any(a["kind"].startswith(k) for k in only)]
+        send({"jsonrpc": "2.0", "id": mid, "result": actions})
+    elif method == "codeAction/resolve":
+        action = dict(params)
+        data = action.get("data") or {}
+        text = text_of(data["uri"]).split("\n")[data["line"]]
+        action["edit"] = {"changes": {data["uri"]: [{"range": {"start": {"line": data["line"], "character": 0},
+                                                              "end": {"line": data["line"], "character": len(units(text))}},
+                                                    "newText": text.upper()}]}}
+        send({"jsonrpc": "2.0", "id": mid, "result": action})
+    elif method == "workspace/executeCommand":
+        uri, line = params["arguments"]
+        # Changes files the way servers do: by asking the client.
+        send({"jsonrpc": "2.0", "id": 90000 + line, "method": "workspace/applyEdit", "params": {"label": "Comment",
+              "edit": {"changes": {uri: [{"range": {"start": {"line": line, "character": 0}, "end": {"line": line, "character": 0}},
+                                         "newText": "// added\n"}]}}}})
+        send({"jsonrpc": "2.0", "id": mid, "result": None})
+    elif method == "textDocument/signatureHelp":
+        uri, pos = params["textDocument"]["uri"], params["position"]
+        line = text_of(uri).split("\n")[pos["line"]]
+        before = b"".join(units(line)[:pos["character"]]).decode("utf-16-le")
+        call = before.rfind("fooBar(")
+        if call < 0 or ")" in before[call:]:
+            send({"jsonrpc": "2.0", "id": mid, "result": None})
+        else:
+            send({"jsonrpc": "2.0", "id": mid, "result": {"activeSignature": 0,
+                  "activeParameter": before[call:].count(","),
+                  "signatures": [{"label": "fooBar(count: Int, name: String) -> Int", "documentation": "Makes a bar.",
+                                  "parameters": [{"label": [7, 17], "documentation": "How many."},
+                                                 {"label": "name: String"}]}]}})
     elif method == "omc/text":
         send({"jsonrpc": "2.0", "id": mid, "result": docs.get(params["uri"])})
     elif method == "shutdown":

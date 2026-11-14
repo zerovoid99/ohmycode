@@ -40,6 +40,10 @@ final class EditorController: NSObject {
     private weak var containerView: EditorContainerView?
     /// Cursors besides the text view's own selection (see MultiCursor.swift).
     var extraSelections: [NSRange] = []
+    /// The 💡 for the cursor line's fixes.
+    private(set) lazy var lightbulb = LightbulbController(editor: self)
+    /// Parameter hints while typing a call's arguments.
+    private(set) lazy var signatureHelp = SignatureHelpController(editor: self)
     /// The inserted snippet whose stops Tab steps through.
     var snippetSession: SnippetSession?
     private(set) var minimapView: MinimapView?
@@ -452,6 +456,7 @@ final class EditorController: NSObject {
     @objc private func contextFindReferences(_ sender: Any?) { perform(.findReferences) }
     @objc private func contextGoToImplementation(_ sender: Any?) { perform(.goToImplementation) }
     @objc private func contextCallHierarchy(_ sender: Any?) { perform(.callHierarchy) }
+    @objc private func contextCodeActions(_ sender: Any?) { perform(.codeActions) }
     @objc private func contextRename(_ sender: Any?) { perform(.rename) }
     @objc private func contextFormat(_ sender: Any?) { perform(.format) }
     @objc private func contextStageLines(_ sender: Any?) { perform(.stageSelectedLines) }
@@ -478,6 +483,7 @@ final class EditorController: NSObject {
             item("Show Call Hierarchy", #selector(contextCallHierarchy), "h", [.option, .shift],
                  enabled: client.supports(.callHierarchy)),
             item("Rename Symbol", #selector(contextRename), f2, enabled: client.supports(.rename)),
+            item("Quick Fix & Refactor…", #selector(contextCodeActions), ".", .command, enabled: client.supports(.codeAction)),
             .separator(),
             item("Format Document", #selector(contextFormat), "f", [.shift, .option],
                  enabled: client.supports(.formatting)),
@@ -580,6 +586,7 @@ final class EditorController: NSObject {
     /// Redraws diagnostic squiggles (drawn by an overlay; see DiagnosticsOverlayView).
     func applyDiagnostics() {
         diagnosticsOverlay?.needsDisplay = true
+        lightbulb.update() // a new problem on the cursor's line may have fixes
     }
 
     func focus() {
@@ -606,6 +613,7 @@ final class EditorController: NSObject {
 
     @objc private func viewportDidScroll() {
         NotificationCenter.default.post(name: Self.didScrollNotification, object: self)
+        lightbulb.viewportMoved()
         gutterView.needsDisplay = true
         minimapView?.refresh()
         stickyView?.update()
@@ -673,6 +681,7 @@ extension EditorController: NSTextViewDelegate {
         let typed = pendingTypedText
         pendingTypedText = nil
         completion.textDidChange(typed: typed)
+        signatureHelp.textDidChange(typed: typed)
         minimapView?.refresh(textChanged: true)
         stickyView?.update()
         for other in document.editors where other !== self { other.refreshAfterEdit() }
@@ -686,6 +695,7 @@ extension EditorController: NSTextViewDelegate {
 
     func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if completion.handle(selector) { return true }
+        if signatureHelp.handle(selector) { return true }
         if handleSnippetCommand(selector) { return true }
         if handleMultiCursorCommand(selector) { return true }
         if selector == #selector(NSResponder.insertNewline(_:)) { return handleNewline() }
@@ -700,6 +710,8 @@ extension EditorController: NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) {
         diagnosticsOverlay?.needsDisplay = true // extra cursors are drawn there
         snippetSelectionChanged()
+        lightbulb.update()
+        signatureHelp.selectionChanged()
         // The cursor went into folded lines (arrow keys, find): show them.
         if !document.folds.isEmpty { document.unfold(containing: textView.selectedRange()) }
         // The status bar follows the focused editor; other splits move their selection on edits.
@@ -835,7 +847,7 @@ extension EditorController: SyntaxHighlighterClient {
 /// Language actions an editor asks its workspace to run (⌘-click, context menu).
 enum EditorCommand: String {
     case goToDefinition, findReferences, rename, format, stageSelectedLines, revertSelectedLines
-    case goToImplementation, callHierarchy
+    case goToImplementation, callHierarchy, codeActions
 }
 
 extension Notification.Name {

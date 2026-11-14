@@ -217,6 +217,42 @@ struct SourceKitLSPTests {
         #expect(completion.items.contains { $0.label.hasPrefix("count") })
     }
 
+    /// The real server's fix-its as quick fixes, applied; parameter hints for a real call.
+    @Test(.timeLimit(.minutes(3))) func fixItsAndParameterHints() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-skl3-\(UUID().uuidString)")
+        let sources = root.appending(path: "Sources/Demo")
+        try FileManager.default.createDirectory(at: sources, withIntermediateDirectories: true)
+        try """
+        // swift-tools-version: 5.9
+        import PackageDescription
+        let package = Package(name: "Demo", targets: [.executableTarget(name: "Demo")])
+        """.write(to: root.appending(path: "Package.swift"), atomically: true, encoding: .utf8)
+        try "func greet(name: String, times: Int) {\n    var count = times\n    print(name, count)\n}\ngreet(\n"
+            .write(to: sources.appending(path: "main.swift"), atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: sources.appending(path: "main.swift"))
+        let document = try #require(workspace.activeDocument)
+        let deadline = ContinuousClock.now + .seconds(90)
+        while !document.diagnostics.contains(where: { $0.message.contains("never mutated") }) && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        let client = try #require(document.languageClient)
+        #expect(client.supports(.codeAction) && client.supports(.signatureHelp))
+        let actions = await workspace.codeActions(for: document, range: NSRange(location: 44, length: 0)) // on "var"
+        print("SKLSP actions=\(actions.map { "\($0.kind): \($0.title)" })")
+        let fix = try #require(actions.first { $0.isQuickFix && $0.title.contains("let") })
+        await workspace.run(fix, in: document)
+        #expect(document.textStorage.string.contains("    let count = times"))
+
+        // Inside greet( at the end: the signature, its first parameter current.
+        let help = try await client.signatureHelp(url: document.url, position: LSPPosition(line: 4, character: 6), trigger: "(", isRetrigger: false)
+        print("SKLSP signature=\(help?.signatures.first?.label ?? "none")")
+        #expect(help?.signatures.first?.label.contains("name: String") == true)
+        #expect(help?.highlighted.map { (help!.signatures[help!.activeSignature].label as NSString).substring(with: $0) }?.contains("name") == true)
+        withExtendedLifetime(workspace) {}
+    }
+
     @Test(.timeLimit(.minutes(3))) func hoverReferencesRenameAndFormat() async throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "omc-skl2-\(UUID().uuidString)")
         let sources = root.appending(path: "Sources/Demo")
