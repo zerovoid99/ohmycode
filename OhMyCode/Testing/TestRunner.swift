@@ -30,9 +30,12 @@ enum TestRunner {
     }
 
     /// The command running `tests` (nil: all of the framework's tests).
-    static func command(_ framework: TestFramework, tests: [TestItem]?, root: URL, hasPytest: Bool = false) -> TestCommand {
+    static func command(_ framework: TestFramework, tests: [TestItem]?, root: URL, hasPytest: Bool = false,
+                        xcode: XcodeProject? = nil) -> TestCommand {
         let pytestNodeID = { (test: TestItem) in Self.pytestNodeID(test, root: root) }
         switch framework {
+        case .xcode:
+            return TestCommand(framework: framework, command: xcode?.command(tests: tests) ?? "xcodebuild test")
         case .swift:
             guard let tests else { return TestCommand(framework: framework, command: "swift test") }
             // Swift Testing's ids ("Module.Suite/name()") match with more after them (where
@@ -134,7 +137,7 @@ struct TestOutputParser {
 
     mutating func consume(_ line: String) -> [TestEvent] {
         switch framework {
-        case .swift: return swift(line)
+        case .swift, .xcode: return swift(line)
         case .go: return go(line)
         case .python: return python(line)
         case .cargo: return cargo(line)

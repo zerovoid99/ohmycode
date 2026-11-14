@@ -36,6 +36,8 @@ final class TestController {
     @ObservationIgnored private(set) var lastRun: [TestItem]?
     @ObservationIgnored private var lastRunAll = false
     @ObservationIgnored private var frameworks: Set<TestFramework> = []
+    /// The folder's Xcode project, when it has one (its tests run with xcodebuild).
+    private(set) var xcode: XcodeProject?
     @ObservationIgnored private var editTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var observer: NSObjectProtocol?
     @ObservationIgnored private var publishedProblemURLs: Set<URL> = []
@@ -98,21 +100,27 @@ final class TestController {
         isDiscovering = true
         defer { isDiscovering = false }
         let paths = await workspace.searchableFiles()
-        let frameworks = TestDiscovery.frameworks(in: root)
+        var detected = TestDiscovery.frameworks(in: root)
+        if XcodeProject.container(in: root) != nil {
+            xcode = await XcodeProject.load(in: root, environment: await ShellEnvironment.shared.environment())
+            if xcode != nil { detected.insert(.xcode) }
+        }
+        let frameworks = detected
         self.frameworks = frameworks
+        let xcode = self.xcode
         let found = await Task.detached(priority: .userInitiated) { () -> [TestItem] in
             paths.compactMap { path in
-                guard let framework = TestDiscovery.framework(forFile: path, in: frameworks),
+                guard let framework = TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode),
                       let text = try? String(contentsOf: root.appending(path: path), encoding: .utf8) else { return nil }
-                return TestDiscovery.discover(text, path: path, root: root, framework: framework)
+                return TestDiscovery.discover(text, path: path, root: root, framework: framework, xcode: xcode)
             }
         }.value
         guard workspace.rootURL == root else { return }
         // Open files' text may be newer than the disk's.
         var byPath = Dictionary(found.map { (String($0.id.dropFirst(5)), $0) }, uniquingKeysWith: { first, _ in first })
         for document in workspace.documents {
-            guard let path = relativePath(document.url), let framework = TestDiscovery.framework(forFile: path, in: frameworks) else { continue }
-            byPath[path] = TestDiscovery.discover(document.textStorage.string, path: path, root: root, framework: framework)
+            guard let path = relativePath(document.url), let framework = TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode) else { continue }
+            byPath[path] = TestDiscovery.discover(document.textStorage.string, path: path, root: root, framework: framework, xcode: xcode)
         }
         files = byPath.keys.sorted().compactMap { byPath[$0] }
         redrawGutters()
@@ -120,9 +128,9 @@ final class TestController {
 
     /// A file changed (on disk or in the editor): its tests are read again.
     func update(path: String, text: String?) {
-        guard let root, let framework = TestDiscovery.framework(forFile: path, in: frameworks) else { return }
+        guard let root, let framework = TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode) else { return }
         let text = text ?? (try? String(contentsOf: root.appending(path: path), encoding: .utf8))
-        let item = text.flatMap { TestDiscovery.discover($0, path: path, root: root, framework: framework) }
+        let item = text.flatMap { TestDiscovery.discover($0, path: path, root: root, framework: framework, xcode: xcode) }
         var updated = files.filter { $0.id != "file:" + path }
         if let item { updated.append(item) }
         updated.sort { $0.id < $1.id }
@@ -144,7 +152,7 @@ final class TestController {
 
     private func storageEdited(_ storage: NSTextStorage?) {
         guard let storage, let document = workspace?.documents.first(where: { $0.textStorage === storage }),
-              let path = relativePath(document.url), TestDiscovery.framework(forFile: path, in: frameworks) != nil else { return }
+              let path = relativePath(document.url), TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode) != nil else { return }
         editTasks[path]?.cancel()
         editTasks[path] = Task { [weak self, weak document] in
             try? await Task.sleep(for: .milliseconds(300))
@@ -160,6 +168,7 @@ final class TestController {
         results = [:]
         lastRun = nil
         frameworks = []
+        xcode = nil
         publishProblems()
     }
 
@@ -175,7 +184,7 @@ final class TestController {
         if let tests {
             byFramework = Dictionary(grouping: Self.unique(tests), by: \.framework).mapValues { Optional($0) }
         } else {
-            let used = Set(allTests.map(\.framework)).union(frameworks.intersection([.swift, .go, .cargo]))
+            let used = Set(allTests.map(\.framework)).union(frameworks.intersection([.swift, .go, .cargo, .xcode]))
             byFramework = Dictionary(uniqueKeysWithValues: used.map { ($0, nil) })
         }
         guard !byFramework.isEmpty else {
@@ -209,7 +218,7 @@ final class TestController {
 
     private func start(_ framework: TestFramework, tests: [TestItem]?, members: [TestItem], root: URL) async {
         let pytest = framework == .python ? await hasPytest() : false
-        let command = TestRunner.command(framework, tests: tests, root: root, hasPytest: pytest)
+        let command = TestRunner.command(framework, tests: tests, root: root, hasPytest: pytest, xcode: xcode)
         var parser = TestOutputParser(framework: framework, goModule: framework == .go ? Self.goModule(in: root) : nil)
         // One label per framework: running again replaces the last run (and its task problems).
         let label = "Tests: " + framework.displayName

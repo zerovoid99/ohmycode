@@ -1,11 +1,12 @@
 import Foundation
 
 enum TestFramework: String, Sendable, CaseIterable {
-    case swift, go, python, jest, vitest, cargo
+    case swift, go, python, jest, vitest, cargo, xcode
 
     var displayName: String {
         switch self {
         case .swift: "Swift"
+        case .xcode: "Xcode"
         case .go: "Go"
         case .python: "Python"
         case .jest: "Jest"
@@ -64,10 +65,12 @@ enum TestDiscovery {
     }
 
     /// The framework a file's tests belong to (by its name), if it's a test file.
-    static func framework(forFile path: String, in frameworks: Set<TestFramework>) -> TestFramework? {
+    static func framework(forFile path: String, in frameworks: Set<TestFramework>, xcode: XcodeProject? = nil) -> TestFramework? {
         let name = (path as NSString).lastPathComponent
         let ext = (path as NSString).pathExtension
         switch ext {
+        case "swift" where xcode?.testTarget(forFile: path) != nil:
+            return .xcode
         case "swift" where frameworks.contains(.swift):
             return path.hasPrefix("Tests/") || path.contains("/Tests/") ? .swift : nil
         case "go" where frameworks.contains(.go):
@@ -86,10 +89,11 @@ enum TestDiscovery {
     }
 
     /// A test file's tests: the file, with its suites and tests under it (nil if it has none).
-    static func discover(_ text: String, path: String, root: URL, framework: TestFramework) -> TestItem? {
+    static func discover(_ text: String, path: String, root: URL, framework: TestFramework, xcode: XcodeProject? = nil) -> TestItem? {
         let url = root.appending(path: path)
         let children: [TestItem] = switch framework {
         case .swift: swift(text, path: path, url: url)
+        case .xcode: swift(text, path: path, url: url, module: xcode?.testTarget(forFile: path), framework: .xcode)
         case .go: go(text, path: path, url: url)
         case .python: python(text, path: path, url: url)
         case .jest, .vitest: javaScript(text, path: path, url: url, framework: framework)
@@ -132,8 +136,9 @@ enum TestDiscovery {
         return "\(name)(\(labels.joined()))"
     }
 
-    private static func swift(_ text: String, path: String, url: URL) -> [TestItem] {
-        let module = swiftModule(for: path)
+    private static func swift(_ text: String, path: String, url: URL, module: String? = nil,
+                              framework: TestFramework = .swift) -> [TestItem] {
+        let module = module ?? swiftModule(for: path)
         var result: [TestItem] = []
         // Types open at a brace depth; a test belongs to the innermost one.
         var stack: [(name: String, depth: Int, isXCTestCase: Bool, line: Int, children: [TestItem])] = []
@@ -145,7 +150,7 @@ enum TestDiscovery {
         func close(_ type: (name: String, depth: Int, isXCTestCase: Bool, line: Int, children: [TestItem])) {
             guard !type.children.isEmpty else { return }
             let suiteID = module + "." + (stack.map(\.name) + [type.name]).joined(separator: ".")
-            let suite = TestItem(id: suiteID, label: type.name, kind: .suite, framework: .swift, url: url, line: type.line,
+            let suite = TestItem(id: suiteID, label: type.name, kind: .suite, framework: framework, url: url, line: type.line,
                                  children: type.children)
             if stack.isEmpty { result.append(suite) } else { stack[stack.count - 1].children.append(suite) }
         }
@@ -172,11 +177,11 @@ enum TestDiscovery {
             if let groups = matches(swiftTestingTest, line), let name = groups[2] {
                 let signature = swiftSignature(name, parameters: groups[3] ?? "")
                 let id = module + "." + (suitePath.isEmpty ? signature : suitePath + "/" + signature)
-                let item = TestItem(id: id, label: groups[1] ?? signature, kind: .test, framework: .swift, url: url, line: number,
+                let item = TestItem(id: id, label: groups[1] ?? signature, kind: .test, framework: framework, url: url, line: number,
                                     displayName: groups[1].map { "\"\($0)\"" } ?? signature)
                 if stack.isEmpty { result.append(item) } else { stack[stack.count - 1].children.append(item) }
             } else if let groups = matches(xcTest, line), let name = groups[1], let type = stack.last, type.isXCTestCase {
-                let item = TestItem(id: "\(module).\(suitePath)/\(name)", label: name, kind: .test, framework: .swift,
+                let item = TestItem(id: "\(module).\(suitePath)/\(name)", label: name, kind: .test, framework: framework,
                                     url: url, line: number)
                 stack[stack.count - 1].children.append(item)
             }
