@@ -76,6 +76,7 @@ final class LanguageClient {
                     "references": [String: Any](),
                     "rename": ["prepareSupport": true],
                     "formatting": [String: Any](),
+                    "documentSymbol": ["hierarchicalDocumentSymbolSupport": true],
                     "publishDiagnostics": ["relatedInformation": false],
                 ],
             ],
@@ -176,6 +177,7 @@ final class LanguageClient {
         case references = "referencesProvider"
         case rename = "renameProvider"
         case formatting = "documentFormattingProvider"
+        case documentSymbol = "documentSymbolProvider"
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -185,6 +187,11 @@ final class LanguageClient {
         case is [String: Any]: true
         default: false
         }
+    }
+
+    /// The file's symbols, as the server sends them (DocumentSymbol[] or SymbolInformation[]).
+    func documentSymbols(url: URL) async throws -> Any? {
+        try await request("textDocument/documentSymbol", params: ["textDocument": ["uri": url.absoluteString]])
     }
 
     /// Hover documentation as Markdown, or nil when there is none.

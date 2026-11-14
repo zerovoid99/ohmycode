@@ -86,6 +86,7 @@ final class Workspace {
         case extensions = "Extensions"
         case debug = "Run and Debug"
         case testing = "Testing"
+        case outline = "Outline"
     }
 
     @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
@@ -379,6 +380,11 @@ final class Workspace {
             document.languageClient = client
             client.didOpen(url: document.url, languageId: document.languageId,
                            text: document.textStorage.mutableString as String)
+            // The server's symbols once it's ready (the syntax tree's until then).
+            Task { [weak document, weak client] in
+                while let client, client.state == .starting { try? await Task.sleep(for: .milliseconds(200)) }
+                document?.refreshSymbols()
+            }
         }
     }
 

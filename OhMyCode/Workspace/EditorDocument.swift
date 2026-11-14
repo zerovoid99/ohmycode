@@ -124,6 +124,9 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored var runTestAction: ((Int) -> Void)?
     /// Called after each edit and after saving (the window's extensions listen).
     @ObservationIgnored var onDidEdit: (() -> Void)?
+    /// The file's declarations (Outline, breadcrumbs, Go to Symbol), updated shortly after edits.
+    private(set) var symbols: [DocumentSymbol] = []
+    @ObservationIgnored private var symbolsTask: Task<Void, Never>?
     /// The next storage edit's exact replacement: `range` replaced by `length` characters.
     @ObservationIgnored var pendingReplacement: (range: NSRange, length: Int)?
     /// The folder it's open in (for the folder's snippets).
@@ -179,6 +182,7 @@ final class EditorDocument: Identifiable {
         storageObserver = observer
         diskModificationDate = Self.modificationDate(of: url)
         scheduleConflictScan()
+        refreshSymbols()
     }
 
     /// The content storage doesn't retain its delegate and may outlive the document.
@@ -382,6 +386,7 @@ final class EditorDocument: Identifiable {
         }
         pendingReplacement = nil
         for editor in editors { editor.snippetDocumentEdited(start: exact.start, oldEnd: exact.oldEnd, delta: delta) }
+        refreshSymbols(after: .milliseconds(400))
         onDidEdit?()
     }
 
@@ -553,4 +558,52 @@ struct BlameActions {
     let openChanges: @MainActor (BlameLine) -> Void
     /// The commit in the repository log.
     let showInTimeline: @MainActor (BlameLine) -> Void
+}
+
+// MARK: Symbols
+
+extension EditorDocument {
+    /// Reads the file's declarations again (after `delay`, restarted by every call): from the
+    /// language server when it lists them, else from the syntax tree (headings for Markdown).
+    func refreshSymbols(after delay: Duration = .zero) {
+        symbolsTask?.cancel()
+        symbolsTask = Task { [weak self] in
+            if delay > .zero {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled else { return }
+            }
+            guard let self else { return }
+            let version = self.editVersion
+            let found = await self.loadSymbols()
+            // A later edit's refresh has the newer list.
+            guard !Task.isCancelled, version == self.editVersion else { return }
+            if found != self.symbols { self.symbols = found }
+        }
+    }
+
+    /// Waits for the refresh in progress (tests).
+    func waitForSymbols() async {
+        await symbolsTask?.value
+    }
+
+    private func loadSymbols() async -> [DocumentSymbol] {
+        if language == .markdown {
+            return DocumentSymbol.markdown(textStorage.mutableString.copy() as! NSString)
+        }
+        if let client = languageClient, client.state == .ready, client.supports(.documentSymbol),
+           let result = try? await client.documentSymbols(url: url) {
+            let symbols = DocumentSymbol.fromLSP(result) { [weak self] in self?.range(for: $0) ?? NSRange(location: 0, length: 0) }
+            if !symbols.isEmpty { return symbols }
+        }
+        return await highlighter?.outline(for: language) ?? []
+    }
+
+    /// The cursor's offset (from its line and column).
+    var cursorOffset: Int {
+        let line = min(max(cursorLine - 1, 0), lineIndex.lineCount - 1)
+        return min(lineIndex.lineStarts[line] + max(cursorColumn - 1, 0), textStorage.length)
+    }
+
+    /// The symbols the cursor is in, outermost first (the breadcrumbs).
+    var symbolPathAtCursor: [DocumentSymbol] { DocumentSymbol.path(to: cursorOffset, in: symbols) }
 }

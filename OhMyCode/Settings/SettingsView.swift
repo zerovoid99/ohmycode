@@ -89,6 +89,7 @@ struct SettingsView: View {
             Toggle("Close brackets and quotes automatically", isOn: $settings.autoClosePairs)
             Toggle("Format on save (with the language server)", isOn: $settings.formatOnSave)
             Toggle("Show git blame for the current line", isOn: $settings.showsLineBlame)
+            Toggle("Show breadcrumbs (path and symbols above the editor)", isOn: $settings.showsBreadcrumbs)
             Toggle("Stage files when their merge conflicts are resolved and saved", isOn: $settings.stagesResolvedConflicts)
             Section("Preview") {
                 CodePreview(font: settings.editorFont, theme: EditorTheme.themes.first { $0.id == settings.themeID }

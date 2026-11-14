@@ -28,6 +28,10 @@ struct EditorGroupView: View {
                 Divider()
             }
             if let document = workspace.document(id: group.activeDocumentID) {
+                if AppSettings.shared.showsBreadcrumbs {
+                    BreadcrumbsView(workspace: workspace, document: document)
+                    Divider()
+                }
                 if workspace.showsMarkdownPreview(document) {
                     HSplitView {
                         editor(document)

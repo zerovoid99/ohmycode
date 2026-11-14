@@ -6,6 +6,8 @@ struct PaletteItem: Identifiable {
         case openFile(URL)
         case command(PaletteCommand)
         case goToLine(Int)
+        /// A symbol in the active file (its name's range).
+        case goToSymbol(NSRange)
         /// A command an extension adds.
         case extensionCommand(String)
         /// A quick pick's item, by index.
@@ -30,7 +32,7 @@ struct PaletteItem: Identifiable {
 @Observable
 final class PaletteModel {
     enum Mode {
-        case files, commands, goToLine
+        case files, commands, goToLine, symbols
         /// A quick pick or input box (an extension asking).
         case prompt
 
@@ -39,6 +41,7 @@ final class PaletteModel {
             case .files, .prompt: ""
             case .commands: ">"
             case .goToLine: ":"
+            case .symbols: "@"
             }
         }
     }
@@ -77,12 +80,14 @@ final class PaletteModel {
         if prompt != nil { return .prompt }
         if query.hasPrefix(">") { return .commands }
         if query.hasPrefix(":") { return .goToLine }
+        if query.hasPrefix("@") { return .symbols }
         return .files
     }
 
     var placeholder: String {
         switch mode {
-        case .files: "Search files by name (type > for commands, : to go to a line)"
+        case .files: "Search files by name (type > for commands, : to go to a line, @ for symbols)"
+        case .symbols: "Type a symbol's name"
         case .commands: "Type a command"
         case .goToLine: "Type a line number"
         case .prompt:
@@ -140,6 +145,9 @@ final class PaletteModel {
         case .goToLine(let line):
             workspace.closePalette()
             workspace.activeDocument?.revealLine(line)
+        case .goToSymbol(let range):
+            workspace.closePalette()
+            workspace.activeDocument?.reveal(range)
         case .extensionCommand(let id):
             workspace.closePalette()
             workspace.extensions.run(id)
@@ -158,6 +166,7 @@ final class PaletteModel {
         case .files: refreshFiles()
         case .commands: refreshCommands()
         case .goToLine: refreshGoToLine()
+        case .symbols: refreshSymbols()
         case .prompt: refreshPrompt()
         }
     }
@@ -166,6 +175,35 @@ final class PaletteModel {
         items = newItems
         self.emptyMessage = newItems.isEmpty ? (emptyMessage ?? "No matching results") : nil
         selection = 0
+    }
+
+    // MARK: Symbols
+
+    /// `@name`: the active file's symbols, matching ones first; in file order when empty.
+    private func refreshSymbols() {
+        guard let document = workspace.activeDocument else {
+            return setItems([], emptyMessage: "Open a file to go to its symbols")
+        }
+        let text = String(query.dropFirst()).trimmingCharacters(in: .whitespaces)
+        let flat = DocumentSymbol.flattened(document.symbols)
+        let query = FuzzyMatcher.prepareQuery(text)
+        var scored: [(item: PaletteItem, score: Int)] = []
+        for (index, entry) in flat.enumerated() {
+            let detail = entry.container.joined(separator: " › ")
+            let item = { (positions: [Int]) in
+                PaletteItem(id: entry.symbol.id, action: .goToSymbol(entry.symbol.selectionRange), icon: entry.symbol.kind.icon,
+                            title: entry.symbol.name, titleMatches: positions,
+                            detail: detail.isEmpty ? entry.symbol.kind.name : detail)
+            }
+            if text.isEmpty {
+                scored.append((item([]), -index))
+            } else if let match = FuzzyMatcher.match(query, FuzzyCandidate(entry.symbol.name)) {
+                scored.append((item(match.positions), match.score))
+            }
+        }
+        scored.sort { $0.score > $1.score }
+        setItems(scored.prefix(Self.resultLimit * 4).map(\.item),
+                 emptyMessage: document.symbols.isEmpty ? "No symbols in \(document.fileName)" : nil)
     }
 
     // MARK: Files

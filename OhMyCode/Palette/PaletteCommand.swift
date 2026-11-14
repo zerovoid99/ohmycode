@@ -18,6 +18,12 @@ struct PaletteCommand: Identifiable {
     static let all: [PaletteCommand] = [
         PaletteCommand(id: "go.quickOpen", title: "Go to File…", icon: "doc.text.magnifyingglass", key: "cmd+p",
                        isAvailable: { $0.rootNode != nil }, perform: { $0.showPalette(.files) }),
+        PaletteCommand(id: "go.symbol", title: "Go to Symbol in File…", icon: "at", key: "shift+cmd+o",
+                       isAvailable: { $0.activeDocument != nil }, perform: { $0.showPalette(.symbols) }),
+        PaletteCommand(id: "view.outline", title: "View: Show Outline", icon: "list.bullet.indent", key: nil,
+                       isAvailable: { _ in true }, perform: { $0.sidebarMode = .outline }),
+        PaletteCommand(id: "view.toggleBreadcrumbs", title: "View: Toggle Breadcrumbs", icon: "chevron.right.2", key: nil,
+                       isAvailable: { _ in true }, perform: { _ in AppSettings.shared.showsBreadcrumbs.toggle() }),
         PaletteCommand(id: "go.line", title: "Go to Line…", icon: "arrow.right.to.line", key: "ctrl+g",
                        isAvailable: { $0.activeDocument != nil }, perform: { $0.showPalette(.goToLine) }),
         PaletteCommand(id: "go.definition", title: "Go to Definition", icon: "arrow.turn.down.right", key: "f12",

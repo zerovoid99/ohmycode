@@ -173,6 +173,9 @@ struct WorkspaceCommands: Commands {
             Button("Command Palette…") { workspace?.showPalette(.commands) }
                 .keyboardShortcut(keys.shortcut("view.commandPalette"))
                 .disabled(workspace == nil)
+            Button("Go to Symbol in File…") { workspace?.showPalette(.symbols) }
+                .keyboardShortcut(keys.shortcut("go.symbol"))
+                .disabled(workspace?.activeDocument == nil)
             Button("Go to Line…") { workspace?.showPalette(.goToLine) }
                 .keyboardShortcut(keys.shortcut("go.line"))
                 .disabled(workspace?.activeDocument == nil)

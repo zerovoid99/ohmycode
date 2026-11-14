@@ -110,7 +110,7 @@ while True:
         send({"jsonrpc": "2.0", "id": mid, "result": {"capabilities": {
             "textDocumentSync": 2, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": True,
             "hoverProvider": True, "referencesProvider": True, "renameProvider": {"prepareProvider": True},
-            "documentFormattingProvider": True}}})
+            "documentFormattingProvider": True, "documentSymbolProvider": True}}})
     elif method == "textDocument/hover":
         word, rng = word_at(params["textDocument"]["uri"], params["position"])
         result = None
@@ -169,6 +169,16 @@ while True:
         uri = params["textDocument"]["uri"]
         send({"jsonrpc": "2.0", "id": mid, "result": [{"uri": uri, "range": {
             "start": {"line": 0, "character": 4}, "end": {"line": 0, "character": 10}}}]})
+    elif method == "textDocument/documentSymbol":
+        # "func NAME" lines, as DocumentSymbols (the name's range as the selection).
+        symbols = []
+        for number, line in enumerate(text_of(params["textDocument"]["uri"]).split("\n")):
+            if line.startswith("func "):
+                name = line[5:].split("(")[0].strip()
+                symbols.append({"name": name, "detail": "fake", "kind": 12,
+                    "range": {"start": {"line": number, "character": 0}, "end": {"line": number, "character": len(units(line))}},
+                    "selectionRange": {"start": {"line": number, "character": 5}, "end": {"line": number, "character": 5 + len(name)}}})
+        send({"jsonrpc": "2.0", "id": mid, "result": symbols})
     elif method == "omc/text":
         send({"jsonrpc": "2.0", "id": mid, "result": docs.get(params["uri"])})
     elif method == "shutdown":

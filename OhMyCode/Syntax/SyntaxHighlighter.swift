@@ -88,6 +88,12 @@ final class SyntaxHighlighter {
         await engine.highlights(in: range)
     }
 
+    /// The file's declarations, from the parse of its current text.
+    func outline(for language: SourceLanguage) async -> [DocumentSymbol] {
+        await waitUntilIdle()
+        return await engine.outline(for: language)
+    }
+
     func waitUntilIdle() async {
         while let inFlight { await inFlight.value }
     }

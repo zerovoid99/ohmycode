@@ -33,6 +33,10 @@ actor SyntaxEngine {
         return highlightRange.map(highlights(in:))
     }
 
+    /// The latest parsed tree's root and its text (for the outline).
+    var currentRoot: Node? { tree?.rootNode }
+    var currentText: NSString { text }
+
     func highlights(in range: NSRange) -> [NamedRange] {
         guard let tree, let root = tree.rootNode else { return [] }
         let text = text
