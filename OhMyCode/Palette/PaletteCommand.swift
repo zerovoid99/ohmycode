@@ -246,6 +246,14 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.rootURL != nil }, perform: { $0.sidebarMode = .testing }),
         PaletteCommand(id: "test.output", title: "Test: Show Output", icon: "text.alignleft", key: nil,
                        isAvailable: { !$0.testing.runs.isEmpty }, perform: { $0.showTestOutput() }),
+        PaletteCommand(id: "file.openRecent", title: "File: Open Recent…", icon: "clock", key: "ctrl+r",
+                       isAvailable: { _ in !RecentFolders.shared.existing.isEmpty }, perform: { workspace in
+                           Task { @MainActor in await workspace.pickRecentFolder() }
+                       }),
+        PaletteCommand(id: "shell.install", title: "Shell Command: Install 'omc' Command in PATH", icon: "terminal", key: nil,
+                       isAvailable: { _ in true }, perform: { $0.installCommandLineTool() }),
+        PaletteCommand(id: "shell.uninstall", title: "Shell Command: Uninstall 'omc' Command", icon: "terminal", key: nil,
+                       isAvailable: { _ in CommandLineTool.installedLink() != nil }, perform: { $0.uninstallCommandLineTool() }),
         PaletteCommand(id: "view.commandPalette", title: "View: Command Palette…", icon: "command", key: "shift+cmd+p",
                        isAvailable: { _ in true }, perform: { $0.showPalette(.commands) }),
         PaletteCommand(id: "view.zoomIn", title: "View: Zoom In", icon: "plus.magnifyingglass", key: "cmd+=",

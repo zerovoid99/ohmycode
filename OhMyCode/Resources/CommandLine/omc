@@ -1,0 +1,109 @@
+#!/bin/sh
+# omc: open folders and files in Oh My Code.
+#   omc .                      the current folder
+#   omc src/app.swift:12:5     a file, at line 12, column 5
+#   omc -n ~/code/other        in a new window
+#   omc -r notes.md            in the frontmost window
+set -eu
+
+usage() {
+    cat <<USAGE
+Usage: omc [options] [path[:line[:column]] ...]
+
+Opens folders and files in Oh My Code (no path: just the app).
+
+Options:
+  -n, --new-window     open in a new window
+  -r, --reuse-window   open in the frontmost window
+  -g, --goto           path:line[:column] always means a position (even if such a file exists)
+  -v, --version        print the version
+  -h, --help           show this help
+USAGE
+}
+
+# The app this script is in (followed through the symlink in PATH).
+script=$0
+while [ -L "$script" ]; do
+    target=$(readlink "$script")
+    case $target in
+        /*) script=$target ;;
+        *) script=$(dirname "$script")/$target ;;
+    esac
+done
+app=$(cd "$(dirname "$script")/../.." && pwd)
+open_command=${OMC_OPEN_COMMAND:-open}
+
+new=0
+reuse=0
+goto=0
+paths=""
+count=0
+for argument in "$@"; do
+    case $argument in
+        -n|--new-window) new=1 ;;
+        -r|--reuse-window) reuse=1 ;;
+        -g|--goto) goto=1 ;;
+        -v|--version)
+            defaults read "$app/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo unknown
+            exit 0 ;;
+        -h|--help) usage; exit 0 ;;
+        -*) echo "omc: unknown option $argument" >&2; usage >&2; exit 2 ;;
+        *) count=$((count + 1)) ;;
+    esac
+done
+
+# Every byte as %XX: safe for any path.
+encode() {
+    printf '%s' "$1" | od -An -tx1 -v | tr -d ' \n' | sed 's/\(..\)/%\1/g'
+}
+
+if [ "$count" -eq 0 ]; then
+    exec $open_command -a "$app"
+fi
+
+for argument in "$@"; do
+    case $argument in -*) continue ;; esac
+    path=$argument
+    line=""
+    column=""
+    # path:line or path:line:column, unless a file has that very name (or -g was given).
+    case $path in *:*) has_colon=1 ;; *) has_colon=0 ;; esac
+    if [ "$has_colon" -eq 1 ] && { [ "$goto" -eq 1 ] || [ ! -e "$path" ]; }; then
+        rest=${path##*:}
+        case $rest in
+            ''|*[!0-9]*) ;;
+            *)
+                before=${path%:*}
+                previous=${before##*:}
+                case $previous in
+                    ''|*[!0-9]*) line=$rest; path=$before ;;
+                    *) if [ "$before" != "$previous" ]; then line=$previous; column=$rest; path=${before%:*}; else line=$rest; path=$before; fi ;;
+                esac ;;
+        esac
+    fi
+    case $path in
+        /*) ;;
+        *) path=$(pwd)/$path ;;
+    esac
+    if [ ! -e "$path" ]; then
+        # A new file: created empty (in a folder that exists), as other editors do.
+        if [ ! -d "$(dirname "$path")" ]; then
+            echo "omc: $(dirname "$path") doesn't exist" >&2
+            exit 1
+        fi
+        : > "$path"
+    fi
+    directory=$(cd "$(dirname "$path")" && pwd -P)
+    name=$(basename "$path")
+    if [ "$name" = "." ] || [ -d "$path" ]; then
+        absolute=$(cd "$path" && pwd -P)
+    else
+        absolute=$directory/$name
+    fi
+    url="ohmycode://open?path=$(encode "$absolute")"
+    [ -n "$line" ] && url="$url&line=$line"
+    [ -n "$column" ] && url="$url&column=$column"
+    [ "$new" -eq 1 ] && url="$url&new=1"
+    [ "$reuse" -eq 1 ] && url="$url&reuse=1"
+    $open_command -a "$app" "$url"
+done

@@ -19,6 +19,22 @@ struct WorkspaceCommands: Commands {
             Button("Open Folder…") { workspace?.presentOpenPanel() }
                 .keyboardShortcut(keys.shortcut("file.openFolder"))
                 .disabled(workspace == nil)
+            Menu("Open Recent") {
+                let recent = RecentFolders.shared.existing
+                ForEach(recent, id: \.self) { url in
+                    Button(url.lastPathComponent + "  —  " + (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath) {
+                        OpenRouter.shared.open(OpenRequest(url: url))
+                    }
+                }
+                if !recent.isEmpty { Divider() }
+                Button("Clear Menu") { RecentFolders.shared.clear() }
+                    .disabled(recent.isEmpty)
+            }
+        }
+
+        CommandGroup(after: .appSettings) {
+            Button("Install “omc” Command…") { workspace?.installCommandLineTool() }
+                .disabled(workspace == nil)
         }
 
         CommandGroup(replacing: .saveItem) {

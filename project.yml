@@ -45,10 +45,32 @@ targets:
     type: application
     platform: macOS
     sources:
-      - OhMyCode
+      - path: OhMyCode
+        excludes:
+          - Resources/CommandLine
+      # The omc command (Install "omc" Command links it from the PATH).
+      - path: OhMyCode/Resources/CommandLine/omc
+        buildPhase: resources
       # The API's types, copied into new extensions.
       - path: ExtensionAPI/omc.d.ts
         buildPhase: resources
+    info:
+      path: OhMyCode/Info.plist
+      properties:
+        # ohmycode://open?path=…&line=… (the omc command).
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.zerovoid99.ohmycode.open
+            CFBundleURLSchemes: [ohmycode]
+        # Folders and text files from Finder (Open With, the Dock icon).
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Folder
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.folder]
+          - CFBundleTypeName: Source Code
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.source-code, public.script, public.shell-script, public.text, public.plain-text, public.json, public.xml, public.yaml, net.daringfireball.markdown]
     dependencies:
       - package: SwiftTreeSitter
       - package: TreeSitterSwift

@@ -231,6 +231,7 @@ final class Workspace {
 
     func openFolder(_ url: URL) {
         guard documents.allSatisfy({ confirmClose($0) }) else { return }
+        RecentFolders.shared.add(url)
         rootURL = url
         rootNode = FileNode(url: url, isDirectory: true)
         documents.removeAll()
