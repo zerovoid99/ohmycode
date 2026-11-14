@@ -378,6 +378,9 @@ final class Workspace {
                 } catch {
                     return // server missing or failed to launch: the editor works without it
                 }
+                client.onInlayHintRefresh = { [weak self, weak client] in
+                    self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshInlayHints() }
+                }
                 client.onApplyEdit = { [weak self] edit, label in
                     self?.applyServerEdit(edit, actionName: label ?? "\(config.name) Edit") ?? false
                 }
@@ -396,6 +399,7 @@ final class Workspace {
             Task { [weak document, weak client] in
                 while let client, client.state == .starting { try? await Task.sleep(for: .milliseconds(200)) }
                 document?.refreshSymbols()
+                document?.refreshInlayHints()
             }
         }
     }

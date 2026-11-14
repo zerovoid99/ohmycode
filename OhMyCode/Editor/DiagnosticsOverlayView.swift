@@ -12,6 +12,8 @@ final class DiagnosticsOverlayView: NSView {
     var foldPlaceholders: (() -> [(rect: NSRect, header: Int)])?
     /// Extra cursors (multi-cursor): caret bars and selected text.
     var extraCursors: (() -> (carets: [NSRect], selections: [NSRect]))?
+    /// Inlay hints: their labels' rects.
+    var inlayHints: (() -> [(rect: NSRect, mark: InlayHintMark)])?
     /// The line the debugger is stopped at, highlighted across the editor.
     var executionLine: (() -> NSRect?)?
     /// Git blame of the cursor's line, drawn after its end.
@@ -89,6 +91,17 @@ final class DiagnosticsOverlayView: NSView {
                 let width = separator.size(withAttributes: separatorAttributes).width
                 separator.draw(at: NSPoint(x: action.rect.maxX + (gap - width) / 2, y: action.rect.midY - size.height / 2),
                                withAttributes: separatorAttributes)
+            }
+        }
+        let hints = inlayHints?() ?? []
+        if !hints.isEmpty {
+            let attributes: [NSAttributedString.Key: Any] = [.font: InlayHintStyle.font, .foregroundColor: theme.lineNumber]
+            for (rect, mark) in hints where rect.intersects(dirtyRect) {
+                theme.lineNumber.withAlphaComponent(0.12).setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
+                let text = mark.text as NSString
+                let size = text.size(withAttributes: attributes)
+                text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
             }
         }
         if let annotation = blameAnnotation?() {

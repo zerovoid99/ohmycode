@@ -142,7 +142,8 @@ while True:
             "documentFormattingProvider": True, "documentSymbolProvider": True,
             "implementationProvider": True, "typeDefinitionProvider": True, "callHierarchyProvider": True,
             "workspaceSymbolProvider": True, "codeActionProvider": {"resolveProvider": True},
-            "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]}}}})
+            "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
+            "inlayHintProvider": True}}})
     elif method == "textDocument/hover":
         word, rng = word_at(params["textDocument"]["uri"], params["position"])
         result = None
@@ -302,6 +303,16 @@ while True:
                   "signatures": [{"label": "fooBar(count: Int, name: String) -> Int", "documentation": "Makes a bar.",
                                   "parameters": [{"label": [7, 17], "documentation": "How many."},
                                                  {"label": "name: String"}]}]}})
+    elif method == "textDocument/inlayHint":
+        hints = []
+        for number, line in enumerate(text_of(params["textDocument"]["uri"]).split("\n")):
+            m = re.match(r"let (\w+) = \d+", line)
+            if m:
+                hints.append({"position": {"line": number, "character": len(units(line[:m.end(1)]))}, "label": ": Int", "kind": 1})
+            for m in re.finditer(r"fooBar\((\w)", line):
+                hints.append({"position": {"line": number, "character": len(units(line[:m.start(1)]))},
+                              "label": [{"value": "count"}, {"value": ":"}], "kind": 2, "paddingRight": True})
+        send({"jsonrpc": "2.0", "id": mid, "result": hints})
     elif method == "omc/text":
         send({"jsonrpc": "2.0", "id": mid, "result": docs.get(params["uri"])})
     elif method == "shutdown":

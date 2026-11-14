@@ -64,6 +64,7 @@ final class LanguageClient {
                 "workspace": [
                     "workspaceFolders": true, "configuration": true, "applyEdit": true,
                     "symbol": [String: Any](),
+                    "inlayHint": ["refreshSupport": true],
                     "workspaceEdit": ["documentChanges": true],
                 ],
                 "textDocument": [
@@ -81,6 +82,7 @@ final class LanguageClient {
                     "implementation": ["linkSupport": true],
                     "typeDefinition": ["linkSupport": true],
                     "callHierarchy": [String: Any](),
+                    "inlayHint": [String: Any](),
                     "codeAction": [
                         "codeActionLiteralSupport": ["codeActionKind": ["valueSet": [
                             "", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite",
@@ -208,6 +210,7 @@ final class LanguageClient {
         case workspaceSymbol = "workspaceSymbolProvider"
         case codeAction = "codeActionProvider"
         case signatureHelp = "signatureHelpProvider"
+        case inlayHint = "inlayHintProvider"
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -254,6 +257,18 @@ final class LanguageClient {
 
     /// The server asks to change files (after a command): answered with whether it was done.
     var onApplyEdit: ((WorkspaceEdit, String?) -> Bool)?
+
+    // MARK: Inlay hints
+
+    func inlayHints(url: URL, range: LSPRange) async throws -> [InlayHint] {
+        let result = try await request("textDocument/inlayHint", params: [
+            "textDocument": ["uri": url.absoluteString], "range": range.json,
+        ])
+        return (result as? [Any] ?? []).compactMap(InlayHint.init(json:))
+    }
+
+    /// The server's hints changed (asked for again).
+    var onInlayHintRefresh: (() -> Void)?
 
     // MARK: Signature help
 
@@ -409,6 +424,9 @@ final class LanguageClient {
         case "workspace/configuration":
             let items = (params as? [String: Any])?["items"] as? [Any] ?? []
             response["result"] = Array(repeating: NSNull(), count: items.count)
+        case "workspace/inlayHint/refresh":
+            response["result"] = NSNull()
+            onInlayHintRefresh?()
         case "workspace/applyEdit":
             let object = params as? [String: Any]
             let applied = WorkspaceEdit(json: object?["edit"]).map { onApplyEdit?($0, object?["label"] as? String) ?? false } ?? false

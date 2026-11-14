@@ -250,6 +250,13 @@ struct SourceKitLSPTests {
         print("SKLSP signature=\(help?.signatures.first?.label ?? "none")")
         #expect(help?.signatures.first?.label.contains("name: String") == true)
         #expect(help?.highlighted.map { (help!.signatures[help!.activeSignature].label as NSString).substring(with: $0) }?.contains("name") == true)
+
+        // Types the server infers, shown inside the code.
+        #expect(client.supports(.inlayHint))
+        document.refreshInlayHints()
+        await document.waitForInlayHints()
+        print("SKLSP hints=\(document.shownInlayHints)")
+        #expect(document.shownInlayHints.contains { $0.text.contains("Int") })
         withExtendedLifetime(workspace) {}
     }
 

@@ -97,6 +97,7 @@ final class EditorController: NSObject {
         overlay.extraCursors = { [weak self] in self?.extraCursorShapes() ?? ([], []) }
         overlay.blameAnnotation = { [weak self] in self?.blameAnnotation() }
         overlay.executionLine = { [weak self] in self?.executionLineRect() }
+        overlay.inlayHints = { [weak self] in self?.inlayHintRects() ?? [] }
         overlay.conflictBands = { [weak self] in self?.conflictBands() ?? [] }
         overlay.conflictActions = { [weak self] in self?.conflictActionRects() ?? [] }
 
@@ -212,6 +213,7 @@ final class EditorController: NSObject {
     // MARK: Theme and font
 
     @objc private func settingsDidChange() {
+        document.refreshInlayHints() // turned on or off, or the font changed
         applySettings()
     }
 
@@ -629,7 +631,7 @@ final class EditorController: NSObject {
     }
 
     /// The range the text view's viewport pass laid out (visible area plus TextKit's overdraw).
-    private func visibleCharacterRange() -> NSRange? {
+    func visibleCharacterRange() -> NSRange? {
         guard let layoutManager = textView.textLayoutManager,
               let contentManager = layoutManager.textContentManager,
               let viewportRange = layoutManager.textViewportLayoutController.viewportRange else { return nil }
@@ -685,6 +687,11 @@ extension EditorController: NSTextViewDelegate {
         minimapView?.refresh(textChanged: true)
         stickyView?.update()
         for other in document.editors where other !== self { other.refreshAfterEdit() }
+    }
+
+    func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String: Any] = [:],
+                  toAttributes newTypingAttributes: [NSAttributedString.Key: Any] = [:]) -> [NSAttributedString.Key: Any] {
+        strippingInlayHint(newTypingAttributes)
     }
 
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {

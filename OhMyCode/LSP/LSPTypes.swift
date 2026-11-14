@@ -426,3 +426,35 @@ struct SignatureHelp: Equatable, Sendable {
         a.signatures == b.signatures && a.activeSignature == b.activeSignature && a.activeParameter == b.activeParameter
     }
 }
+
+/// A label the server shows inside the code: a type (`: Int`) or a parameter name (`count:`).
+struct InlayHint: Equatable, Sendable {
+    enum Kind: Int, Sendable { case type = 1, parameter }
+
+    var position: LSPPosition
+    var label: String
+    var kind: Kind?
+    var paddingLeft: Bool
+    var paddingRight: Bool
+
+    init(position: LSPPosition, label: String, kind: Kind?, paddingLeft: Bool = false, paddingRight: Bool = false) {
+        self.position = position
+        self.label = label
+        self.kind = kind
+        self.paddingLeft = paddingLeft
+        self.paddingRight = paddingRight
+    }
+
+    init?(json: Any?) {
+        guard let object = json as? [String: Any], let position = LSPPosition(json: object["position"]) else { return nil }
+        // A string, or parts with values.
+        let label = object["label"] as? String
+            ?? (object["label"] as? [[String: Any]])?.compactMap { $0["value"] as? String }.joined()
+        guard let label, !label.isEmpty else { return nil }
+        self.init(position: position, label: label, kind: (object["kind"] as? Int).flatMap(Kind.init),
+                  paddingLeft: object["paddingLeft"] as? Bool ?? false, paddingRight: object["paddingRight"] as? Bool ?? false)
+    }
+
+    /// As drawn: with the spaces its padding asks for.
+    var text: String { (paddingLeft ? " " : "") + label + (paddingRight ? " " : "") }
+}
