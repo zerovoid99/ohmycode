@@ -22,6 +22,7 @@
 		1451CEA00381D14E03E0D3D5 /* PTYProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A76E72897EB0575B5F95E98 /* PTYProcess.swift */; };
 		15C8D675FC4F51388ED12DD0 /* Breakpoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = E520F6D2E010896834BCCC39 /* Breakpoints.swift */; };
 		19E2283B45FF94DEFF846914 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5526368FD02C2215106BF09 /* TerminalPanel.swift */; };
+		1B1B14FBC1EDE8C35433943C /* ProcessIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1982B1E8AC78DF8767EBF8BF /* ProcessIO.swift */; };
 		1CAACB5E1539BC428AF5F78F /* ReferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B2EE7BE3BFA8F86486EE2E /* ReferencesView.swift */; };
 		1D3022887233E995E0CC9A98 /* TerminalKeyMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DA477C6C5DD7FADEA27948 /* TerminalKeyMap.swift */; };
 		1F6340BD53600AC51FF68193 /* VSCodeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B511C0F6AACECBD26C594F8 /* VSCodeTheme.swift */; };
@@ -142,6 +143,7 @@
 		D477F7BD99917931B16AB872 /* Workspace+Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CE2146BEDE3433D4D023C59 /* Workspace+Language.swift */; };
 		D7A7FF2C9BF229A9AD1993F2 /* VSCodeThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */; };
 		D86FB78730A855286043A1FF /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7257FD6D9E15285EEF71E95 /* TabBarView.swift */; };
+		D8C6ABCE8BA051908B8BCA37 /* ProcessIOTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466601DA9EFFBBFF52428B7A /* ProcessIOTests.swift */; };
 		DB9F317917C0AACE91A02A98 /* TerminalRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A84B684B87EB09C7E0B6F720 /* TerminalRenderer.swift */; };
 		DD013878FE76ABAEDEE70D5E /* LineIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F973E946D73AF21BFAE0D75 /* LineIndex.swift */; };
 		DDA43816F9307AB375DD1B6D /* CompareRefsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A28E2CDB1E00D5CC43EE4F /* CompareRefsTests.swift */; };
@@ -189,6 +191,7 @@
 		16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorChromeTests.swift; sourceTree = "<group>"; };
 		1926672DEF8AA6C2EBB38393 /* WorktreeSubmoduleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorktreeSubmoduleTests.swift; sourceTree = "<group>"; };
 		192E117635DB667FA34217E9 /* TagTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagTests.swift; sourceTree = "<group>"; };
+		1982B1E8AC78DF8767EBF8BF /* ProcessIO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessIO.swift; sourceTree = "<group>"; };
 		19E162875BB553F73A23130F /* PaletteView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaletteView.swift; sourceTree = "<group>"; };
 		1BC294EF0F8D363442D8FE87 /* BottomPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomPanel.swift; sourceTree = "<group>"; };
 		1C7B60F3A673166AEFC17819 /* TextReplacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextReplacement.swift; sourceTree = "<group>"; };
@@ -214,6 +217,7 @@
 		3C38173C9EE7377FFBE3F817 /* ProblemMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProblemMatcher.swift; sourceTree = "<group>"; };
 		3CDE3A5D42C75E7127F24122 /* EditorDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorDocument.swift; sourceTree = "<group>"; };
 		444F791D467BD9D84951C7DC /* EditorGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGroupView.swift; sourceTree = "<group>"; };
+		466601DA9EFFBBFF52428B7A /* ProcessIOTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessIOTests.swift; sourceTree = "<group>"; };
 		48E7BA781D696548AAD229A3 /* TaskRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRun.swift; sourceTree = "<group>"; };
 		4A76E72897EB0575B5F95E98 /* PTYProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYProcess.swift; sourceTree = "<group>"; };
 		4F4A1D4E9786FCAEC6E2C553 /* MultiCursorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiCursorTests.swift; sourceTree = "<group>"; };
@@ -410,6 +414,7 @@
 				FD481A433E345CB1885E699A /* Folding.swift */,
 				4F973E946D73AF21BFAE0D75 /* LineIndex.swift */,
 				8A491A30DB37957E1F83960E /* Problems.swift */,
+				1982B1E8AC78DF8767EBF8BF /* ProcessIO.swift */,
 				8902C7C1FC02562C44039229 /* SourceLanguage.swift */,
 				1C7B60F3A673166AEFC17819 /* TextReplacement.swift */,
 				F6163A12092027D9DED0CC99 /* Workspace.swift */,
@@ -475,6 +480,7 @@
 				95DB07857625F52A05770C90 /* OhMyCodeTests.swift */,
 				02C774D488B792D7089D1DAB /* PaletteTests.swift */,
 				DC56AAAAA0ECCF01FEC9B582 /* ProblemsTests.swift */,
+				466601DA9EFFBBFF52428B7A /* ProcessIOTests.swift */,
 				8E74C25EA407E63F876BE929 /* RemoteTests.swift */,
 				FC60C7DA7C4B6252ACD6263F /* RepoHistoryTests.swift */,
 				E43F3388BA148B4E8F22F589 /* SearchTests.swift */,
@@ -864,6 +870,7 @@
 				664C56E2BC385895A9794E5A /* PaletteView.swift in Sources */,
 				E9F153237599B2CD8FD4463A /* ProblemMatcher.swift in Sources */,
 				A2DA2877E48872575932FB43 /* Problems.swift in Sources */,
+				1B1B14FBC1EDE8C35433943C /* ProcessIO.swift in Sources */,
 				1CAACB5E1539BC428AF5F78F /* ReferencesView.swift in Sources */,
 				942585BEE4EEF986E5D90309 /* SearchModel.swift in Sources */,
 				6CEEE2541A2EE8879561FE3A /* SearchView.swift in Sources */,
@@ -939,6 +946,7 @@
 				6105FE260A7E5F1D19248F68 /* OhMyCodeTests.swift in Sources */,
 				DE6F63AEA1DD8D5A8697925F /* PaletteTests.swift in Sources */,
 				5F430A42226C21B00C6D5136 /* ProblemsTests.swift in Sources */,
+				D8C6ABCE8BA051908B8BCA37 /* ProcessIOTests.swift in Sources */,
 				655A1901D50A5344BFBAF790 /* RemoteTests.swift in Sources */,
 				476F1A5E9F55BE3672D79298 /* RepoHistoryTests.swift in Sources */,
 				24B7957B0621B9E84225341C /* SearchTests.swift in Sources */,

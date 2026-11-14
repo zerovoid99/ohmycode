@@ -58,9 +58,7 @@ extension Workspace {
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
-            guard (try? process.run()) != nil else { return [] }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
+            guard let data = (try? ProcessIO.run(process, output: pipe, error: nil))?.output else { return [] }
             let user = Double(getuid())
             let own = ProcessInfo.processInfo.processIdentifier
             return ((try? JSONDecoder().decode(JSONValue.self, from: data))?.array ?? []).compactMap { entry -> RunningProcess? in

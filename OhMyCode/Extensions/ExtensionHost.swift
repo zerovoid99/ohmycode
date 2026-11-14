@@ -963,7 +963,6 @@ enum ExtensionProcess {
             process.standardOutput = output
             process.standardError = errors
             process.standardInput = input == nil ? FileHandle.nullDevice : inputPipe
-            try process.run()
             if let input {
                 DispatchQueue.global().async {
                     try? inputPipe.fileHandleForWriting.write(contentsOf: Data(input.utf8))
@@ -975,22 +974,13 @@ enum ExtensionProcess {
                 if process.isRunning { didTimeOut = true; process.terminate() }
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer)
-            nonisolated(unsafe) var errorData = Data()
-            let group = DispatchGroup()
-            group.enter()
-            DispatchQueue.global().async {
-                errorData = errors.fileHandleForReading.readDataToEndOfFile()
-                group.leave()
-            }
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            group.wait()
+            let result = try ProcessIO.run(process, output: output, error: errors)
             timer.cancel()
             if didTimeOut { throw Timeout(seconds: timeout) }
             return JSONValue.object([
-                "code": .number(Double(process.terminationStatus)),
-                "stdout": .string(String(decoding: data, as: UTF8.self)),
-                "stderr": .string(String(decoding: errorData, as: UTF8.self)),
+                "code": .number(Double(result.status)),
+                "stdout": .string(String(decoding: result.output, as: UTF8.self)),
+                "stderr": .string(String(decoding: result.error, as: UTF8.self)),
             ])
     }
 }

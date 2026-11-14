@@ -77,18 +77,22 @@ final class TaskRun: Identifiable {
             return
         }
         self.process = process
-        let handle = pipe.fileHandleForReading
-        // Read until every writer closes the pipe, then wait for the exit: the main queue gets
-        // the output before the result.
+        let descriptor = pipe.fileHandleForReading.fileDescriptor
+        let pid = process.processIdentifier
+        // Read as output comes, until the command exits. Not until the pipe closes: something
+        // it started may live on with the pipe (a build service), and the run would never end.
+        // The main queue gets the output before the result.
+        let deliver: @Sendable (Data) -> Void = { [weak self] data in
+            let text = String(decoding: data, as: UTF8.self)
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.append(text) } }
+        }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            while true {
-                let data = handle.availableData
-                if data.isEmpty { break }
-                let text = String(decoding: data, as: UTF8.self)
-                DispatchQueue.main.async { MainActor.assumeIsolated { self?.append(text) } }
+            var status = ProcessIO.collect(pid: pid, descriptors: [descriptor]) { _, data in deliver(data) }
+            if status == ProcessIO.reapedElsewhere {
+                process.waitUntilExit() // Process has it: returns at once
+                status = process.terminationStatus
             }
-            process.waitUntilExit()
-            let status = process.terminationStatus
+            try? pipe.fileHandleForReading.close()
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self else { return }

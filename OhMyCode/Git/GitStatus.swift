@@ -732,26 +732,18 @@ enum Git {
         process.standardError = errorOutput
         let inputPipe = input.map { _ in Pipe() }
         process.standardInput = inputPipe ?? FileHandle.nullDevice
-        do { try process.run() } catch { return (-1, Data(), Data("could not run git".utf8)) }
+        // Input is written concurrently: git may fill the output pipe before it has read it all.
         if let inputPipe, let input {
-            // Written concurrently: git may fill the output pipe before it has read all input.
             DispatchQueue.global().async {
                 try? inputPipe.fileHandleForWriting.write(contentsOf: input)
                 try? inputPipe.fileHandleForWriting.close()
             }
         }
-        // Drain stderr concurrently so a chatty command can't block on a full pipe.
-        nonisolated(unsafe) var errorData = Data()
-        let group = DispatchGroup()
-        group.enter()
-        DispatchQueue.global().async {
-            errorData = errorOutput.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
+        // Both pipes read here, on this thread (no dispatch thread to run out of).
+        guard let result = try? ProcessIO.run(process, output: output, error: errorOutput) else {
+            return (-1, Data(), Data("could not run git".utf8))
         }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        group.wait()
-        return (process.terminationStatus, data, errorData)
+        return (result.status, result.output, result.error)
     }
 }
 

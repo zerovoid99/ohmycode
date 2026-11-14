@@ -202,11 +202,8 @@ final class TestController {
             process.executableURL = URL(filePath: "/usr/bin/env")
             process.arguments = ["python3", "-m", "pytest", "--version"]
             process.environment = environment
-            process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
-            guard (try? process.run()) != nil else { return false }
-            process.waitUntilExit()
-            return process.terminationStatus == 0
+            return (try? ProcessIO.run(process, output: Pipe(), error: nil))?.status == 0
         }.value
     }
 

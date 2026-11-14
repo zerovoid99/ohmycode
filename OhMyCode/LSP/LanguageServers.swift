@@ -73,13 +73,9 @@ actor ShellEnvironment {
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
-        let deadline = DispatchTime.now() + 5
-        let group = DispatchGroup()
-        group.enter()
-        DispatchQueue.global().async { process.waitUntilExit(); group.leave() }
-        if group.wait(timeout: deadline) == .timedOut { process.terminate(); return nil }
-        let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        // A profile that hangs (waits for input, a slow plugin) isn't waited for long.
+        guard let result = try? ProcessIO.run(process, output: output, error: nil, timeout: .seconds(5)), result.status == 0 else { return nil }
+        let text = String(decoding: result.output, as: UTF8.self)
         guard let range = text.range(of: "__OMC_PATH__") else { return nil }
         let path = String(text[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
         return path.isEmpty ? nil : path

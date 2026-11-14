@@ -209,10 +209,8 @@ struct LaunchConfiguration: Codable, Equatable, Identifiable, Sendable {
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
-            guard (try? process.run()) != nil else { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return process.terminationStatus == 0 ? data : nil
+            guard let result = try? ProcessIO.run(process, output: pipe, error: nil), result.status == 0 else { return nil }
+            return result.output
         }.value
         guard let output, let description = try? JSONDecoder().decode(JSONValue.self, from: output) else { return [] }
         let executables = (description["products"]?.array ?? []).filter { $0["type"]?["executable"] != nil }.compactMap { $0["name"]?.string }

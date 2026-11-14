@@ -31,10 +31,8 @@ enum FileIndexer {
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
+        guard let result = try? ProcessIO.run(process, output: output, error: nil), result.status == 0 else { return nil }
+        let data = result.output
 
         let fileManager = FileManager.default
         var seen = Set<String>()

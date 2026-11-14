@@ -174,6 +174,18 @@ struct TaskRunTests {
         #expect(!run.lines.contains { $0.text == "after" })
     }
 
+    @Test func endsWhenTheCommandExitsEvenIfSomethingItStartedKeepsTheOutput() async throws {
+        let root = try makeFolder(["x.txt": ""])
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        // Like a build service started by a build: it lives on, holding the output open.
+        let run = try #require(workspace.runTask(TaskDefinition(label: "Daemon", command: "echo before; sleep 20 & echo after; exit 4")))
+        let started = ContinuousClock.now
+        await run.waitUntilEnded()
+        #expect(ContinuousClock.now - started < .seconds(5))
+        #expect(run.state == .failed(4) && run.lines.map(\.text).contains("before") && run.lines.map(\.text).contains("after"))
+    }
+
     @Test func missingCommandFailsAndEnvironmentApplies() async throws {
         let root = try makeFolder(["x.txt": ""])
         let workspace = Workspace()
