@@ -68,6 +68,8 @@ struct PaletteCommand: Identifiable {
                        shortcut: "⌃⌘←", isAvailable: { $0.activeDocument != nil }, perform: { $0.moveActiveEditor(by: -1) }),
         PaletteCommand(id: "view.problems", title: "View: Toggle Problems", icon: "exclamationmark.triangle", shortcut: "⇧⌘M",
                        isAvailable: { $0.rootNode != nil }, perform: { $0.toggleProblems() }),
+        PaletteCommand(id: "markdown.preview", title: "Markdown: Toggle Preview to the Side", icon: "doc.richtext", shortcut: "⇧⌘V",
+                       isAvailable: { $0.activeDocument?.language == .markdown }, perform: { $0.toggleMarkdownPreview() }),
         PaletteCommand(id: "snippets.insert", title: "Snippets: Insert Snippet…", icon: "text.badge.plus", shortcut: nil,
                        isAvailable: { $0.activeDocument != nil }, perform: { workspace in Task { await workspace.insertSnippet() } }),
         PaletteCommand(id: "snippets.configure", title: "Snippets: Configure User Snippets", icon: "gearshape", shortcut: nil,

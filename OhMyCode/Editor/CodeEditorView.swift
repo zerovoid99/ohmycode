@@ -598,6 +598,7 @@ final class EditorController: NSObject {
     }
 
     @objc private func viewportDidScroll() {
+        NotificationCenter.default.post(name: Self.didScrollNotification, object: self)
         gutterView.needsDisplay = true
         minimapView?.refresh()
         stickyView?.update()

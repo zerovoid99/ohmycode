@@ -31,6 +31,8 @@ final class Workspace {
     /// Replaces the debug adapter's command (tests).
     @ObservationIgnored var debugAdapter: [String]?
     enum BottomPanel { case terminal, debugConsole, problems, tasks }
+    /// Markdown documents shown with their preview beside them.
+    private(set) var markdownPreviews: Set<EditorDocument.ID> = []
     /// Every diagnostic in the folder (the Problems panel).
     let problems = ProblemStore()
     /// Tasks run (the Tasks panel), oldest first; finished ones stay until run again or closed.
@@ -1552,6 +1554,16 @@ final class Workspace {
     /// The terminal shown in the panel.
     var terminal: TerminalSession? {
         terminals.first { $0.id == activeTerminalID }
+    }
+
+    func showsMarkdownPreview(_ document: EditorDocument) -> Bool {
+        document.language == .markdown && markdownPreviews.contains(document.id)
+    }
+
+    /// ⇧⌘V: the rendered Markdown beside the editor (or not).
+    func toggleMarkdownPreview(_ document: EditorDocument? = nil) {
+        guard let document = document ?? activeDocument, document.language == .markdown else { NSSound.beep(); return }
+        if markdownPreviews.contains(document.id) { markdownPreviews.remove(document.id) } else { markdownPreviews.insert(document.id) }
     }
 
     /// ⇧⌘M: the Problems panel (or hides it when it's showing).

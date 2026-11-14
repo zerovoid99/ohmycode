@@ -68,6 +68,9 @@ struct WorkspaceCommands: Commands {
             Button("Source Control") { workspace?.sidebarMode = .sourceControl }
                 .keyboardShortcut("g", modifiers: [.control, .shift])
                 .disabled(workspace?.rootNode == nil)
+            Button("Markdown Preview") { workspace?.toggleMarkdownPreview() }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .disabled(workspace?.activeDocument?.language != .markdown)
             Button("Problems") { workspace?.toggleProblems() }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
                 .disabled(workspace?.rootNode == nil)
