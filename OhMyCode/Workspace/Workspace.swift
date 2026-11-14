@@ -14,6 +14,7 @@ final class Workspace {
                 attachBreakpoints(to: document)
                 applyTaskProblems(to: document)
                 document.workspaceRoot = rootURL
+                attachTests(to: document)
             }
             // Tell the extensions (only once they're running: opening a folder starts them).
             guard extensionsStarted else { return }
@@ -31,6 +32,8 @@ final class Workspace {
     /// Replaces the debug adapter's command (tests).
     @ObservationIgnored var debugAdapter: [String]?
     enum BottomPanel { case terminal, debugConsole, problems, tasks }
+    /// The folder's tests (the Testing panel).
+    @ObservationIgnored private(set) lazy var testing = TestController(workspace: self)
     /// Markdown documents shown with their preview beside them.
     private(set) var markdownPreviews: Set<EditorDocument.ID> = []
     /// Every diagnostic in the folder (the Problems panel).
@@ -82,6 +85,7 @@ final class Workspace {
         case history = "Timeline"
         case extensions = "Extensions"
         case debug = "Run and Debug"
+        case testing = "Testing"
     }
 
     @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
@@ -250,6 +254,8 @@ final class Workspace {
         debugSession = nil
         taskRuns.forEach { $0.terminate() }
         taskRuns = []
+        testing.reset()
+        Task { await testing.discover() }
         taskHistory = []
         problems.removeAll()
         launchConfigurations = []
@@ -338,6 +344,7 @@ final class Workspace {
         for document in documents where changedPaths.contains(FileWatcher.canonicalPath(document.url)) {
             document.reloadFromDiskIfChanged()
         }
+        testing.filesChanged(Array(changedPaths))
     }
 
     // MARK: Language servers

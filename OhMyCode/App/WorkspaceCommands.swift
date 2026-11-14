@@ -103,6 +103,15 @@ struct WorkspaceCommands: Commands {
             Button("Toggle Breakpoint") { workspace?.toggleBreakpointAtCursor() }
                 .keyboardShortcut(keys.shortcut("debug.toggleBreakpoint"))
                 .disabled(workspace?.activeDocument == nil)
+            Divider()
+            Button("Run All Tests") { workspace?.runAllTests() }
+                .keyboardShortcut(keys.shortcut("test.runAll"))
+                .disabled(workspace?.rootURL == nil)
+            Button("Run Test at Cursor") { workspace?.runTestAtCursor() }
+                .keyboardShortcut(keys.shortcut("test.runAtCursor"))
+                .disabled(workspace?.activeDocument == nil)
+            Button("Show Testing") { workspace?.sidebarMode = .testing }
+                .disabled(workspace == nil)
             Button("Show Run and Debug") { workspace?.sidebarMode = .debug }
                 .keyboardShortcut(keys.shortcut("debug.show"))
                 .disabled(workspace == nil)

@@ -13,6 +13,7 @@ struct WorkspaceView: View {
                         .tag(Workspace.SidebarMode.sourceControl)
                     Image(systemName: "clock.arrow.circlepath").help("Timeline").tag(Workspace.SidebarMode.history)
                     Image(systemName: "ladybug").help("Run and Debug (⇧⌘D)").tag(Workspace.SidebarMode.debug)
+                    Image(systemName: "checkmark.diamond").help("Testing").tag(Workspace.SidebarMode.testing)
                     Image(systemName: "puzzlepiece.extension").help("Extensions").tag(Workspace.SidebarMode.extensions)
                     if workspace.references != nil {
                         Image(systemName: "link").help("References").tag(Workspace.SidebarMode.references)
@@ -40,6 +41,8 @@ struct WorkspaceView: View {
                     ExtensionsView(workspace: workspace)
                 case .debug:
                     DebugView(workspace: workspace)
+                case .testing:
+                    TestingView(workspace: workspace)
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)

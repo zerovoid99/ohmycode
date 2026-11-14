@@ -65,7 +65,7 @@ extension Workspace {
 
     /// Starts a task (stopping an earlier run of it), showing its output and problems.
     @discardableResult
-    func runTask(_ task: TaskDefinition) -> TaskRun? {
+    func runTask(_ task: TaskDefinition, reveal: Bool = true) -> TaskRun? {
         guard let root = rootURL else { return nil }
         if let running = taskRuns.first(where: { $0.task.label == task.label && $0.state.isRunning }) { running.terminate() }
         taskHistory.removeAll { $0 == task.label }
@@ -80,8 +80,10 @@ extension Workspace {
         taskRuns.removeAll { $0.task.label == task.label && !$0.state.isRunning }
         taskRuns.append(run)
         selectedTaskRunID = run.id
-        bottomPanel = .tasks
-        isTerminalVisible = true
+        if reveal {
+            bottomPanel = .tasks
+            isTerminalVisible = true
+        }
         Task {
             let environment = await ShellEnvironment.shared.environment()
             run.start(environment: environment)
@@ -154,7 +156,7 @@ extension Workspace {
         }
     }
 
-    private func clearTaskProblems(source: String) {
+    func clearTaskProblems(source: String) {
         for document in documents where !problems.diagnostics(for: document.url, source: source).isEmpty {
             document.setExtensionDiagnostics([], collection: source)
         }

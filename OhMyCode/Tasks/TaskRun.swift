@@ -32,6 +32,10 @@ final class TaskRun: Identifiable {
     /// Called with every problem list change (the new full list).
     @ObservationIgnored var onProblems: (([ProblemMatcher.Problem]) -> Void)?
     @ObservationIgnored var onEnd: ((State) -> Void)?
+    /// Every line of output as it arrives (escape sequences removed).
+    @ObservationIgnored var onLine: ((String) -> Void)?
+    /// What the panel shows for a line (nil hides it); the line itself by default.
+    @ObservationIgnored var displayLine: ((String) -> String?)?
 
     static let maxLines = 20_000
     @ObservationIgnored private var nextLineID = 0
@@ -54,7 +58,10 @@ final class TaskRun: Identifiable {
         process.executableURL = URL(filePath: "/bin/sh")
         process.arguments = ["-c", task.command]
         if let cwd = task.cwd { process.currentDirectoryURL = URL(filePath: cwd) }
-        var environment = environment
+        // Not what launched this app (an Xcode test host's injection would hijack test runners).
+        var environment = environment.filter { key, _ in
+            !["XCTest", "XCInject", "DYLD_", "__XPC_DYLD", "__XCODE", "OS_ACTIVITY_DT_MODE"].contains { key.hasPrefix($0) }
+        }
         environment.merge(task.env ?? [:]) { $1 }
         environment["TERM"] = "dumb"
         process.environment = environment
@@ -149,7 +156,9 @@ final class TaskRun: Identifiable {
         var found = false
         for raw in text.dropLast().split(separator: "\n", omittingEmptySubsequences: false) {
             // A carriage return redraws the line (progress bars): keep what's left at the end.
-            let display = ProblemMatcher.stripEscapes(String(raw.split(separator: "\r", omittingEmptySubsequences: false).last ?? ""))
+            let text = ProblemMatcher.stripEscapes(String(raw.split(separator: "\r", omittingEmptySubsequences: false).last ?? ""))
+            if !isEcho { onLine?(text) }
+            guard let display = isEcho ? text : (displayLine.map { $0(text) } ?? text) else { continue }
             var problemIndex: Int?
             if !isEcho, task.matchesProblems, let problem = matcher.match(display) {
                 if let existing = problems.firstIndex(of: problem) {

@@ -25,6 +25,13 @@ final class GutterView: NSView {
     var menuForLine: ((Int?) -> NSMenu?)?
     /// Width of the blame column at the left edge (0 when hidden).
     private(set) var blameWidth: CGFloat = 0
+    /// Width of the test column after it (0 when the file has no tests).
+    private(set) var testWidth: CGFloat = 0
+    static let testColumnWidth: CGFloat = 18
+    /// What comes before the change strip.
+    var leadingWidth: CGFloat { blameWidth + testWidth }
+    /// A click on a test's mark: run it.
+    var onTestClick: ((Int) -> Void)?
     /// Width of the fold chevron column at the right edge.
     static let foldColumnWidth: CGFloat = 14
     private var isHovering = false
@@ -83,13 +90,17 @@ final class GutterView: NSView {
             onBlameClick?(line)
             return
         }
+        if point.x < leadingWidth {
+            if document.testMarks?()[line] != nil { onTestClick?(line) }
+            return
+        }
         if point.x >= width - Self.foldColumnWidth, document.isFolded(line: line) || document.isFoldable(line: line) {
             onFoldClick?(line)
             return
         }
         // The change bar's strip shows the change; the rest of the numbers toggles a breakpoint.
-        if point.x < blameWidth + Self.changeStripWidth || onBreakpointClick == nil {
-            onLineClick?(line, NSRect(x: blameWidth, y: lineRect.minY, width: 8, height: lineRect.height))
+        if point.x < leadingWidth + Self.changeStripWidth || onBreakpointClick == nil {
+            onLineClick?(line, NSRect(x: leadingWidth, y: lineRect.minY, width: 8, height: lineRect.height))
         } else {
             onBreakpointClick?(line)
         }
@@ -140,10 +151,12 @@ final class GutterView: NSView {
         let digits = max(3, String(document.lineCount).count)
         let digitWidth = ("8" as NSString).size(withAttributes: [.font: EditorTheme.gutterFont]).width
         let blame = document.showsBlameColumn ? ceil(digitWidth * 30) : 0
-        guard digits != digitCount || blame != blameWidth else { return }
+        let tests = document.testMarks?().isEmpty == false ? Self.testColumnWidth : 0
+        guard digits != digitCount || blame != blameWidth || tests != testWidth else { return }
+        testWidth = tests
         digitCount = digits
         blameWidth = blame
-        width = blame + ceil(digitWidth * CGFloat(digits)) + 20 + Self.foldColumnWidth
+        width = blame + tests + ceil(digitWidth * CGFloat(digits)) + 20 + Self.foldColumnWidth
         onWidthChange?()
     }
 
@@ -187,6 +200,7 @@ final class GutterView: NSView {
         }
         var firstDrawnLine: Int?
         let breakpoints = document.breakpointMarks?() ?? [:]
+        let testMarks = testWidth > 0 ? document.testMarks?() ?? [:] : [:]
         let executionLine = document.executionLine
 
         layoutManager.enumerateTextLayoutFragments(from: viewportRange.location, options: []) { fragment in
@@ -213,9 +227,12 @@ final class GutterView: NSView {
                 }
                 if firstDrawnLine == nil { firstDrawnLine = line }
                 if let marker = self.document.diffMarkers[line] {
-                    self.drawDiffMarker(marker, x: self.blameWidth, y: y, height: bounds.height)
+                    self.drawDiffMarker(marker, x: self.leadingWidth, y: y, height: bounds.height)
                 }
 
+                if let state = testMarks[line] {
+                    self.drawTestMark(state, y: y, height: bounds.height)
+                }
                 if let mark = breakpoints[line] {
                     self.drawBreakpoint(mark, y: y, height: bounds.height)
                 }
@@ -240,7 +257,7 @@ extension GutterView {
     /// couldn't place it, grey when disabled, with a bar when it has a condition.
     fileprivate func drawBreakpoint(_ mark: BreakpointMark, y: CGFloat, height: CGFloat) {
         let size = min(10, height - 4)
-        let rect = NSRect(x: blameWidth + Self.changeStripWidth + 1, y: y + (height - size) / 2, width: size, height: size)
+        let rect = NSRect(x: leadingWidth + Self.changeStripWidth + 1, y: y + (height - size) / 2, width: size, height: size)
         let color = mark.isEnabled ? NSColor.systemRed : NSColor.systemGray
         // A logpoint is a diamond.
         let dot: NSBezierPath
@@ -269,9 +286,28 @@ extension GutterView {
     }
 
     /// A yellow arrow where the debugger is stopped.
+    /// ▶ for a test not run yet, ✓ passed, ✗ failed, a ring while it runs.
+    fileprivate func drawTestMark(_ state: TestController.State, y: CGFloat, height: CGFloat) {
+        let (symbol, color): (String, NSColor) = switch state {
+        case .passed: ("checkmark.circle.fill", .systemGreen)
+        case .failed: ("xmark.circle.fill", .systemRed)
+        case .running, .queued: ("circle.dotted", .systemOrange)
+        case .skipped: ("forward.circle", .secondaryLabelColor)
+        case .notRun: ("exclamationmark.circle", .systemOrange)
+        case .unknown: ("play.fill", .systemGreen)
+        }
+        let configuration = NSImage.SymbolConfiguration(pointSize: min(12, height * 0.8), weight: .bold)
+            // Filled circles: a white mark on the color.
+            .applying(.init(paletteColors: symbol.hasSuffix(".fill") && symbol.contains("circle") ? [.white, color] : [color]))
+        guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
+        let size = image.size
+        image.draw(in: NSRect(x: blameWidth + (testWidth - size.width) / 2, y: y + (height - size.height) / 2,
+                              width: size.width, height: size.height))
+    }
+
     fileprivate func drawExecutionArrow(y: CGFloat, height: CGFloat) {
         let size = min(12, height - 2)
-        let x = blameWidth + Self.changeStripWidth
+        let x = leadingWidth + Self.changeStripWidth
         let top = y + (height - size) / 2
         let arrow = NSBezierPath()
         arrow.move(to: NSPoint(x: x, y: top + size * 0.25))

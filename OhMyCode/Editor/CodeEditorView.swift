@@ -132,6 +132,7 @@ final class EditorController: NSObject {
         textView.onKeyDown = { [weak self] in self?.hover.dismiss(); self?.blameHover.dismiss() }
         gutter.onLineClick = { [weak self] line, rect in self?.showHunk(atLine: line, rect: rect) }
         gutter.onFoldClick = { [weak self] line in self?.document.toggleFold(atLine: line) }
+        gutter.onTestClick = { [weak self] line in self?.document.runTestAction?(line) }
         gutter.onBreakpointClick = { [weak self] line in
             guard let self else { return }
             self.document.toggleBreakpointAction?(line)

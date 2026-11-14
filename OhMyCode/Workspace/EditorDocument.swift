@@ -118,6 +118,10 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored var toggleBreakpointAction: ((Int) -> Void)?
     /// Breakpoints on this file's lines (zero-based): true when the debugger confirmed them.
     @ObservationIgnored var breakpointMarks: (() -> [Int: BreakpointMark])?
+    /// Tests and suites declared in the file, by line, with their last result (gutter marks).
+    @ObservationIgnored var testMarks: (() -> [Int: TestController.State])?
+    /// Runs the test or suite declared on a line.
+    @ObservationIgnored var runTestAction: ((Int) -> Void)?
     /// Called after each edit and after saving (the window's extensions listen).
     @ObservationIgnored var onDidEdit: (() -> Void)?
     /// The next storage edit's exact replacement: `range` replaced by `length` characters.
