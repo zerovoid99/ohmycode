@@ -5,7 +5,13 @@ struct OhMyCodeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
-        DispatchQueue.main.async { AppSettings.shared.applyAppearance() } // once NSApp exists
+        DispatchQueue.main.async {
+            AppSettings.shared.applyAppearance() // once NSApp exists
+            // Profiles follow (and save) the settings from now on; tests use their own.
+            if !AppSettings.isRunningTests {
+                ProfileManager.shared.attach(.init(settings: .shared, keybindings: .shared, snippets: .shared, extensions: .shared))
+            }
+        }
     }
 
     var body: some Scene {

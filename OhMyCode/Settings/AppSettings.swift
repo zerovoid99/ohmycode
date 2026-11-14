@@ -128,6 +128,42 @@ final class AppSettings {
         NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 
+    // MARK: Profiles
+
+    /// Every setting, by name (a profile's settings).
+    var snapshot: [String: JSONValue] {
+        [
+            "appearance": .string(appearance.rawValue), "theme": .string(themeID),
+            "editorFontFamily": .string(editorFontFamily), "editorFontSize": .number(editorFontSize),
+            "terminalFontFamily": .string(terminalFontFamily), "terminalFontSize": .number(terminalFontSize),
+            "showsMinimap": .bool(showsMinimap), "stickyScroll": .bool(stickyScroll), "formatOnSave": .bool(formatOnSave),
+            "showsLineBlame": .bool(showsLineBlame), "showsBreadcrumbs": .bool(showsBreadcrumbs),
+            "showsInlayHints": .bool(showsInlayHints), "stagesResolvedConflicts": .bool(stagesResolvedConflicts),
+            "autoClosePairs": .bool(autoClosePairs),
+        ]
+    }
+
+    /// Sets what `values` has (unknown names and wrong types are left as they are), as one change.
+    func apply(_ values: [String: JSONValue]) {
+        isLoading = true
+        if let value = values["appearance"]?.string.flatMap(Appearance.init(rawValue:)) { appearance = value }
+        if let value = values["theme"]?.string { themeID = value }
+        if let value = values["editorFontFamily"]?.string { editorFontFamily = value }
+        if let value = values["editorFontSize"]?.number { editorFontSize = value }
+        if let value = values["terminalFontFamily"]?.string { terminalFontFamily = value }
+        if let value = values["terminalFontSize"]?.number { terminalFontSize = value }
+        if let value = values["showsMinimap"]?.bool { showsMinimap = value }
+        if let value = values["stickyScroll"]?.bool { stickyScroll = value }
+        if let value = values["formatOnSave"]?.bool { formatOnSave = value }
+        if let value = values["showsLineBlame"]?.bool { showsLineBlame = value }
+        if let value = values["showsBreadcrumbs"]?.bool { showsBreadcrumbs = value }
+        if let value = values["showsInlayHints"]?.bool { showsInlayHints = value }
+        if let value = values["stagesResolvedConflicts"]?.bool { stagesResolvedConflicts = value }
+        if let value = values["autoClosePairs"]?.bool { autoClosePairs = value }
+        isLoading = false
+        changed()
+    }
+
     /// A light or dark theme decides the appearance; the Default theme follows the setting.
     var themeSetsAppearance: Bool {
         EditorTheme.themes.first { $0.id == themeID }?.isDark != nil

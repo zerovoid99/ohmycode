@@ -107,6 +107,16 @@ final class ExtensionStore {
         !(defaults.stringArray(forKey: Keys.disabled) ?? []).contains(id)
     }
 
+    /// The extensions turned off (a profile's).
+    var disabledIDs: [String] {
+        get { (defaults.stringArray(forKey: Keys.disabled) ?? []).sorted() }
+        set {
+            guard newValue.sorted() != disabledIDs else { return }
+            defaults.set(newValue.sorted(), forKey: Keys.disabled)
+            changed()
+        }
+    }
+
     func setEnabled(_ id: String, _ enabled: Bool, notify: Bool = true) {
         var disabled = Set(defaults.stringArray(forKey: Keys.disabled) ?? [])
         if enabled { disabled.remove(id) } else { disabled.insert(id) }

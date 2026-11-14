@@ -14,6 +14,8 @@ import SwiftUI
 @MainActor
 @Observable
 final class Keybindings {
+    static let didChange = Notification.Name("omcKeybindingsDidChange")
+
     static var shared = Keybindings(file: AppSettings.isRunningTests
         ? FileManager.default.temporaryDirectory.appending(path: "omc-test-keybindings-\(ProcessInfo.processInfo.processIdentifier).json")
         : URL.applicationSupportDirectory.appending(path: "OhMyCode/keybindings.json"))
@@ -135,6 +137,12 @@ final class Keybindings {
         save()
     }
 
+    /// Replaces every rule (a profile's), saved.
+    func replaceRules(_ rules: [Rule]) {
+        self.rules = rules
+        save()
+    }
+
     func reset(_ command: String) {
         rules.removeAll { $0.command == command || $0.command == "-" + command }
         save()
@@ -190,6 +198,7 @@ final class Keybindings {
             try text.write(to: file, atomically: true, encoding: .utf8)
             fileDate = Self.modificationDate(file)
             loadError = nil
+            NotificationCenter.default.post(name: Self.didChange, object: self)
         } catch {
             loadError = error.localizedDescription
         }

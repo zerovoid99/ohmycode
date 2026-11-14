@@ -15,7 +15,10 @@ struct SnippetDefinition: Equatable, Sendable {
 /// with an optional "scope") and the folder's (`.omc/snippets/` and `.vscode/*.code-snippets`).
 /// User and folder snippets with a built-in's prefix replace it.
 final class SnippetLibrary: @unchecked Sendable {
-    static let shared = SnippetLibrary()
+    /// Under tests, a scratch folder: the user's own snippets are never read or replaced.
+    static let shared = SnippetLibrary(userDirectory: NSClassFromString("XCTestCase") != nil
+        ? FileManager.default.temporaryDirectory.appending(path: "omc-test-snippets-\(ProcessInfo.processInfo.processIdentifier)")
+        : URL.applicationSupportDirectory.appending(path: "OhMyCode/Snippets"))
 
     let userDirectory: URL
     private let lock = NSLock()
@@ -81,6 +84,30 @@ final class SnippetLibrary: @unchecked Sendable {
             let scope = entry["scope"]?.string.map { Set($0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }) }
             return (SnippetDefinition(name: name, prefixes: prefixes, body: body, description: description, source: source), scope)
         }
+    }
+
+    /// The user's snippet files, by name, with their text (a profile's).
+    func userFiles() -> [String: String] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: userDirectory.path)) ?? []
+        var files: [String: String] = [:]
+        for name in names where name.hasSuffix(".json") || name.hasSuffix(".code-snippets") {
+            files[name] = try? String(contentsOf: userDirectory.appending(path: name), encoding: .utf8)
+        }
+        return files
+    }
+
+    /// Makes the user's snippet files exactly `files` (others are removed).
+    func replaceUserFiles(_ files: [String: String]) throws {
+        try FileManager.default.createDirectory(at: userDirectory, withIntermediateDirectories: true)
+        for name in userFiles().keys where files[name] == nil {
+            try FileManager.default.removeItem(at: userDirectory.appending(path: name))
+        }
+        for (name, text) in files where !name.contains("/") {
+            try text.write(to: userDirectory.appending(path: name), atomically: true, encoding: .utf8)
+        }
+        lock.lock()
+        cache = [:]
+        lock.unlock()
     }
 
     /// The user's snippets file for a language (written with an example first), for editing.

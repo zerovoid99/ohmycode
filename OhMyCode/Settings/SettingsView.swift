@@ -14,6 +14,7 @@ struct SettingsView: View {
             Tab("Appearance", systemImage: "paintpalette", value: "appearance") { appearance.frame(width: 520) }
             Tab("Editor", systemImage: "doc.text", value: "editor") { editor.frame(width: 520) }
             Tab("Terminal", systemImage: "terminal", value: "terminal") { terminal.frame(width: 520) }
+            Tab("Profiles", systemImage: "person.crop.rectangle.stack", value: "profiles") { ProfilesView().frame(width: 560, height: 520) }
             Tab("Keyboard Shortcuts", systemImage: "keyboard", value: KeyboardShortcutsWindow.tab) {
                 KeyboardShortcutsView().frame(width: 760, height: 520)
             }

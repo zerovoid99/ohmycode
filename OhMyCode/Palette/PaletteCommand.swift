@@ -279,6 +279,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { _ in true }, perform: { $0.installCommandLineTool() }),
         PaletteCommand(id: "shell.uninstall", title: "Shell Command: Uninstall 'omc' Command", icon: "terminal", key: nil,
                        isAvailable: { _ in CommandLineTool.installedLink() != nil }, perform: { $0.uninstallCommandLineTool() }),
+        PaletteCommand(id: "profiles.switch", title: "Profiles: Switch Profile…", icon: "person.crop.rectangle.stack", key: nil,
+                       isAvailable: { _ in true }, perform: { workspace in Task { @MainActor in await workspace.pickProfile() } }),
         PaletteCommand(id: "view.commandPalette", title: "View: Command Palette…", icon: "command", key: "shift+cmd+p",
                        isAvailable: { _ in true }, perform: { $0.showPalette(.commands) }),
         PaletteCommand(id: "view.zoomIn", title: "View: Zoom In", icon: "plus.magnifyingglass", key: "cmd+=",
