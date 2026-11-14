@@ -61,6 +61,28 @@ Your own, in VS Code's format, go in `~/Library/Application Support/OhMyCode/Sni
 local images). It updates as you type and scrolls with the editor both ways; double-click a part
 of the preview to go to its source. Scripts in the Markdown don't run.
 
+## Testing
+The Testing sidebar lists the folder's tests, found by reading test files: Swift packages (XCTest
+and Swift Testing), Go, Python (pytest if it's installed, else unittest), Jest, Vitest and Rust.
+⌘U runs them all, ⌃⌥⌘U the test at the cursor; the ▶ in the gutter runs one test or suite and
+then shows ✓ or ✗. Failures appear under the test, in the editor and in Problems; the run's output
+is in the Tasks panel. (Xcode projects aren't supported: their tests need `xcodebuild`.)
+
+## Keyboard shortcuts
+Settings → Keyboard Shortcuts lists every command (extensions' too): double-click one and press new
+keys. Changes are saved in `~/Library/Application Support/OhMyCode/keybindings.json`, which can
+also be edited by hand:
+
+```json
+[
+  { "key": "cmd+shift+r", "command": "tasks.run" },
+  { "key": "shift+cmd+b", "command": "-tasks.build" }
+]
+```
+
+A rule gives a command a shortcut; `-command` removes its default one. Commands without a menu item
+(any in the command palette) can have shortcuts too.
+
 ## Debugging
 Run and Debug (⇧⌘D, F5) debugs with LLDB through the Debug Adapter Protocol (`lldb-dap`, part of
 Xcode): Swift, C, C++ and Objective-C. A Swift package's executables are found by themselves
