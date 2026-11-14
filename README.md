@@ -108,6 +108,13 @@ is in the Tasks panel. Xcode projects and workspaces (without a Package.swift) r
 `xcodebuild test`: the project's own scheme, on the Mac or, for an iOS project, the first iPhone
 simulator; their test files are the Swift files in the test targets' folders.
 
+## Profiles and sync
+Settings → Profiles keeps named profiles ("Work", "Presenting"), each with its own settings,
+keyboard shortcuts, snippets and which extensions are off; *Profiles: Switch Profile…* changes
+between them (the current one is saved first). Export… and Import… move a profile as one
+`.omcprofile` file. Choose a sync folder (iCloud Drive, Dropbox, a git repository) to keep profiles
+there: your other Macs pick up changes when you come back to them.
+
 ## Keyboard shortcuts
 Settings → Keyboard Shortcuts lists every command (extensions' too): double-click one and press new
 keys. Changes are saved in `~/Library/Application Support/OhMyCode/keybindings.json`, which can
