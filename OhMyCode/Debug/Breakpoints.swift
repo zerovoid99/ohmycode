@@ -7,6 +7,8 @@ struct BreakpointMark: Equatable {
     /// The debugger confirmed it (nil: not debugging; false: it couldn't place it).
     var isVerified: Bool?
     var hasCondition = false
+    /// A logpoint: prints its message instead of stopping.
+    var isLogpoint = false
 }
 
 /// The workspace's breakpoints by file, kept across launches (per folder).
@@ -18,8 +20,31 @@ final class BreakpointStore {
         var line: Int
         var condition: String?
         var isEnabled = true
+        /// Printed (with {expressions} filled in) instead of stopping.
+        var logMessage: String?
         var id: Int { line }
     }
+
+    /// An exception breakpoint the debugger offers ("swift_throw": "Swift Throw").
+    struct ExceptionFilter: Codable, Hashable, Identifiable {
+        let filter: String
+        let label: String
+        var id: String { filter }
+    }
+
+    /// LLDB's, until a debugger says what it offers.
+    static let lldbExceptionFilters = [("swift_throw", "Swift Throw"), ("swift_catch", "Swift Catch"),
+                                       ("cpp_throw", "C++ Throw"), ("cpp_catch", "C++ Catch"),
+                                       ("objc_throw", "Objective-C Throw"), ("objc_catch", "Objective-C Catch")]
+        .map { ExceptionFilter(filter: $0.0, label: $0.1) }
+
+    /// The exception breakpoints offered, and the ones turned on.
+    private(set) var exceptionFilters = lldbExceptionFilters
+    private(set) var enabledExceptionFilters: Set<String> = []
+    /// Expressions shown whenever the program stops (the Watch list).
+    private(set) var watches: [String] = []
+    @ObservationIgnored var onExceptionFiltersChange: (() -> Void)?
+    @ObservationIgnored var onWatchesChange: (() -> Void)?
 
     private(set) var byPath: [String: [Breakpoint]] = [:]
     /// Lines (one-based) the debugger confirmed, per file; nil when not debugging.
@@ -37,6 +62,8 @@ final class BreakpointStore {
     func load(for root: URL?) {
         key = root.map { "breakpoints.\($0.standardizedFileURL.path)" }
         byPath = key.flatMap { defaults.data(forKey: $0) }.flatMap { try? JSONDecoder().decode([String: [Breakpoint]].self, from: $0) } ?? [:]
+        enabledExceptionFilters = Set(key.flatMap { defaults.stringArray(forKey: $0 + ".exceptions") } ?? [])
+        watches = key.flatMap { defaults.stringArray(forKey: $0 + ".watches") } ?? []
         verified = nil
     }
 
@@ -52,7 +79,8 @@ final class BreakpointStore {
         return Dictionary(breakpoints(in: path).map { breakpoint in
             (breakpoint.line - 1, BreakpointMark(isEnabled: breakpoint.isEnabled,
                                                  isVerified: confirmed.map { $0.contains(breakpoint.line) },
-                                                 hasCondition: breakpoint.condition?.isEmpty == false))
+                                                 hasCondition: breakpoint.condition?.isEmpty == false,
+                                                 isLogpoint: breakpoint.logMessage?.isEmpty == false))
         }, uniquingKeysWith: { first, _ in first })
     }
 
@@ -69,6 +97,52 @@ final class BreakpointStore {
 
     func setCondition(_ path: String, line: Int, _ condition: String?) {
         update(path, line: line) { $0.condition = condition?.isEmpty == true ? nil : condition }
+    }
+
+    func setLogMessage(_ path: String, line: Int, _ message: String?) {
+        update(path, line: line) { $0.logMessage = message?.isEmpty == true ? nil : message }
+    }
+
+    // MARK: Exception breakpoints
+
+    /// What the debugger offers (kept: what's turned on stays on).
+    func setExceptionFilters(_ filters: [ExceptionFilter]) {
+        if !filters.isEmpty { exceptionFilters = filters }
+    }
+
+    func setException(_ filter: String, enabled: Bool) {
+        if enabled { enabledExceptionFilters.insert(filter) } else { enabledExceptionFilters.remove(filter) }
+        if let key { defaults.set(enabledExceptionFilters.sorted(), forKey: key + ".exceptions") }
+        onExceptionFiltersChange?()
+    }
+
+    // MARK: Watch
+
+    func addWatch(_ expression: String) {
+        let text = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !watches.contains(text) else { return }
+        setWatches(watches + [text])
+    }
+
+    func replaceWatch(at index: Int, with expression: String) {
+        let text = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard watches.indices.contains(index) else { return }
+        var list = watches
+        if text.isEmpty { list.remove(at: index) } else { list[index] = text }
+        setWatches(list)
+    }
+
+    func removeWatch(at index: Int) {
+        guard watches.indices.contains(index) else { return }
+        var list = watches
+        list.remove(at: index)
+        setWatches(list)
+    }
+
+    private func setWatches(_ list: [String]) {
+        watches = list
+        if let key { defaults.set(list, forKey: key + ".watches") }
+        onWatchesChange?()
     }
 
     func remove(_ path: String, line: Int) {

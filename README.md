@@ -45,8 +45,18 @@ Xcode): Swift, C, C++ and Objective-C. A Swift package's executables are found b
 ```
 
 Click a line number (or F9) for a breakpoint; its context menu in the Breakpoints list adds a
-condition. F10/F11/⇧F11 step over/into/out. The Debug Console shows the program's output and
-evaluates expressions in the selected frame (start with a backtick for an LLDB command).
+condition or turns it into a logpoint (prints `x is {x}` instead of stopping). The Breakpoints list
+also stops on thrown Swift, C++ or Objective-C exceptions. F10/F11/⇧F11 step over/into/out.
+Watch expressions are evaluated at every stop; a variable's context menu sets its value. The Debug
+Console shows the program's output and evaluates expressions in the selected frame (start with a
+backtick for an LLDB command).
+
+- **Attach:** *Debug: Attach to Process…* picks one of your running processes, or put
+  `"request": "attach"` with a `"pid"` (or a `"program"` to wait for) in launch.json. Stopping lets
+  the process go on.
+- **Other debuggers:** `"type": "python"` uses debugpy (`pip install debugpy`); any debug adapter
+  speaking DAP over stdio works with `"adapter": ["command", "args"…]`, and `"adapterArguments"`
+  adds to its launch request.
 
 ## Extensions
 Extensions are written in TypeScript or JavaScript and run in JavaScriptCore: each one in its

@@ -238,6 +238,8 @@ final class Workspace {
         launchConfigurations = []
         breakpoints.load(for: url)
         breakpoints.onChange = { [weak self] path in self?.breakpointsChanged(in: path) }
+        breakpoints.onExceptionFiltersChange = { [weak self] in self?.debugSettingsChanged(watches: false) }
+        breakpoints.onWatchesChange = { [weak self] in self?.debugSettingsChanged(watches: true) }
         refreshGit()
         extensionsStarted = true
         extensions.start()

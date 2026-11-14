@@ -179,6 +179,16 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.activeDocument != nil }, perform: { $0.toggleBreakpointAtCursor() }),
         PaletteCommand(id: "debug.removeBreakpoints", title: "Debug: Remove All Breakpoints", icon: "trash", shortcut: nil,
                        isAvailable: { !$0.breakpoints.byPath.isEmpty }, perform: { $0.breakpoints.removeAll() }),
+        PaletteCommand(id: "debug.attach", title: "Debug: Attach to Process…", icon: "link", shortcut: nil,
+                       isAvailable: { $0.rootURL != nil }, perform: { workspace in Task { @MainActor in await workspace.attachToProcess() } }),
+        PaletteCommand(id: "debug.addWatch", title: "Debug: Add to Watch", icon: "eye", shortcut: nil,
+                       isAvailable: { $0.activeDocument?.editor != nil }, perform: { workspace in
+                           guard let editor = workspace.activeDocument?.editor else { return }
+                           let range = editor.textView.selectedRange()
+                           let text = range.length > 0 ? editor.document.textStorage.mutableString.substring(with: range)
+                               : editor.wordRange(at: range.location).map { editor.document.textStorage.mutableString.substring(with: $0) } ?? ""
+                           workspace.breakpoints.addWatch(text)
+                       }),
         PaletteCommand(id: "debug.openLaunch", title: "Debug: Open launch.json", icon: "gearshape", shortcut: nil,
                        isAvailable: { $0.rootURL != nil }, perform: { $0.createLaunchFile() }),
         PaletteCommand(id: "extensions.new", title: "Extensions: New Extension…", icon: "puzzlepiece.extension", shortcut: nil,

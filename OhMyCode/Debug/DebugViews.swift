@@ -10,13 +10,14 @@ struct DebugView: View {
             header
             Divider()
             List {
+                WatchSection(workspace: workspace)
                 if let session = workspace.debugSession, session.state == .stopped {
                     Section("Variables") {
                         if session.scopes.isEmpty {
                             Text("No variables").foregroundStyle(.secondary)
                         }
                         ForEach(session.scopes) { scope in
-                            VariableRow(session: session, variable: scope, startsExpanded: scope.id == session.scopes.first?.id)
+                            VariableRow(session: session, variable: scope, workspace: workspace, startsExpanded: scope.id == session.scopes.first?.id)
                         }
                     }
                     Section("Call Stack") {
@@ -28,6 +29,12 @@ struct DebugView: View {
                     }
                 }
                 Section {
+                    ForEach(workspace.breakpoints.exceptionFilters) { filter in
+                        Toggle(filter.label, isOn: Binding(get: { workspace.breakpoints.enabledExceptionFilters.contains(filter.filter) },
+                                                           set: { workspace.breakpoints.setException(filter.filter, enabled: $0) }))
+                            .toggleStyle(.checkbox)
+                            .help("Stop when \(filter.label.lowercased()) happens")
+                    }
                     ForEach(workspace.breakpoints.all.map { ("\($0.path):\($0.breakpoint.line)", $0) }, id: \.0) { _, entry in
                         BreakpointRow(workspace: workspace, path: entry.path, breakpoint: entry.breakpoint)
                     }
@@ -59,7 +66,10 @@ struct DebugView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("Create launch.json") { workspace.createLaunchFile() }
+                HStack {
+                    Button("Create launch.json") { workspace.createLaunchFile() }
+                    Button("Attach to Process…") { Task { await workspace.attachToProcess() } }
+                }
             } else {
                 HStack(spacing: 6) {
                     Button { Task { await workspace.startDebugging() } } label: {
@@ -73,10 +83,16 @@ struct DebugView: View {
                         ForEach(workspace.launchConfigurations) { Text($0.name).tag($0.name) }
                     }
                     .labelsHidden()
-                    Button("Edit launch.json", systemImage: "gearshape") { workspace.createLaunchFile() }
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .help("Open .omc/launch.json (created from a template if needed)")
+                    Menu {
+                        Button("Edit launch.json") { workspace.createLaunchFile() }
+                        Button("Attach to Process…") { Task { await workspace.attachToProcess() } }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Edit launch.json or attach to a running process")
                 }
                 if let session = workspace.debugSession, let code = session.exitCode {
                     Text("Last run exited with code \(code).").font(.caption).foregroundStyle(.secondary)
@@ -129,6 +145,7 @@ struct DebugToolbar: View {
 private struct VariableRow: View {
     let session: DebugSession
     let variable: DebugSession.Variable
+    var workspace: Workspace?
     var startsExpanded = false
     @State private var isExpanded = false
 
@@ -136,7 +153,7 @@ private struct VariableRow: View {
         if variable.reference > 0 {
             DisclosureGroup(isExpanded: $isExpanded) {
                 if let children = session.children[variable.reference] {
-                    ForEach(children) { child in VariableRow(session: session, variable: child) }
+                    ForEach(children) { child in VariableRow(session: session, variable: child, workspace: workspace) }
                 } else {
                     ProgressView().controlSize(.small)
                 }
@@ -162,6 +179,25 @@ private struct VariableRow: View {
         }
         .font(.system(.callout, design: .monospaced))
         .help(variable.type.map { "\(variable.name): \($0) = \(variable.value)" } ?? variable.value)
+        .contextMenu {
+            if variable.parent > 0 {
+                Button("Set Value…") { setValue() }.disabled(!session.supportsSetVariable)
+                Button("Copy Value") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(variable.value, forType: .string)
+                }
+                Button("Add to Watch") { workspace?.breakpoints.addWatch(variable.name) }
+            }
+        }
+    }
+
+    private func setValue() {
+        guard let workspace else { return }
+        Task {
+            guard let value = await workspace.showInputBox(prompt: "New value of \(variable.name)", value: variable.value, placeholder: nil)
+            else { return }
+            do { try await session.setValue(of: variable, to: value) } catch { workspace.errorMessage = error.localizedDescription }
+        }
     }
 }
 
@@ -197,11 +233,16 @@ private struct BreakpointRow: View {
                                             set: { workspace.breakpoints.setEnabled(path, line: breakpoint.line, $0) }))
                 .toggleStyle(.checkbox)
                 .labelsHidden()
-            Circle().fill(breakpoint.isEnabled ? Color.red : Color.gray).frame(width: 8, height: 8)
+            Image(systemName: breakpoint.logMessage == nil ? "circle.fill" : "diamond.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(breakpoint.isEnabled ? Color.red : Color.gray)
             Text((path as NSString).lastPathComponent).lineLimit(1)
             Text("\(breakpoint.line)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             if let condition = breakpoint.condition {
                 Text(condition).font(.caption.monospaced()).foregroundStyle(.orange).lineLimit(1)
+            }
+            if let message = breakpoint.logMessage {
+                Text("log: " + message).font(.caption.monospaced()).foregroundStyle(.blue).lineLimit(1)
             }
             Spacer(minLength: 0)
         }
@@ -212,9 +253,18 @@ private struct BreakpointRow: View {
         }
         .contextMenu {
             Button("Edit Condition…") { editCondition() }
+            Button("Edit Log Message…") { editLogMessage() }
             Button("Remove", role: .destructive) { workspace.breakpoints.remove(path, line: breakpoint.line) }
         }
         .help("\(path):\(breakpoint.line)")
+    }
+
+    private func editLogMessage() {
+        Task {
+            let message = await workspace.showInputBox(prompt: "Print this instead of stopping; {expressions} are filled in. Empty to stop again",
+                                                       value: breakpoint.logMessage ?? "", placeholder: "x is {x}")
+            if let message { workspace.breakpoints.setLogMessage(path, line: breakpoint.line, message) }
+        }
     }
 
     private func editCondition() {
@@ -323,5 +373,46 @@ struct BottomPanelSwitcher: View {
                 .background(workspace.bottomPanel == panel ? Color.secondary.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 4))
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Expressions shown whenever the program stops.
+private struct WatchSection: View {
+    let workspace: Workspace
+    @State private var newExpression = ""
+
+    var body: some View {
+        Section("Watch") {
+            ForEach(Array(workspace.breakpoints.watches.enumerated()), id: \.offset) { index, expression in
+                HStack(spacing: 4) {
+                    Text(expression).foregroundStyle(Color.purple)
+                    Text("=").foregroundStyle(.secondary)
+                    switch workspace.debugSession?.watchResults[expression] {
+                    case .value(let value): Text(value).lineLimit(1).textSelection(.enabled)
+                    case .error(let message): Text(message).foregroundStyle(.secondary).lineLimit(1).help(message)
+                    case nil: Text("not available").foregroundStyle(.tertiary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .font(.system(.callout, design: .monospaced))
+                .contextMenu {
+                    Button("Edit…") {
+                        Task {
+                            if let text = await workspace.showInputBox(prompt: "Watch expression", value: expression, placeholder: nil) {
+                                workspace.breakpoints.replaceWatch(at: index, with: text)
+                            }
+                        }
+                    }
+                    Button("Remove", role: .destructive) { workspace.breakpoints.removeWatch(at: index) }
+                }
+            }
+            TextField("Add expression", text: $newExpression, prompt: Text("+ Add expression").foregroundStyle(.tertiary))
+                .textFieldStyle(.plain)
+                .font(.system(.callout, design: .monospaced))
+                .onSubmit {
+                    workspace.breakpoints.addWatch(newExpression)
+                    newExpression = ""
+                }
+        }
     }
 }

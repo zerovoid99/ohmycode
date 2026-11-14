@@ -26,6 +26,51 @@ extension Workspace {
         toggleBreakpoint(in: document, line: document.cursorLine - 1)
     }
 
+    /// Exception breakpoints or watches changed: a running debugger gets them.
+    func debugSettingsChanged(watches: Bool) {
+        guard let session = debugSession, session.isActive else { return }
+        Task { if watches { await session.evaluateWatches() } else { await session.sendExceptionBreakpoints() } }
+    }
+
+    // MARK: Attaching
+
+    /// Picks a running process (yours) and debugs it.
+    func attachToProcess() async {
+        let processes = await Self.runningProcesses()
+        let items = processes.map { QuickPickItem(label: "\($0.name)  \($0.pid)", description: $0.executable) }
+        guard let index = await showQuickPick(items, placeholder: "Process to attach to"), processes.indices.contains(index) else { return }
+        let process = processes[index]
+        await startDebugging(LaunchConfiguration(name: "Attach to \(process.name) (\(process.pid))", request: "attach", pid: process.pid))
+    }
+
+    struct RunningProcess: Equatable, Sendable {
+        let pid: Int
+        let name: String
+        let executable: String
+    }
+
+    /// The current user's processes, newest first (lldb-dap lists them).
+    static func runningProcesses() async -> [RunningProcess] {
+        await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(filePath: "/usr/bin/xcrun")
+            process.arguments = ["lldb-dap", "--list-processes"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            guard (try? process.run()) != nil else { return [] }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let user = Double(getuid())
+            let own = ProcessInfo.processInfo.processIdentifier
+            return ((try? JSONDecoder().decode(JSONValue.self, from: data))?.array ?? []).compactMap { entry -> RunningProcess? in
+                guard entry["user"]?.number == user, let pid = entry["pid"]?.number.map(Int.init), pid != own,
+                      let name = entry["name"]?.string else { return nil }
+                return RunningProcess(pid: pid, name: name, executable: entry["executable"]?.string ?? "")
+            }.sorted { $0.pid > $1.pid }
+        }.value
+    }
+
     /// A file's breakpoints changed: its gutter redraws, a running debugger gets them.
     func breakpointsChanged(in path: String) {
         document(matching: URL(filePath: path))?.redrawGutters()
@@ -84,8 +129,11 @@ extension Workspace {
         saveAll()
         let environment = await ShellEnvironment.shared.environment()
         let session = DebugSession(configuration: configuration.resolved(root: root, file: activeDocument?.url),
-                                   adapter: debugAdapter ?? ["/usr/bin/xcrun", "lldb-dap"], environment: environment)
+                                   adapter: debugAdapter, environment: environment)
         session.breakpoints = { [weak self] in self?.breakpoints.byPath ?? [:] }
+        session.exceptionFilters = { [weak self] in self?.breakpoints.enabledExceptionFilters ?? [] }
+        session.onExceptionFiltersOffered = { [weak self] in self?.breakpoints.setExceptionFilters($0) }
+        session.watchExpressions = { [weak self] in self?.breakpoints.watches ?? [] }
         session.onBreakpointsVerified = { [weak self] path, lines in
             self?.breakpoints.setVerified(lines, for: path)
             self?.document(matching: URL(filePath: path))?.redrawGutters()

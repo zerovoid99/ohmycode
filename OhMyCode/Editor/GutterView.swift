@@ -236,13 +236,24 @@ final class GutterView: NSView {
 }
 
 extension GutterView {
-    /// A red dot before the line number: hollow when the debugger couldn't place it, grey
-    /// when disabled, with a bar when it has a condition.
+    /// A red dot before the line number (a diamond for a logpoint): hollow when the debugger
+    /// couldn't place it, grey when disabled, with a bar when it has a condition.
     fileprivate func drawBreakpoint(_ mark: BreakpointMark, y: CGFloat, height: CGFloat) {
         let size = min(10, height - 4)
         let rect = NSRect(x: blameWidth + Self.changeStripWidth + 1, y: y + (height - size) / 2, width: size, height: size)
         let color = mark.isEnabled ? NSColor.systemRed : NSColor.systemGray
-        let dot = NSBezierPath(ovalIn: rect)
+        // A logpoint is a diamond.
+        let dot: NSBezierPath
+        if mark.isLogpoint {
+            dot = NSBezierPath()
+            dot.move(to: NSPoint(x: rect.midX, y: rect.minY))
+            dot.line(to: NSPoint(x: rect.maxX, y: rect.midY))
+            dot.line(to: NSPoint(x: rect.midX, y: rect.maxY))
+            dot.line(to: NSPoint(x: rect.minX, y: rect.midY))
+            dot.close()
+        } else {
+            dot = NSBezierPath(ovalIn: rect)
+        }
         if mark.isVerified == false {
             color.setStroke()
             dot.lineWidth = 1.5

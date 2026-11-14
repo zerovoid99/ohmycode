@@ -321,3 +321,198 @@ struct SwiftPackageDebugTests {
         withExtendedLifetime(workspace) {}
     }
 }
+
+/// Watch, set value, logpoints, exception breakpoints, attaching, other adapters.
+@MainActor
+struct DebuggerMoreTests {
+    private func project(_ files: [String: String], configuration: String) throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-debug2-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appending(path: ".omc"), withIntermediateDirectories: true)
+        for (name, text) in files { try text.write(to: root.appending(path: name), atomically: true, encoding: .utf8) }
+        try "{ \"configurations\": [\(configuration)] }".write(to: root.appending(path: ".omc/launch.json"), atomically: true, encoding: .utf8)
+        return root
+    }
+
+    private func variables(_ session: DebugSession) -> [String: DebugSession.Variable] {
+        guard let locals = session.scopes.first, let children = session.children[locals.reference] else { return [:] }
+        return Dictionary(children.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    @Test func watchesSetsValuesAndLogs() async throws {
+        let root = try project(["main.c": DebugSessionTests.program],
+                               configuration: #"{ "name": "prog", "program": "${workspaceFolder}/prog", "preLaunch": "clang -g -O0 -o prog main.c" }"#)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: root.appending(path: "main.c"))
+        let document = try #require(workspace.activeDocument)
+        let path = FileWatcher.canonicalPath(document.url)
+        workspace.toggleBreakpoint(in: document, line: 2) // int sum = a + b;
+        workspace.toggleBreakpoint(in: document, line: 8) // printf(…)
+        workspace.breakpoints.setLogMessage(path, line: 9, "y is {y}, x is {x}")
+        #expect(workspace.breakpoints.marks(for: path)[8]?.isLogpoint == true)
+        workspace.breakpoints.addWatch("a + b")
+        workspace.breakpoints.addWatch("no_such_thing")
+        workspace.breakpoints.addWatch("a + b") // once
+        #expect(workspace.breakpoints.watches == ["a + b", "no_such_thing"])
+        defer { workspace.breakpoints.removeAll(); workspace.breakpoints.removeWatch(at: 1); workspace.breakpoints.removeWatch(at: 0) }
+
+        await workspace.startDebugging()
+        let session = try #require(workspace.debugSession)
+        #expect(try await eventually { session.state == .stopped && session.watchResults.count == 2 })
+        #expect(session.watchResults["a + b"] == .value("5"))
+        if case .error = session.watchResults["no_such_thing"] {} else { Issue.record("an unknown name is an error") }
+        #expect(session.supportsSetVariable && session.supportsLogPoints)
+
+        // Set a = 10: the variable, and the watch using it, change.
+        let a = try #require(variables(session)["a"])
+        #expect(try await session.setValue(of: a, to: "10") == "10")
+        #expect(variables(session)["a"]?.value == "10" && session.watchResults["a + b"] == .value("13"))
+        do { _ = try await session.setValue(of: a, to: "not a number"); Issue.record("a bad value fails") } catch {}
+
+        // A watch added while stopped is evaluated right away.
+        workspace.breakpoints.addWatch("a * 2")
+        #expect(try await eventually { session.watchResults["a * 2"] == .value("20") })
+        workspace.breakpoints.removeWatch(at: 2)
+
+        // The logpoint prints instead of stopping; the program ends with the new value.
+        session.resume()
+        #expect(try await eventually { session.state == .terminated })
+        #expect(session.console.contains { $0.text.contains("y is 13, x is 2") })
+        #expect(session.console.contains { $0.text.contains("y=13") })
+        withExtendedLifetime(workspace) {}
+    }
+
+    @Test func stopsOnThrownExceptionsWhenAsked() async throws {
+        let source = """
+        #include <stdexcept>
+        int risky(int x) {
+            if (x > 1) throw std::runtime_error("too big");
+            return x;
+        }
+        int main() {
+            try { risky(2); } catch (const std::exception &) { return 3; }
+            return 0;
+        }
+
+        """
+        let root = try project(["main.cpp": source],
+                               configuration: #"{ "name": "prog", "program": "${workspaceFolder}/prog", "preLaunch": "clang++ -g -O0 -o prog main.cpp" }"#)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        #expect(workspace.breakpoints.exceptionFilters.map(\.filter).contains("cpp_throw"))
+
+        // Off: the exception is caught and the program ends.
+        await workspace.startDebugging()
+        let first = try #require(workspace.debugSession)
+        #expect(try await eventually { first.state == .terminated } && first.exitCode == 3)
+
+        workspace.breakpoints.setException("cpp_throw", enabled: true)
+        defer { workspace.breakpoints.setException("cpp_throw", enabled: false) }
+        await workspace.startDebugging()
+        let session = try #require(workspace.debugSession)
+        #expect(try await eventually { session.state == .stopped && !session.frames.isEmpty })
+        #expect(session.stopReason == "exception")
+        #expect(session.frames.first { $0.id == session.selectedFrameID }?.name.contains("risky") == true)
+        await session.stop()
+        withExtendedLifetime(workspace) {}
+    }
+
+    @Test func attachesToARunningProcessAndLetsItGo() async throws {
+        let source = """
+        #include <unistd.h>
+        int main(void) {
+            for (int i = 0; ; i++) {
+                usleep(2000);
+            }
+        }
+
+        """
+        let root = try project(["loop.c": source], configuration: "")
+        let build = Process()
+        build.executableURL = URL(filePath: "/usr/bin/clang")
+        build.arguments = ["-g", "-O0", "-o", root.appending(path: "loop").path, root.appending(path: "loop.c").path]
+        try build.run()
+        build.waitUntilExit()
+        let target = Process()
+        target.executableURL = root.appending(path: "loop")
+        try target.run()
+        defer { if target.isRunning { target.terminate() } }
+        let pid = Int(target.processIdentifier)
+        #expect(await Workspace.runningProcesses().contains { $0.pid == pid && $0.name == "loop" })
+
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: root.appending(path: "loop.c"))
+        let document = try #require(workspace.activeDocument)
+        workspace.toggleBreakpoint(in: document, line: 3) // usleep(2000);
+        defer { workspace.breakpoints.removeAll() }
+        await workspace.startDebugging(LaunchConfiguration(name: "Attach", request: "attach", pid: pid))
+        let session = try #require(workspace.debugSession)
+        #expect(try await eventually { session.state == .stopped && !session.frames.isEmpty })
+        #expect(session.frames.first { $0.id == session.selectedFrameID }?.line == 4)
+        #expect(try await eventually { variables(session)["i"] != nil })
+
+        // Stopping detaches: the process keeps running.
+        workspace.stopDebugging()
+        #expect(try await eventually { session.state == .terminated })
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(target.isRunning)
+        withExtendedLifetime(workspace) {}
+    }
+
+    @Test func runsOtherAdaptersAndExplainsBadConfigurations() async throws {
+        // Any DAP adapter on stdio: here lldb-dap given as a command, with extra launch arguments.
+        let root = try project(["main.c": DebugSessionTests.program], configuration: """
+        { "name": "custom", "adapter": ["/usr/bin/xcrun", "lldb-dap"], "program": "${workspaceFolder}/prog",
+          "preLaunch": "clang -g -O0 -o prog main.c", "adapterArguments": { "args": ["--custom"] } }
+        """)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        await workspace.startDebugging()
+        let session = try #require(workspace.debugSession)
+        #expect(try await eventually { session.state == .terminated })
+        #expect(session.exitCode == 0 && session.console.contains { $0.text.contains("y=5") })
+
+        let python = LaunchConfiguration(name: "py", type: "python", program: "/tmp/x.py", args: ["1"], cwd: "/tmp")
+        #expect(try python.adapterCommand().command == ["/usr/bin/env", "python3", "-m", "debugpy.adapter"])
+        let arguments = try python.requestArguments()
+        #expect(arguments["program"] == .string("/tmp/x.py") && arguments["console"] == .string("internalConsole"))
+        #expect(throws: LaunchConfiguration.ConfigurationError.self) { try LaunchConfiguration(name: "x", type: "cobol").adapterCommand() }
+        #expect(throws: LaunchConfiguration.ConfigurationError.self) {
+            try LaunchConfiguration(name: "x", type: "python", request: "attach", pid: 1).requestArguments()
+        }
+        #expect(throws: LaunchConfiguration.ConfigurationError.self) { try LaunchConfiguration(name: "x", request: "attach").requestArguments() }
+
+        await workspace.startDebugging(LaunchConfiguration(name: "bad", type: "cobol", program: "x"))
+        #expect(workspace.errorMessage?.contains("cobol") == true && workspace.debugSession?.state == .terminated)
+        withExtendedLifetime(workspace) {}
+    }
+
+    nonisolated static let hasDebugpy: Bool = {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/env")
+        process.arguments = ["python3", "-c", "import debugpy"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }()
+
+    /// Needs debugpy (`pip install debugpy`): skipped without it.
+    @Test(.enabled(if: hasDebugpy)) func debugsPythonWithDebugpy() async throws {
+        let root = try project(["app.py": "total = 0\nfor n in range(4):\n    total += n\nprint('total', total)\n"],
+                               configuration: #"{ "name": "py", "type": "python", "program": "${workspaceFolder}/app.py" }"#)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: root.appending(path: "app.py"))
+        let document = try #require(workspace.activeDocument)
+        workspace.toggleBreakpoint(in: document, line: 3)
+        defer { workspace.breakpoints.removeAll() }
+        await workspace.startDebugging()
+        let session = try #require(workspace.debugSession)
+        #expect(try await eventually { session.state == .stopped })
+        #expect(await session.evaluate("total") == "6")
+        await session.stop()
+    }
+}

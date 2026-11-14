@@ -16,6 +16,11 @@ import Foundation
 ///     }
 struct LaunchConfiguration: Codable, Equatable, Identifiable, Sendable {
     var name: String
+    /// The debugger: "lldb" (the default: Swift, C, C++, Objective-C) or "python" (debugpy).
+    var type: String?
+    /// "launch" (the default) starts `program`; "attach" connects to the running process `pid`
+    /// (or, with lldb, waits for `program` to start).
+    var request: String?
     var program: String
     var args: [String]?
     var cwd: String?
@@ -23,8 +28,104 @@ struct LaunchConfiguration: Codable, Equatable, Identifiable, Sendable {
     /// A shell command run first (a build); the launch stops if it fails.
     var preLaunch: String?
     var stopOnEntry: Bool?
+    var pid: Int?
+    /// Any other debug adapter speaking DAP over stdio: its command line.
+    var adapter: [String]?
+    /// More arguments for the adapter's launch or attach request (merged last).
+    var adapterArguments: [String: JSONValue]?
 
     var id: String { name }
+    var isAttach: Bool { request == "attach" }
+
+    init(name: String, type: String? = nil, request: String? = nil, program: String = "", args: [String]? = nil,
+         cwd: String? = nil, env: [String: String]? = nil, preLaunch: String? = nil, stopOnEntry: Bool? = nil,
+         pid: Int? = nil, adapter: [String]? = nil, adapterArguments: [String: JSONValue]? = nil) {
+        self.name = name
+        self.type = type
+        self.request = request
+        self.program = program
+        self.args = args
+        self.cwd = cwd
+        self.env = env
+        self.preLaunch = preLaunch
+        self.stopOnEntry = stopOnEntry
+        self.pid = pid
+        self.adapter = adapter
+        self.adapterArguments = adapterArguments
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, type, request, program, args, cwd, env, preLaunch, stopOnEntry, pid, adapter, adapterArguments
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(name: try container.decode(String.self, forKey: .name),
+                  type: try container.decodeIfPresent(String.self, forKey: .type),
+                  request: try container.decodeIfPresent(String.self, forKey: .request),
+                  program: try container.decodeIfPresent(String.self, forKey: .program) ?? "",
+                  args: try container.decodeIfPresent([String].self, forKey: .args),
+                  cwd: try container.decodeIfPresent(String.self, forKey: .cwd),
+                  env: try container.decodeIfPresent([String: String].self, forKey: .env),
+                  preLaunch: try container.decodeIfPresent(String.self, forKey: .preLaunch),
+                  stopOnEntry: try container.decodeIfPresent(Bool.self, forKey: .stopOnEntry),
+                  pid: try container.decodeIfPresent(Int.self, forKey: .pid),
+                  adapter: try container.decodeIfPresent([String].self, forKey: .adapter),
+                  adapterArguments: try container.decodeIfPresent([String: JSONValue].self, forKey: .adapterArguments))
+    }
+
+    enum ConfigurationError: LocalizedError {
+        case unknownType(String)
+        case nothingToAttach
+        case attachUnsupported(String)
+        var errorDescription: String? {
+            switch self {
+            case .unknownType(let type): "There's no debugger of type “\(type)”: use \"lldb\" or \"python\", or give an \"adapter\" command."
+            case .nothingToAttach: "An attach configuration needs a \"pid\" (or, with lldb, a \"program\" to wait for)."
+            case .attachUnsupported(let type): "Attaching isn't supported for “\(type)” here."
+            }
+        }
+    }
+
+    /// The debug adapter's command line and DAP adapter id.
+    func adapterCommand() throws -> (command: [String], id: String) {
+        if let adapter, !adapter.isEmpty { return (adapter, type ?? "custom") }
+        switch type ?? "lldb" {
+        case "lldb": return (["/usr/bin/xcrun", "lldb-dap"], "lldb-dap")
+        case "python", "debugpy": return (["/usr/bin/env", "python3", "-m", "debugpy.adapter"], "debugpy")
+        case let other: throw ConfigurationError.unknownType(other)
+        }
+    }
+
+    /// The `launch` or `attach` request's arguments for this configuration's debugger.
+    func requestArguments() throws -> [String: JSONValue] {
+        var arguments: [String: JSONValue] = [:]
+        let kind = adapter == nil ? (type ?? "lldb") : "custom"
+        if isAttach {
+            switch kind {
+            case "lldb":
+                if let pid { arguments["pid"] = .number(Double(pid)) }
+                else if !program.isEmpty { arguments["program"] = .string(program); arguments["waitFor"] = .bool(true) }
+                else { throw ConfigurationError.nothingToAttach }
+            case "custom":
+                if let pid { arguments["pid"] = .number(Double(pid)) }
+            default:
+                throw ConfigurationError.attachUnsupported(kind)
+            }
+        } else {
+            arguments["program"] = .string(program)
+            arguments["args"] = .array((args ?? []).map(JSONValue.string))
+            if let cwd { arguments["cwd"] = .string(cwd) }
+            if let env, !env.isEmpty { arguments["env"] = .object(env.mapValues(JSONValue.string)) }
+            arguments["stopOnEntry"] = .bool(stopOnEntry ?? false)
+            if kind == "python" || kind == "debugpy" {
+                arguments["console"] = .string("internalConsole")
+                arguments["justMyCode"] = .bool(true)
+            }
+        }
+        arguments.merge(adapterArguments ?? [:]) { $1 }
+        return arguments
+    }
 
     static let file = ".omc/launch.json"
 
