@@ -41,6 +41,14 @@ omc -n ~/code/other       # in a new window
 omc -r notes.md           # in the frontmost window
 ```
 
+## Outline and breadcrumbs
+The Outline sidebar lists the active file's declarations (classes, functions, properties, Markdown
+headings), with the one the cursor is in highlighted; click one to go there. Breadcrumbs above the
+editor show the file's folders and the symbols the cursor is in; each part opens a menu of its
+neighbours. ⇧⌘O (or `@` in quick open) goes to a symbol by name. Symbols come from the language
+server when there is one, otherwise from the syntax tree (Swift, Python, JavaScript, TypeScript,
+Rust, Go). Breadcrumbs can be turned off in Settings → Editor.
+
 ## Tasks and Problems
 Terminal → Run Task… runs a folder's commands; ⇧⌘B runs the default build task. Tasks are found in
 Package.swift, package.json (npm, yarn, pnpm or bun scripts), Makefile, Cargo.toml and go.mod, and
