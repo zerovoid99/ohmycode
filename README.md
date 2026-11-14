@@ -26,6 +26,21 @@ xcodebuild -scheme OhMyCode -destination 'platform=macOS' test
 - [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter) and tree-sitter grammars
   (MIT): syntax highlighting.
 
+## Opening folders and files
+Open a folder with ⌘O, File → Open Recent (⌃R), the welcome screen's recent list, by dropping it on a
+window, or from Finder (Open With → Oh My Code, or onto the Dock icon). A folder that's already open
+comes to the front; a file opens in the window whose folder holds it.
+
+From a terminal: *Oh My Code → Install “omc” Command…* links `omc` into `/opt/homebrew/bin`,
+`/usr/local/bin` or `~/.local/bin`, whichever can be written to.
+
+```sh
+omc .                     # this folder
+omc src/app.swift:12:5    # a file at line 12, column 5 (a new file is created empty)
+omc -n ~/code/other       # in a new window
+omc -r notes.md           # in the frontmost window
+```
+
 ## Tasks and Problems
 Terminal → Run Task… runs a folder's commands; ⇧⌘B runs the default build task. Tasks are found in
 Package.swift, package.json (npm, yarn, pnpm or bun scripts), Makefile, Cargo.toml and go.mod, and
