@@ -49,6 +49,12 @@ neighbours. ⇧⌘O (or `@` in quick open) goes to a symbol by name. Symbols com
 server when there is one, otherwise from the syntax tree (Swift, Python, JavaScript, TypeScript,
 Rust, Go). Breadcrumbs can be turned off in Settings → Editor.
 
+⌘T (or `#` in quick open) finds a symbol anywhere in the folder: the language servers' results with
+every file's syntax tree, so it works without a server too. With a language server: ⌘F12 goes to
+the implementations of a protocol, interface or method (several are listed in the sidebar), Go to
+Type Definition to a value's type, and ⌥⇧H shows the call hierarchy — who calls a function, or
+what it calls — opened level by level.
+
 ## Tasks and Problems
 Terminal → Run Task… runs a folder's commands; ⇧⌘B runs the default build task. Tasks are found in
 Package.swift, package.json (npm, yarn, pnpm or bun scripts), Makefile, Cargo.toml and go.mod, and
