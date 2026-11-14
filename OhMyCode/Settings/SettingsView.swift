@@ -6,14 +6,18 @@ struct SettingsView: View {
     @Bindable var settings = AppSettings.shared
     private let library = ThemeLibrary.shared
     @State private var importError: String?
+    static let tabKey = "settings.tab"
+    @AppStorage(SettingsView.tabKey) private var tab = "appearance"
 
     var body: some View {
-        TabView {
-            Tab("Appearance", systemImage: "paintpalette") { appearance }
-            Tab("Editor", systemImage: "doc.text") { editor }
-            Tab("Terminal", systemImage: "terminal") { terminal }
+        TabView(selection: $tab) {
+            Tab("Appearance", systemImage: "paintpalette", value: "appearance") { appearance.frame(width: 520) }
+            Tab("Editor", systemImage: "doc.text", value: "editor") { editor.frame(width: 520) }
+            Tab("Terminal", systemImage: "terminal", value: "terminal") { terminal.frame(width: 520) }
+            Tab("Keyboard Shortcuts", systemImage: "keyboard", value: KeyboardShortcutsWindow.tab) {
+                KeyboardShortcutsView().frame(width: 760, height: 520)
+            }
         }
-        .frame(width: 520)
     }
 
     // MARK: Appearance

@@ -7,10 +7,8 @@ extension FocusedValues {
 
 struct WorkspaceCommands: Commands {
     @FocusedValue(\.workspace) private var workspace
-
-    static func functionKey(_ key: Int) -> KeyEquivalent {
-        KeyEquivalent(Character(UnicodeScalar(UInt16(key))!))
-    }
+    /// Every shortcut comes from here (Settings → Keyboard Shortcuts changes them).
+    private var keys: Keybindings { Keybindings.shared }
 
     private func supports(_ feature: LanguageClient.Feature) -> Bool {
         workspace?.activeDocument?.languageClient?.supports(feature) == true
@@ -19,17 +17,17 @@ struct WorkspaceCommands: Commands {
     var body: some Commands {
         CommandGroup(after: .newItem) {
             Button("Open Folder…") { workspace?.presentOpenPanel() }
-                .keyboardShortcut("o")
+                .keyboardShortcut(keys.shortcut("file.openFolder"))
                 .disabled(workspace == nil)
         }
 
         CommandGroup(replacing: .saveItem) {
             Button("Save") { workspace?.saveActive() }
-                .keyboardShortcut("s")
+                .keyboardShortcut(keys.shortcut("file.save"))
                 .disabled(workspace?.activeDocument == nil)
 
             Button("Save All") { workspace?.saveAll() }
-                .keyboardShortcut("s", modifiers: [.command, .option])
+                .keyboardShortcut(keys.shortcut("file.saveAll"))
                 .disabled(workspace?.documents.contains(where: \.isDirty) != true)
 
             Button("Close Tab") {
@@ -39,7 +37,7 @@ struct WorkspaceCommands: Commands {
                     NSApp.keyWindow?.performClose(nil)
                 }
             }
-            .keyboardShortcut("w")
+            .keyboardShortcut(keys.shortcut("view.closeEditor"))
         }
 
         // ⌘P belongs to Quick Open, as in other code editors.
@@ -47,32 +45,32 @@ struct WorkspaceCommands: Commands {
 
         CommandGroup(after: .toolbar) {
             Button("Zoom In") { AppSettings.shared.zoom(by: 1) }
-                .keyboardShortcut("=", modifiers: .command)
+                .keyboardShortcut(keys.shortcut("view.zoomIn"))
             Button("Zoom Out") { AppSettings.shared.zoom(by: -1) }
-                .keyboardShortcut("-", modifiers: .command)
+                .keyboardShortcut(keys.shortcut("view.zoomOut"))
             Button("Reset Zoom") { AppSettings.shared.resetZoom() }
-                .keyboardShortcut("0", modifiers: .command)
+                .keyboardShortcut(keys.shortcut("view.resetZoom"))
             Divider()
         }
 
         CommandGroup(after: .sidebar) {
             Button("Explorer") { workspace?.sidebarMode = .files }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .keyboardShortcut(keys.shortcut("view.explorer"))
                 .disabled(workspace?.rootNode == nil)
             Button("Search") { workspace?.showSearch() }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .keyboardShortcut(keys.shortcut("view.search"))
                 .disabled(workspace?.rootNode == nil)
             Button("Replace in Files") { workspace?.showSearch(replace: true) }
-                .keyboardShortcut("h", modifiers: [.command, .shift])
+                .keyboardShortcut(keys.shortcut("view.replace"))
                 .disabled(workspace?.rootNode == nil)
             Button("Source Control") { workspace?.sidebarMode = .sourceControl }
-                .keyboardShortcut("g", modifiers: [.control, .shift])
+                .keyboardShortcut(keys.shortcut("view.sourceControl"))
                 .disabled(workspace?.rootNode == nil)
             Button("Markdown Preview") { workspace?.toggleMarkdownPreview() }
-                .keyboardShortcut("v", modifiers: [.command, .shift])
+                .keyboardShortcut(keys.shortcut("markdown.preview"))
                 .disabled(workspace?.activeDocument?.language != .markdown)
             Button("Problems") { workspace?.toggleProblems() }
-                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .keyboardShortcut(keys.shortcut("view.problems"))
                 .disabled(workspace?.rootNode == nil)
         }
 
@@ -81,32 +79,32 @@ struct WorkspaceCommands: Commands {
             let isActive = session?.isActive == true
             let isStopped = session?.state == .stopped
             Button(isStopped ? "Continue" : "Start Debugging") { workspace?.startOrContinueDebugging() }
-                .keyboardShortcut(Self.functionKey(NSF5FunctionKey), modifiers: [])
+                .keyboardShortcut(keys.shortcut("debug.start"))
                 .disabled(workspace?.rootURL == nil || (isActive && !isStopped))
             Button("Stop Debugging") { workspace?.stopDebugging() }
-                .keyboardShortcut(Self.functionKey(NSF5FunctionKey), modifiers: .shift)
+                .keyboardShortcut(keys.shortcut("debug.stop"))
                 .disabled(!isActive)
             Button("Restart Debugging") { workspace?.restartDebugging() }
-                .keyboardShortcut(Self.functionKey(NSF5FunctionKey), modifiers: [.shift, .command])
+                .keyboardShortcut(keys.shortcut("debug.restart"))
                 .disabled(!isActive)
             Divider()
             Button("Step Over") { session?.stepOver() }
-                .keyboardShortcut(Self.functionKey(NSF10FunctionKey), modifiers: [])
+                .keyboardShortcut(keys.shortcut("debug.stepOver"))
                 .disabled(!isStopped)
             Button("Step Into") { session?.stepInto() }
-                .keyboardShortcut(Self.functionKey(NSF11FunctionKey), modifiers: [])
+                .keyboardShortcut(keys.shortcut("debug.stepInto"))
                 .disabled(!isStopped)
             Button("Step Out") { session?.stepOut() }
-                .keyboardShortcut(Self.functionKey(NSF11FunctionKey), modifiers: .shift)
+                .keyboardShortcut(keys.shortcut("debug.stepOut"))
                 .disabled(!isStopped)
             Button("Pause") { session?.pause() }
                 .disabled(session?.state != .running)
             Divider()
             Button("Toggle Breakpoint") { workspace?.toggleBreakpointAtCursor() }
-                .keyboardShortcut(Self.functionKey(NSF9FunctionKey), modifiers: [])
+                .keyboardShortcut(keys.shortcut("debug.toggleBreakpoint"))
                 .disabled(workspace?.activeDocument == nil)
             Button("Show Run and Debug") { workspace?.sidebarMode = .debug }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
+                .keyboardShortcut(keys.shortcut("debug.show"))
                 .disabled(workspace == nil)
         }
 
@@ -114,11 +112,11 @@ struct WorkspaceCommands: Commands {
             Button(workspace?.isTerminalVisible == true && workspace?.bottomPanel == .terminal ? "Hide Terminal" : "Show Terminal") {
                 workspace?.toggleTerminal()
             }
-            .keyboardShortcut("`", modifiers: .control)
+            .keyboardShortcut(keys.shortcut("view.toggleTerminal"))
             .disabled(workspace?.rootNode == nil)
 
             Button("New Terminal") { workspace?.newTerminal() }
-                .keyboardShortcut("`", modifiers: [.control, .shift])
+                .keyboardShortcut(keys.shortcut("terminal.new"))
                 .disabled(workspace?.rootNode == nil)
 
             Button("Restart Terminal") { workspace?.restartTerminal() }
@@ -131,7 +129,7 @@ struct WorkspaceCommands: Commands {
             Button("Run Task…") { Task { await workspace?.pickAndRunTask() } }
                 .disabled(workspace?.rootURL == nil)
             Button("Run Build Task") { workspace?.runBuildTask() }
-                .keyboardShortcut("b", modifiers: [.command, .shift])
+                .keyboardShortcut(keys.shortcut("tasks.build"))
                 .disabled(workspace?.rootURL == nil)
             Button("Run Test Task") { workspace?.runTestTask() }
                 .disabled(workspace?.rootURL == nil)
@@ -145,50 +143,50 @@ struct WorkspaceCommands: Commands {
 
         CommandMenu("Go") {
             Button("Go to File…") { workspace?.showPalette(.files) }
-                .keyboardShortcut("p")
+                .keyboardShortcut(keys.shortcut("go.quickOpen"))
                 .disabled(workspace == nil)
             Button("Command Palette…") { workspace?.showPalette(.commands) }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .keyboardShortcut(keys.shortcut("view.commandPalette"))
                 .disabled(workspace == nil)
             Button("Go to Line…") { workspace?.showPalette(.goToLine) }
-                .keyboardShortcut("g", modifiers: .control)
+                .keyboardShortcut(keys.shortcut("go.line"))
                 .disabled(workspace?.activeDocument == nil)
 
             Button("Go to Definition") { workspace?.goToDefinition() }
-                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF12FunctionKey)!)), modifiers: [])
+                .keyboardShortcut(keys.shortcut("go.definition"))
                 .disabled(workspace?.activeDocument?.languageClient == nil)
             Button("Find All References") { workspace?.findReferences() }
-                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF12FunctionKey)!)), modifiers: .shift)
+                .keyboardShortcut(keys.shortcut("go.references"))
                 .disabled(!supports(.references))
             Button("Rename Symbol…") { workspace?.renameSymbol() }
-                .keyboardShortcut(KeyEquivalent(Character(UnicodeScalar(NSF2FunctionKey)!)), modifiers: [])
+                .keyboardShortcut(keys.shortcut("edit.rename"))
                 .disabled(!supports(.rename))
             Button("Format Document") { workspace?.formatDocument() }
-                .keyboardShortcut("f", modifiers: [.shift, .option])
+                .keyboardShortcut(keys.shortcut("edit.format"))
                 .disabled(!(workspace?.activeDocument.map { workspace?.canFormat($0) == true } ?? false))
 
             Divider()
 
             Button("Add Next Occurrence") { workspace?.activeDocument?.editor?.addNextOccurrence() }
-                .keyboardShortcut("d", modifiers: .command)
+                .keyboardShortcut(keys.shortcut("edit.addNextOccurrence"))
                 .disabled(workspace?.activeDocument == nil)
             Button("Select All Occurrences") { workspace?.activeDocument?.editor?.selectAllOccurrences() }
-                .keyboardShortcut("l", modifiers: [.command, .shift])
+                .keyboardShortcut(keys.shortcut("edit.selectAllOccurrences"))
                 .disabled(workspace?.activeDocument == nil)
             Button("Add Cursor Above") { workspace?.activeDocument?.editor?.addCursorVertically(-1) }
-                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+                .keyboardShortcut(keys.shortcut("edit.cursorAbove"))
                 .disabled(workspace?.activeDocument == nil)
             Button("Add Cursor Below") { workspace?.activeDocument?.editor?.addCursorVertically(1) }
-                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+                .keyboardShortcut(keys.shortcut("edit.cursorBelow"))
                 .disabled(workspace?.activeDocument == nil)
 
             Divider()
 
             Button("Fold") { workspace?.activeDocument?.editor?.foldAtCursor(true) }
-                .keyboardShortcut("[", modifiers: [.command, .option])
+                .keyboardShortcut(keys.shortcut("edit.fold"))
                 .disabled(workspace?.activeDocument == nil)
             Button("Unfold") { workspace?.activeDocument?.editor?.foldAtCursor(false) }
-                .keyboardShortcut("]", modifiers: [.command, .option])
+                .keyboardShortcut(keys.shortcut("edit.unfold"))
                 .disabled(workspace?.activeDocument == nil)
             Button("Fold All") { workspace?.activeDocument?.foldAll() }
                 .disabled(workspace?.activeDocument == nil)
@@ -198,26 +196,26 @@ struct WorkspaceCommands: Commands {
             Divider()
 
             Button("Next Editor") { workspace?.selectAdjacentDocument(offset: 1) }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .keyboardShortcut(keys.shortcut("view.nextEditor"))
                 .disabled((workspace?.activeGroup.documentIDs.count ?? 0) < 2)
             Button("Previous Editor") { workspace?.selectAdjacentDocument(offset: -1) }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                .keyboardShortcut(keys.shortcut("view.previousEditor"))
                 .disabled((workspace?.activeGroup.documentIDs.count ?? 0) < 2)
 
             Divider()
 
             Button("Split Editor") { workspace?.splitEditor() }
-                .keyboardShortcut("\\", modifiers: .command)
+                .keyboardShortcut(keys.shortcut("view.splitEditor"))
                 .disabled(workspace?.activeDocument == nil || (workspace?.groups.count ?? 0) >= Workspace.maxGroups)
             Button("Move Editor into Next Group") { workspace?.moveActiveEditor(by: 1) }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .control])
+                .keyboardShortcut(keys.shortcut("view.moveEditorNext"))
                 .disabled(workspace?.activeDocument == nil)
             Button("Move Editor into Previous Group") { workspace?.moveActiveEditor(by: -1) }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .control])
+                .keyboardShortcut(keys.shortcut("view.moveEditorPrevious"))
                 .disabled(workspace?.activeDocument == nil)
             ForEach(0..<Workspace.maxGroups, id: \.self) { index in
                 Button("Focus Editor Group \(index + 1)") { workspace?.focusGroup(at: index) }
-                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                    .keyboardShortcut(keys.shortcut("view.focusGroup\(index + 1)"))
                     .disabled((workspace?.groups.count ?? 0) <= index)
             }
         }

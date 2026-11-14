@@ -379,37 +379,80 @@ final class ExtensionHost {
 
     // MARK: Keybindings
 
-    /// The enabled extensions' shortcuts that parse (bad ones are in their logs).
-    private(set) var keybindings: [(chord: KeyChord, binding: ExtensionManifest.Keybinding, extension: ExtensionInstance)] = []
+    /// The enabled extensions' shortcuts, as the user's keybindings leave them (rules that
+    /// don't parse are in the extensions' logs).
+    var keybindings: [(chord: KeyChord, binding: ExtensionManifest.Keybinding, extension: ExtensionInstance)] {
+        let bindings = Keybindings.shared
+        var result: [(chord: KeyChord, binding: ExtensionManifest.Keybinding, extension: ExtensionInstance)] = []
+        for instance in extensions where instance.isEnabled {
+            let manifest = instance.manifest
+            for binding in manifest.keybindings {
+                switch bindings.source(for: binding.command) {
+                case .user, .removed:
+                    continue // below
+                default:
+                    guard let chord = try? KeyChord(parsing: binding.key) else { continue }
+                    result.append((chord, binding, instance))
+                }
+            }
+            for command in Set(manifest.commands.map(\.command) + manifest.keybindings.map(\.command)).sorted()
+            where bindings.source(for: command) == .user {
+                guard let chord = bindings.chord(for: command) else { continue }
+                let when = bindings.when(for: command) ?? manifest.keybindings.first { $0.command == command }?.when
+                result.append((chord, ExtensionManifest.Keybinding(command: command, key: chord.spec, when: when), instance))
+            }
+        }
+        return result
+    }
 
+    /// Tells Keybindings the extensions' commands and default shortcuts (logging bad ones).
     private func updateKeybindings() {
-        keybindings = extensions.filter(\.isEnabled).flatMap { instance in
-            instance.manifest.keybindings.compactMap { binding in
+        let bindings = Keybindings.shared
+        for id in bindings.extensionCommands.keys where !extensions.contains(where: { $0.id == id }) { bindings.removeExtension(id) }
+        for instance in extensions {
+            var defaults: [String: String] = [:]
+            for binding in instance.manifest.keybindings {
                 do {
-                    return (try KeyChord(parsing: binding.key), binding, instance)
+                    let chord = try KeyChord(parsing: binding.key)
+                    if defaults[binding.command] == nil { defaults[binding.command] = chord.spec }
                 } catch {
                     instance.append("warning", "Keybinding \(binding.key) for \(binding.command) ignored: \(error.localizedDescription)")
-                    return nil
                 }
+            }
+            if instance.isEnabled {
+                bindings.setExtensionCommands(instance.id, name: instance.manifest.name,
+                                              commands: instance.manifest.commands.map { ($0.command, $0.paletteTitle) }, defaults: defaults)
+            } else {
+                bindings.removeExtension(instance.id)
             }
         }
     }
 
     /// The shortcut shown for a command in the palette.
     func shortcut(for command: String) -> String? {
-        keybindings.first { $0.binding.command == command }?.chord.display
+        Keybindings.shared.display(for: command)
     }
 
     /// Runs the command bound to a key press in this window; false if none applies. A shortcut
-    /// a menu item already has stays the menu's.
+    /// a menu item already has stays the menu's. Built-in commands get here only when their
+    /// shortcut isn't in a menu (palette commands the user gave one).
     func handleKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let match = keybindings.first(where: { $0.chord.matches(event) && isTrue($0.binding.when, in: window) }) else {
+        let bindings = Keybindings.shared
+        let match = keybindings.first { $0.chord.matches(event) && isTrue($0.binding.when, in: window) }
+        let command = PaletteCommand.all.first { bindings.chord(for: $0.id)?.matches(event) == true }
+        guard let chord = command.flatMap({ bindings.chord(for: $0.id) }) ?? match?.chord else { return false }
+        if let item = chord.menuItem(in: NSApp.mainMenu) {
+            if let match {
+                match.extension.append("warning", "\(chord.display) is the menu's “\(item.title)”: \(match.binding.command) isn't run.")
+            }
             return false
         }
-        if let item = match.chord.menuItem(in: NSApp.mainMenu) {
-            match.extension.append("warning", "\(match.chord.display) is the menu's “\(item.title)”: \(match.binding.command) isn't run.")
-            return false
+        if let command {
+            guard isTrue(bindings.when(for: command.id), in: window), command.isAvailable(workspace) else { return false }
+            command.perform(workspace)
+            return true
         }
+        guard let match else { return false }
         run(match.binding.command)
         return true
     }

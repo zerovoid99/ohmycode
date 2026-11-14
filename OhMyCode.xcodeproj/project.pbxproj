@@ -37,6 +37,7 @@
 		370FBC789CD9DA8B0993C0A5 /* TreeSitterJavaScript in Frameworks */ = {isa = PBXBuildFile; productRef = 87DA8D1C0292FBB52565C8F4 /* TreeSitterJavaScript */; };
 		37AFF8990709D6BEAB141930 /* EditorDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CDE3A5D42C75E7127F24122 /* EditorDocument.swift */; };
 		3A5FD50EF98D72A2334F36D5 /* HoverController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE8B7417AC9A29F14098B2F /* HoverController.swift */; };
+		3B609BF915AA310AE9658EC3 /* KeyboardShortcutsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8DB0CEACFA3A93213858F73 /* KeyboardShortcutsView.swift */; };
 		3BCB6570189F96FF5FC255C1 /* InteractiveRebaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DAEC2C15EA27BFE7D293E0E /* InteractiveRebaseView.swift */; };
 		44F88C3D502540F06F587353 /* LSPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD379088235C2421A7031BC4 /* LSPTests.swift */; };
 		459A340552EE32009CA09153 /* MarkdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BCA72007416F816817C38E1 /* MarkdownTests.swift */; };
@@ -60,6 +61,7 @@
 		664C56E2BC385895A9794E5A /* PaletteView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19E162875BB553F73A23130F /* PaletteView.swift */; };
 		67FABCC1D5F9CC9FC9A1C948 /* GitHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AED9BB395555256C6762F7 /* GitHistoryTests.swift */; };
 		684EB2B2828E911ABEFCE121 /* ExtensionPrelude.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE14ACC547EA46A5D0C27730 /* ExtensionPrelude.swift */; };
+		68BD476AEB445120B9EF2BAB /* Keybindings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AE654543EFDE601C8E12DF0 /* Keybindings.swift */; };
 		6996EA88B801CA5012C34A78 /* DebugViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B510702FBAD37501ED1CC60E /* DebugViews.swift */; };
 		6CA4EDB1531680F77183B8B6 /* Workspace+Tasks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33874ED4CF60746DCF727D00 /* Workspace+Tasks.swift */; };
 		6CEEE2541A2EE8879561FE3A /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A27CC784765B3447A7FD539 /* SearchView.swift */; };
@@ -69,6 +71,7 @@
 		6F6580D30998138BE1E1BAC2 /* GutterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F488C05B906F0EDF3B72B9D /* GutterView.swift */; };
 		7042CD02AA5B9520810A7177 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2903C4AF8D35ECFA693E971 /* AppSettings.swift */; };
 		70BE660B9B25C427A5DE8207 /* CommitGraphTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 914B50B9C32C4D129975E6BF /* CommitGraphTests.swift */; };
+		72FF0E07BAB372FBE37A8874 /* KeybindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73418B3915E627D3E9C414FA /* KeybindingTests.swift */; };
 		7ACEC9BB55E27BD7C88EC300 /* LineDiff.swift in Sources */ = {isa = PBXBuildFile; fileRef = 257D4B1DFFEADE990E86AC2F /* LineDiff.swift */; };
 		7C38F08A05F05728C4005924 /* SwiftTreeSitter in Frameworks */ = {isa = PBXBuildFile; productRef = F1CE83A05017EBD7031E980D /* SwiftTreeSitter */; };
 		7CA904BB3CD95F4207DAB396 /* MultiCursorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F4A1D4E9786FCAEC6E2C553 /* MultiCursorTests.swift */; };
@@ -225,6 +228,7 @@
 		6C6DC7EAB94EABAD4CADAAA5 /* OhMyCodeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OhMyCodeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6FB8339443B219FB68634B94 /* OhMyCode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OhMyCode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		71D369325866CC9B5DF7B9EA /* TabDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabDrag.swift; sourceTree = "<group>"; };
+		73418B3915E627D3E9C414FA /* KeybindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingTests.swift; sourceTree = "<group>"; };
 		73427E6EBCAD9D4E1BB0530F /* InteractiveRebaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveRebaseTests.swift; sourceTree = "<group>"; };
 		761D7DD6B19C1B92A0D77DE6 /* SplitEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitEditorTests.swift; sourceTree = "<group>"; };
 		7672D1FC4CF85357F7A1742C /* omc.d.ts */ = {isa = PBXFileReference; path = omc.d.ts; sourceTree = "<group>"; };
@@ -254,6 +258,7 @@
 		98686231101B7D30D51EBDC4 /* LanguageServers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageServers.swift; sourceTree = "<group>"; };
 		9946041B33945585756E431F /* FileIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileIndex.swift; sourceTree = "<group>"; };
 		995D20D57A5D6B2463BCB67A /* WorkspaceCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCommands.swift; sourceTree = "<group>"; };
+		9AE654543EFDE601C8E12DF0 /* Keybindings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keybindings.swift; sourceTree = "<group>"; };
 		9D20F3C4146C1A73972F0F3A /* ExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionTests.swift; sourceTree = "<group>"; };
 		A14A7EFABD0BFC396322A78C /* SourceControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlView.swift; sourceTree = "<group>"; };
 		A1DAB700EC16F7A11859F8F3 /* LanguageClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageClient.swift; sourceTree = "<group>"; };
@@ -302,6 +307,7 @@
 		F43BD238A2B371BBCAFBCDA4 /* DebugSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugSession.swift; sourceTree = "<group>"; };
 		F5526368FD02C2215106BF09 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanel.swift; sourceTree = "<group>"; };
 		F6163A12092027D9DED0CC99 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
+		F8DB0CEACFA3A93213858F73 /* KeyboardShortcutsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardShortcutsView.swift; sourceTree = "<group>"; };
 		F8E5167B549E6D5354AE1D47 /* HunkPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HunkPopoverView.swift; sourceTree = "<group>"; };
 		FC60C7DA7C4B6252ACD6263F /* RepoHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RepoHistoryTests.swift; sourceTree = "<group>"; };
 		FC6F72A9E5C1698124351A83 /* SnippetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnippetTests.swift; sourceTree = "<group>"; };
@@ -361,6 +367,8 @@
 			isa = PBXGroup;
 			children = (
 				F2903C4AF8D35ECFA693E971 /* AppSettings.swift */,
+				9AE654543EFDE601C8E12DF0 /* Keybindings.swift */,
+				F8DB0CEACFA3A93213858F73 /* KeyboardShortcutsView.swift */,
 				BAC70BDDB10EC612FCBE47F8 /* SettingsView.swift */,
 				2B511C0F6AACECBD26C594F8 /* VSCodeTheme.swift */,
 			);
@@ -433,6 +441,7 @@
 				B0AED9BB395555256C6762F7 /* GitHistoryTests.swift */,
 				C36812F51B050541F79C1862 /* GitTests.swift */,
 				73427E6EBCAD9D4E1BB0530F /* InteractiveRebaseTests.swift */,
+				73418B3915E627D3E9C414FA /* KeybindingTests.swift */,
 				7A2EB4BF7034731316A9A0A0 /* LanguageFeatureTests.swift */,
 				AD30FD882FC57FFB419BED7E /* LineStagingTests.swift */,
 				CD379088235C2421A7031BC4 /* LSPTests.swift */,
@@ -809,6 +818,8 @@
 				C14352D19633B543E83FAF76 /* HunkPopoverView.swift in Sources */,
 				3BCB6570189F96FF5FC255C1 /* InteractiveRebaseView.swift in Sources */,
 				02E885A074454CEE4C6CDBA0 /* KeyChord.swift in Sources */,
+				68BD476AEB445120B9EF2BAB /* Keybindings.swift in Sources */,
+				3B609BF915AA310AE9658EC3 /* KeyboardShortcutsView.swift in Sources */,
 				A5C219F9607F373EA134925D /* LSPTypes.swift in Sources */,
 				E5CFE2F260DE1EAD2C15DC54 /* LanguageClient.swift in Sources */,
 				21EDC22CA862562303AA0ABF /* LanguageServerConnection.swift in Sources */,
@@ -887,6 +898,7 @@
 				67FABCC1D5F9CC9FC9A1C948 /* GitHistoryTests.swift in Sources */,
 				6282F77981B70535D55924D5 /* GitTests.swift in Sources */,
 				05DCB408E950A32E96F3286D /* InteractiveRebaseTests.swift in Sources */,
+				72FF0E07BAB372FBE37A8874 /* KeybindingTests.swift in Sources */,
 				44F88C3D502540F06F587353 /* LSPTests.swift in Sources */,
 				034D9CC0BA3A8D8AF6D44394 /* LanguageFeatureTests.swift in Sources */,
 				BFE8B79D8DAF88B2D284AAD6 /* LineStagingTests.swift in Sources */,

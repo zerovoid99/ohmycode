@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// A shortcut written as in extension.json: "cmd+shift+k", "ctrl+alt+f5", "cmd+.". Keys are
 /// matched by position on an ANSI keyboard (like the built-in shortcuts), so "cmd+shift+1"
@@ -83,6 +84,79 @@ struct KeyChord: Equatable, Sendable {
         }
         return nil
     }
+
+    /// The key's name in a chord ("k", "f5", "enter").
+    var keyID: String { Self.keyNames[keyCode] ?? keyName.lowercased() }
+
+    /// As written in keybindings.json: "cmd+shift+k" (modifiers in a fixed order).
+    var spec: String {
+        var parts: [String] = []
+        if modifiers.contains(.control) { parts.append("ctrl") }
+        if modifiers.contains(.option) { parts.append("alt") }
+        if modifiers.contains(.shift) { parts.append("shift") }
+        if modifiers.contains(.command) { parts.append("cmd") }
+        return (parts + [keyID]).joined(separator: "+")
+    }
+
+    /// A key press as a chord (for recording a new shortcut); nil for keys it can't be.
+    init?(event: NSEvent) {
+        guard event.type == .keyDown, let name = Self.keyNames[event.keyCode],
+              let chord = try? KeyChord(parsing: (Self.parts(event.modifierFlags) + [name]).joined(separator: "+")) else { return nil }
+        self = chord
+    }
+
+    private static func parts(_ flags: NSEvent.ModifierFlags) -> [String] {
+        var parts: [String] = []
+        if flags.contains(.control) { parts.append("ctrl") }
+        if flags.contains(.option) { parts.append("alt") }
+        if flags.contains(.shift) { parts.append("shift") }
+        if flags.contains(.command) { parts.append("cmd") }
+        return parts
+    }
+
+    /// For SwiftUI menu items.
+    var keyboardShortcut: KeyboardShortcut? {
+        let key: KeyEquivalent
+        switch keyID {
+        case "enter", "return": key = .return
+        case "tab": key = .tab
+        case "space": key = .space
+        case "backspace": key = .delete
+        case "delete": key = .deleteForward
+        case "escape", "esc": key = .escape
+        case "home": key = .home
+        case "end": key = .end
+        case "pageup": key = .pageUp
+        case "pagedown": key = .pageDown
+        case "up": key = .upArrow
+        case "down": key = .downArrow
+        case "left": key = .leftArrow
+        case "right": key = .rightArrow
+        case let name where name.hasPrefix("f") && name.count > 1:
+            guard let number = Int(name.dropFirst()), (1...35).contains(number),
+                  let scalar = UnicodeScalar(NSF1FunctionKey + number - 1) else { return nil }
+            key = KeyEquivalent(Character(scalar))
+        case let name where name.count == 1:
+            key = KeyEquivalent(Character(name))
+        default:
+            return nil
+        }
+        var eventModifiers: SwiftUI.EventModifiers = []
+        if modifiers.contains(.command) { eventModifiers.insert(.command) }
+        if modifiers.contains(.shift) { eventModifiers.insert(.shift) }
+        if modifiers.contains(.option) { eventModifiers.insert(.option) }
+        if modifiers.contains(.control) { eventModifiers.insert(.control) }
+        return KeyboardShortcut(key, modifiers: eventModifiers)
+    }
+
+    /// Key code → name (the first name each code has).
+    private static let keyNames: [UInt16: String] = {
+        var names: [UInt16: String] = [:]
+        for (name, code) in keyCodes.sorted(by: { $0.key < $1.key }) where names[code] == nil || name == "enter" || name == "escape" {
+            names[code] = name
+        }
+        return names
+    }()
 
     /// ANSI key codes.
     private static let keyCodes: [String: UInt16] = {

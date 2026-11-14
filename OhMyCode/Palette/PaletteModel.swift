@@ -236,7 +236,7 @@ final class PaletteModel {
             }
         let builtIn = scored.map { command, match in
             (PaletteItem(id: command.id, action: .command(command), icon: command.icon, title: command.title,
-                         titleMatches: match.positions, shortcut: command.shortcut), match.score)
+                         titleMatches: match.positions, shortcut: Keybindings.shared.display(for: command.id)), match.score)
         }
         let contributed = workspace.extensions.paletteCommands.compactMap { command, instance -> (PaletteItem, Int)? in
             let title = command.paletteTitle
