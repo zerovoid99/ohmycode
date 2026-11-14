@@ -6,6 +6,9 @@ struct StatusBarView: View {
     /// The folder's problems (counted in the bar; clicking shows the Problems panel).
     var problems: ProblemStore?
     var showProblems: () -> Void = {}
+    /// Running tasks (shown with a spinner; clicking shows the Tasks panel).
+    var tasks: [TaskRun] = []
+    var showTasks: () -> Void = {}
     /// Extensions' items: left ones after the branch, right ones before the cursor position.
     var items: [ExtensionStatusItem] = []
     var run: (String) -> Void = { _ in }
@@ -49,6 +52,16 @@ struct StatusBarView: View {
                         .truncationMode(.tail)
                         .help(diagnostic.message)
                 }
+            }
+            if let task = tasks.last {
+                Button(action: showTasks) {
+                    HStack(spacing: 4) {
+                        ProgressView().controlSize(.mini)
+                        Text(tasks.count > 1 ? "\(task.task.label) +\(tasks.count - 1)" : task.task.label)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Show the running tasks")
             }
             ForEach(items.filter(\.isLeft)) { ExtensionStatusItemView(item: $0, run: run) }
             Spacer()

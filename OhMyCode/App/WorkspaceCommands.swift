@@ -123,6 +123,21 @@ struct WorkspaceCommands: Commands {
 
             Button("Kill Terminal") { if let terminal = workspace?.terminal { workspace?.closeTerminal(terminal) } }
                 .disabled(workspace?.terminal == nil)
+
+            Divider()
+            Button("Run Task…") { Task { await workspace?.pickAndRunTask() } }
+                .disabled(workspace?.rootURL == nil)
+            Button("Run Build Task") { workspace?.runBuildTask() }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+                .disabled(workspace?.rootURL == nil)
+            Button("Run Test Task") { workspace?.runTestTask() }
+                .disabled(workspace?.rootURL == nil)
+            Button("Rerun Last Task") { workspace?.rerunLastTask() }
+                .disabled(workspace?.taskHistory.isEmpty != false)
+            Button("Terminate Task") { Task { await workspace?.terminateRunningTask() } }
+                .disabled(workspace?.taskRuns.contains { $0.state.isRunning } != true)
+            Button("Configure Tasks…") { workspace?.configureTasks() }
+                .disabled(workspace?.rootURL == nil)
         }
 
         CommandMenu("Go") {

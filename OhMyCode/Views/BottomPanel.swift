@@ -8,6 +8,7 @@ struct BottomPanelSwitcher: View {
     var body: some View {
         HStack(spacing: 2) {
             tab("Problems", .problems, badge: workspace.problems.totalCount) { workspace.showProblems() }
+            tab("Tasks", .tasks) { workspace.showTasks() }
             tab("Terminal", .terminal) { workspace.showTerminal() }
             tab("Debug Console", .debugConsole) { workspace.showDebugConsole() }
         }

@@ -52,7 +52,10 @@ struct WorkspaceView: View {
                         // Fill the split's height: without a max, an empty editor area (no
                         // ideal height) let VSplitView collapse it and misplace the status bar.
                         .frame(minHeight: 120, maxHeight: .infinity)
-                    if workspace.isTerminalVisible, workspace.bottomPanel == .problems {
+                    if workspace.isTerminalVisible, workspace.bottomPanel == .tasks {
+                        TasksView(workspace: workspace)
+                            .frame(minHeight: 90, idealHeight: 260)
+                    } else if workspace.isTerminalVisible, workspace.bottomPanel == .problems {
                         ProblemsView(workspace: workspace)
                             .frame(minHeight: 90, idealHeight: 260)
                     } else if workspace.isTerminalVisible, workspace.bottomPanel == .debugConsole {
@@ -67,6 +70,8 @@ struct WorkspaceView: View {
                 StatusBarView(document: workspace.activeDocument, gitStatus: workspace.gitStatus,
                               problems: workspace.rootURL == nil ? nil : workspace.problems,
                               showProblems: { workspace.toggleProblems() },
+                              tasks: workspace.taskRuns.filter { $0.state.isRunning },
+                              showTasks: { workspace.showTasks() },
                               items: workspace.extensions.statusItems) { workspace.extensions.run($0) }
             }
             .overlay(alignment: .bottomTrailing) {

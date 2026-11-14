@@ -10,7 +10,10 @@ final class Workspace {
     /// Every open document, in any editor group.
     private(set) var documents: [EditorDocument] = [] {
         didSet {
-            for document in documents where !oldValue.contains(where: { $0 === document }) { attachBreakpoints(to: document) }
+            for document in documents where !oldValue.contains(where: { $0 === document }) {
+                attachBreakpoints(to: document)
+                applyTaskProblems(to: document)
+            }
             // Tell the extensions (only once they're running: opening a folder starts them).
             guard extensionsStarted else { return }
             for document in documents where !oldValue.contains(where: { $0 === document }) { extensions.documentOpened(document) }
@@ -26,9 +29,14 @@ final class Workspace {
     var selectedLaunchName: String?
     /// Replaces the debug adapter's command (tests).
     @ObservationIgnored var debugAdapter: [String]?
-    enum BottomPanel { case terminal, debugConsole, problems }
+    enum BottomPanel { case terminal, debugConsole, problems, tasks }
     /// Every diagnostic in the folder (the Problems panel).
     let problems = ProblemStore()
+    /// Tasks run (the Tasks panel), oldest first; finished ones stay until run again or closed.
+    var taskRuns: [TaskRun] = []
+    var selectedTaskRunID: TaskRun.ID?
+    /// Task labels, most recently run first.
+    @ObservationIgnored var taskHistory: [String] = []
     /// What the bottom panel shows.
     var bottomPanel = BottomPanel.terminal
     /// The window showing this workspace (set by the window).
@@ -173,7 +181,7 @@ final class Workspace {
     private(set) var languageClients: [String: LanguageClient] = [:]
     private(set) var terminals: [TerminalSession] = []
     var activeTerminalID: TerminalSession.ID?
-    private(set) var isTerminalVisible = false
+    var isTerminalVisible = false
     /// Bumped to move keyboard focus into the terminal.
     private(set) var terminalFocusRequest = 0
     @ObservationIgnored private var indexTask: Task<Void, Never>?
@@ -237,6 +245,9 @@ final class Workspace {
         submodules = []
         if let session = debugSession { Task { await session.stop() } }
         debugSession = nil
+        taskRuns.forEach { $0.terminate() }
+        taskRuns = []
+        taskHistory = []
         problems.removeAll()
         launchConfigurations = []
         breakpoints.load(for: url)
