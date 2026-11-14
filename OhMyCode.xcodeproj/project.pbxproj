@@ -43,6 +43,7 @@
 		3A5FD50EF98D72A2334F36D5 /* HoverController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE8B7417AC9A29F14098B2F /* HoverController.swift */; };
 		3B609BF915AA310AE9658EC3 /* KeyboardShortcutsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8DB0CEACFA3A93213858F73 /* KeyboardShortcutsView.swift */; };
 		3BCB6570189F96FF5FC255C1 /* InteractiveRebaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DAEC2C15EA27BFE7D293E0E /* InteractiveRebaseView.swift */; };
+		406AA38E7274A780851F61A0 /* WorkspaceSymbols.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2F3F62A0937CAE5AED52BD /* WorkspaceSymbols.swift */; };
 		44F88C3D502540F06F587353 /* LSPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD379088235C2421A7031BC4 /* LSPTests.swift */; };
 		459A340552EE32009CA09153 /* MarkdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BCA72007416F816817C38E1 /* MarkdownTests.swift */; };
 		46AB56208F370EA5D1265CC3 /* CommitSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1564029D78A9D5DCDEF90529 /* CommitSearchTests.swift */; };
@@ -112,7 +113,9 @@
 		AAB71F6BE2CE7E5D5864EADF /* DiffHighlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */; };
 		AD848CDFC97760B7DF52D210 /* OutlineViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6DCEDB6FD252CBA4ECF5E8 /* OutlineViews.swift */; };
 		AE3ECD7BB4950C7B8C99D795 /* FileWatchingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63C0BDA667585BA6CF3CCCE0 /* FileWatchingTests.swift */; };
+		AFC35AE18929D58EFA699070 /* WorkspaceSymbolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E51C35CA661DE3585B84B90A /* WorkspaceSymbolTests.swift */; };
 		B0E0A65FCAE5AF00ED3C5A8B /* MergeConflicts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 252AC0DD4FEBF4CA982DDD5E /* MergeConflicts.swift */; };
+		B119694F5D264AD653855F09 /* CallHierarchy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B508791DA58E78D057CDB5EF /* CallHierarchy.swift */; };
 		B48BA65FABF229546105A1F0 /* AmendUndoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B8F8EDE4D1869E66032FBAB /* AmendUndoTests.swift */; };
 		B59360C3BEA98B86EBA39D08 /* ExtensionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517F578F30739DC0F6EBB92B /* ExtensionsView.swift */; };
 		B773DB2E8BFECE332B2764D3 /* Workspace+Debug.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD07F5C150F868B00344F045 /* Workspace+Debug.swift */; };
@@ -240,6 +243,7 @@
 		56E3DC7C8474D02E52D8006C /* GrammarRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrammarRegistry.swift; sourceTree = "<group>"; };
 		57DDDDFEE387635D979AA622 /* TerminalSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSession.swift; sourceTree = "<group>"; };
 		5BEDF4FF40338D42156E916E /* MergeConflictTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MergeConflictTests.swift; sourceTree = "<group>"; };
+		5C2F3F62A0937CAE5AED52BD /* WorkspaceSymbols.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSymbols.swift; sourceTree = "<group>"; };
 		5F7A3436E1B87CDAA91A3AF8 /* TestingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestingView.swift; sourceTree = "<group>"; };
 		607A7ABC5B7602AA443B249E /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
 		61A794578540942D2357BE54 /* SyntaxEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxEngine.swift; sourceTree = "<group>"; };
@@ -301,6 +305,7 @@
 		B14BECEA4F9A853D675100EC /* StatusBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarView.swift; sourceTree = "<group>"; };
 		B1D8010605A8A9875A268782 /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
 		B4F2009FE316D50973213A0B /* TestingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestingTests.swift; sourceTree = "<group>"; };
+		B508791DA58E78D057CDB5EF /* CallHierarchy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallHierarchy.swift; sourceTree = "<group>"; };
 		B510702FBAD37501ED1CC60E /* DebugViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugViews.swift; sourceTree = "<group>"; };
 		B9E1653AB1FC39B91FD8C6A3 /* DebuggerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebuggerTests.swift; sourceTree = "<group>"; };
 		BAC70BDDB10EC612FCBE47F8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -326,6 +331,7 @@
 		E1E7CB6CB93BDCD61F6CE46E /* StickyScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickyScrollView.swift; sourceTree = "<group>"; };
 		E2206FF6013AF555A1FBEA43 /* EditorTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTheme.swift; sourceTree = "<group>"; };
 		E43F3388BA148B4E8F22F589 /* SearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchTests.swift; sourceTree = "<group>"; };
+		E51C35CA661DE3585B84B90A /* WorkspaceSymbolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSymbolTests.swift; sourceTree = "<group>"; };
 		E520F6D2E010896834BCCC39 /* Breakpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Breakpoints.swift; sourceTree = "<group>"; };
 		E80C26D0340BB82FFDA82C16 /* TerminalShaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalShaders.swift; sourceTree = "<group>"; };
 		E900D8E8A233E7EC65D90EB6 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
@@ -513,6 +519,7 @@
 				062545FE7797841B1F4B7A4A /* TerminalTests.swift */,
 				B4F2009FE316D50973213A0B /* TestingTests.swift */,
 				CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */,
+				E51C35CA661DE3585B84B90A /* WorkspaceSymbolTests.swift */,
 				1926672DEF8AA6C2EBB38393 /* WorktreeSubmoduleTests.swift */,
 			);
 			path = OhMyCodeTests;
@@ -707,8 +714,10 @@
 		FB2F39558416171F362F9789 /* Outline */ = {
 			isa = PBXGroup;
 			children = (
+				B508791DA58E78D057CDB5EF /* CallHierarchy.swift */,
 				C22F1ACD366BDC9907C8479E /* DocumentSymbol.swift */,
 				0C6DCEDB6FD252CBA4ECF5E8 /* OutlineViews.swift */,
+				5C2F3F62A0937CAE5AED52BD /* WorkspaceSymbols.swift */,
 			);
 			path = Outline;
 			sourceTree = "<group>";
@@ -855,6 +864,7 @@
 				5EDC7EEE1064B0DFD2722348 /* BottomPanel.swift in Sources */,
 				AA5F484687B73816E1700EAC /* BranchViews.swift in Sources */,
 				15C8D675FC4F51388ED12DD0 /* Breakpoints.swift in Sources */,
+				B119694F5D264AD653855F09 /* CallHierarchy.swift in Sources */,
 				11D618DD62A741BF5C5FC2E1 /* CodeEditorView.swift in Sources */,
 				5D9B5CF0E6E00A594C95880C /* CommandLineTool.swift in Sources */,
 				234640D26A9F03EFA06D017E /* CommitGraph.swift in Sources */,
@@ -954,6 +964,7 @@
 				7911ACE28BD32FAAD946A752 /* Workspace+Testing.swift in Sources */,
 				F0CE384F222A160A7BAEB5AF /* Workspace.swift in Sources */,
 				A5EEA136CE98C28D3146A78F /* WorkspaceCommands.swift in Sources */,
+				406AA38E7274A780851F61A0 /* WorkspaceSymbols.swift in Sources */,
 				9A6FA3A23E349E3154CA0FDD /* WorkspaceView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1006,6 +1017,7 @@
 				C1B812E94CAE7B6150426CB0 /* TerminalTests.swift in Sources */,
 				C422ED907B71E4685C30F145 /* TestingTests.swift in Sources */,
 				D7A7FF2C9BF229A9AD1993F2 /* VSCodeThemeTests.swift in Sources */,
+				AFC35AE18929D58EFA699070 /* WorkspaceSymbolTests.swift in Sources */,
 				23CDEADD4AD2DEE911808ABF /* WorktreeSubmoduleTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

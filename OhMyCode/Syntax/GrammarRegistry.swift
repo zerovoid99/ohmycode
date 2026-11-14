@@ -29,6 +29,20 @@ enum GrammarRegistry {
     private static let javaScript = QueryFile(bundle: "TreeSitterJavaScript_TreeSitterJavaScript", name: "highlights")
     private static let jsx = QueryFile(bundle: "TreeSitterJavaScript_TreeSitterJavaScript", name: "highlights-jsx")
 
+    /// The tree-sitter language for parsing (no queries), from any thread.
+    nonisolated static func treeSitterLanguage(for language: SourceLanguage) -> SwiftTreeSitter.Language? {
+        switch language {
+        case .swift: SwiftTreeSitter.Language(tree_sitter_swift())
+        case .javascript: SwiftTreeSitter.Language(tree_sitter_javascript())
+        case .typescript: SwiftTreeSitter.Language(tree_sitter_typescript())
+        case .tsx: SwiftTreeSitter.Language(tree_sitter_tsx())
+        case .python: SwiftTreeSitter.Language(tree_sitter_python())
+        case .rust: SwiftTreeSitter.Language(tree_sitter_rust())
+        case .go: SwiftTreeSitter.Language(tree_sitter_go())
+        default: nil
+        }
+    }
+
     private static func load(_ language: SourceLanguage) -> Grammar? {
         switch language {
         case .swift:

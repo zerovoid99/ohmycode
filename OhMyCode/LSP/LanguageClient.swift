@@ -63,6 +63,7 @@ final class LanguageClient {
                 "window": ["workDoneProgress": true],
                 "workspace": [
                     "workspaceFolders": true, "configuration": true, "applyEdit": false,
+                    "symbol": [String: Any](),
                     "workspaceEdit": ["documentChanges": true],
                 ],
                 "textDocument": [
@@ -77,6 +78,9 @@ final class LanguageClient {
                     "rename": ["prepareSupport": true],
                     "formatting": [String: Any](),
                     "documentSymbol": ["hierarchicalDocumentSymbolSupport": true],
+                    "implementation": ["linkSupport": true],
+                    "typeDefinition": ["linkSupport": true],
+                    "callHierarchy": [String: Any](),
                     "publishDiagnostics": ["relatedInformation": false],
                 ],
             ],
@@ -165,7 +169,12 @@ final class LanguageClient {
     }
 
     func definition(url: URL, position: LSPPosition) async throws -> [LSPLocation] {
-        let result = try await request("textDocument/definition", params: [
+        try await locations("textDocument/definition", url: url, position: position)
+    }
+
+    /// Definition, implementation or type definition: Location, Location[] or LocationLink[].
+    func locations(_ method: String, url: URL, position: LSPPosition) async throws -> [LSPLocation] {
+        let result = try await request(method, params: [
             "textDocument": ["uri": url.absoluteString], "position": position.json,
         ])
         if let list = result as? [Any] { return list.compactMap(LSPLocation.init(json:)) }
@@ -178,6 +187,10 @@ final class LanguageClient {
         case rename = "renameProvider"
         case formatting = "documentFormattingProvider"
         case documentSymbol = "documentSymbolProvider"
+        case implementation = "implementationProvider"
+        case typeDefinition = "typeDefinitionProvider"
+        case callHierarchy = "callHierarchyProvider"
+        case workspaceSymbol = "workspaceSymbolProvider"
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -186,6 +199,32 @@ final class LanguageClient {
         case let flag as Bool: flag
         case is [String: Any]: true
         default: false
+        }
+    }
+
+    /// Symbols in the whole workspace matching `query` (SymbolInformation[] or WorkspaceSymbol[]).
+    func workspaceSymbols(query: String) async throws -> [WorkspaceSymbol] {
+        let result = try await request("workspace/symbol", params: ["query": query])
+        return (result as? [[String: Any]] ?? []).compactMap(WorkspaceSymbol.init(json:))
+    }
+
+    // MARK: Call hierarchy
+
+    func prepareCallHierarchy(url: URL, position: LSPPosition) async throws -> [CallHierarchyItem] {
+        let result = try await request("textDocument/prepareCallHierarchy", params: [
+            "textDocument": ["uri": url.absoluteString], "position": position.json,
+        ])
+        return (result as? [[String: Any]] ?? []).compactMap(CallHierarchyItem.init(json:))
+    }
+
+    /// Who calls `item` (incoming) or what it calls (outgoing), with the call sites' ranges
+    /// (in the caller's file for incoming calls, in `item`'s for outgoing ones).
+    func calls(_ item: CallHierarchyItem, incoming: Bool) async throws -> [(item: CallHierarchyItem, ranges: [LSPRange])] {
+        let result = try await request(incoming ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls",
+                                       params: ["item": item.json])
+        return (result as? [[String: Any]] ?? []).compactMap { call in
+            guard let other = CallHierarchyItem(json: call[incoming ? "from" : "to"]) else { return nil }
+            return (other, (call["fromRanges"] as? [Any] ?? []).compactMap(LSPRange.init(json:)))
         }
     }
 

@@ -4,6 +4,8 @@ import AppKit
 struct ReferenceList {
     let symbol: String
     let results: [SearchFileResult]
+    /// What the list holds: "reference", "implementation", "type definition".
+    var noun = "reference"
     var count: Int { results.reduce(0) { $0 + $1.matches.count } }
 }
 
@@ -25,6 +27,42 @@ extension Workspace {
         guard let editor = activeDocument?.editor else { return }
         let location = editor.textView.selectedRange().location
         Task { await editor.hover.show(at: location) }
+    }
+
+    // MARK: Implementations, type definitions
+
+    /// ⌘F12: where the symbol at the cursor is implemented (a protocol's conformances, an
+    /// interface's classes, an overridden method's overrides). One opens; several are listed.
+    @discardableResult
+    func goToImplementation(in target: EditorDocument? = nil) -> Task<Void, Never>? {
+        goToLocations("textDocument/implementation", .implementation, noun: "implementation", in: target)
+    }
+
+    /// The type of the symbol at the cursor (a variable's struct, a parameter's class).
+    @discardableResult
+    func goToTypeDefinition(in target: EditorDocument? = nil) -> Task<Void, Never>? {
+        goToLocations("textDocument/typeDefinition", .typeDefinition, noun: "type definition", in: target)
+    }
+
+    private func goToLocations(_ method: String, _ feature: LanguageClient.Feature, noun: String,
+                               in target: EditorDocument?) -> Task<Void, Never>? {
+        guard let (document, client, location) = languageTarget(target, feature) else { return nil }
+        let symbol = document.wordRange(at: location).map { document.textStorage.mutableString.substring(with: $0) } ?? ""
+        return Task {
+            do {
+                let locations = try await client.locations(method, url: document.url, position: document.lspPosition(at: location))
+                if locations.isEmpty { NSSound.beep(); return }
+                if locations.count == 1 {
+                    open(fileAt: workspaceURL(for: locations[0].url))
+                    if let target = activeDocument { target.reveal(target.range(for: locations[0].range)) }
+                    return
+                }
+                references = ReferenceList(symbol: symbol, results: referenceResults(locations), noun: noun)
+                sidebarMode = .references
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     // MARK: References

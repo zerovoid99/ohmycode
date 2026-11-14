@@ -8,7 +8,7 @@ struct ReferencesView: View {
         VStack(alignment: .leading, spacing: 6) {
             if let references = workspace.references {
                 HStack {
-                    Text("\(references.count) reference\(references.count == 1 ? "" : "s") to ")
+                    Text("\(references.count) \(references.noun)\(references.count == 1 ? "" : "s") \(references.noun == "reference" ? "to" : "of") ")
                         + Text(references.symbol).font(.system(.caption, design: .monospaced).bold())
                         + Text(" in \(references.results.count) file\(references.results.count == 1 ? "" : "s")")
                     Spacer()

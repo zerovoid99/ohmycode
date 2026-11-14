@@ -8,6 +8,8 @@ struct PaletteItem: Identifiable {
         case goToLine(Int)
         /// A symbol in the active file (its name's range).
         case goToSymbol(NSRange)
+        /// A symbol anywhere: its file, zero-based line, UTF-16 column and name length.
+        case openSymbol(URL, line: Int, column: Int, length: Int)
         /// A command an extension adds.
         case extensionCommand(String)
         /// A quick pick's item, by index.
@@ -32,7 +34,7 @@ struct PaletteItem: Identifiable {
 @Observable
 final class PaletteModel {
     enum Mode {
-        case files, commands, goToLine, symbols
+        case files, commands, goToLine, symbols, workspaceSymbols
         /// A quick pick or input box (an extension asking).
         case prompt
 
@@ -42,6 +44,7 @@ final class PaletteModel {
             case .commands: ">"
             case .goToLine: ":"
             case .symbols: "@"
+            case .workspaceSymbols: "#"
             }
         }
     }
@@ -81,13 +84,15 @@ final class PaletteModel {
         if query.hasPrefix(">") { return .commands }
         if query.hasPrefix(":") { return .goToLine }
         if query.hasPrefix("@") { return .symbols }
+        if query.hasPrefix("#") { return .workspaceSymbols }
         return .files
     }
 
     var placeholder: String {
         switch mode {
-        case .files: "Search files by name (type > for commands, : to go to a line, @ for symbols)"
+        case .files: "Search files by name (> commands, : line, @ symbol in file, # symbol anywhere)"
         case .symbols: "Type a symbol's name"
+        case .workspaceSymbols: "Type a symbol's name to search the whole folder"
         case .commands: "Type a command"
         case .goToLine: "Type a line number"
         case .prompt:
@@ -148,6 +153,13 @@ final class PaletteModel {
         case .goToSymbol(let range):
             workspace.closePalette()
             workspace.activeDocument?.reveal(range)
+        case .openSymbol(let url, let line, let column, let length):
+            workspace.closePalette()
+            workspace.open(fileAt: url)
+            if let document = workspace.activeDocument {
+                let start = document.offset(for: LSPPosition(line: line, character: column))
+                document.reveal(NSRange(location: start, length: min(length, document.textStorage.length - start)))
+            }
         case .extensionCommand(let id):
             workspace.closePalette()
             workspace.extensions.run(id)
@@ -167,6 +179,7 @@ final class PaletteModel {
         case .commands: refreshCommands()
         case .goToLine: refreshGoToLine()
         case .symbols: refreshSymbols()
+        case .workspaceSymbols: refreshWorkspaceSymbols()
         case .prompt: refreshPrompt()
         }
     }
@@ -204,6 +217,31 @@ final class PaletteModel {
         scored.sort { $0.score > $1.score }
         setItems(scored.prefix(Self.resultLimit * 4).map(\.item),
                  emptyMessage: document.symbols.isEmpty ? "No symbols in \(document.fileName)" : nil)
+    }
+
+    // MARK: Workspace symbols
+
+    /// `#name`: symbols anywhere in the folder (searched shortly after typing pauses).
+    private func refreshWorkspaceSymbols() {
+        let text = String(query.dropFirst()).trimmingCharacters(in: .whitespaces)
+        guard workspace.rootURL != nil else { return setItems([], emptyMessage: "Open a folder to search its symbols") }
+        guard !text.isEmpty else { return setItems([], emptyMessage: "Type a symbol's name") }
+        if items.isEmpty { emptyMessage = "Searching…" }
+        let generation = searchGeneration
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, let self else { return }
+            let results = await self.workspace.workspaceSymbols(matching: text)
+            guard !Task.isCancelled, self.searchGeneration == generation else { return }
+            let prepared = FuzzyMatcher.prepareQuery(text)
+            self.setItems(results.map { result in
+                let place = (self.workspace.relativePath(of: result.url) ?? result.url.lastPathComponent) + ":\(result.line + 1)"
+                return PaletteItem(id: result.id, action: .openSymbol(result.url, line: result.line, column: result.column, length: result.length),
+                                   icon: result.kind.icon, title: result.name,
+                                   titleMatches: FuzzyMatcher.match(prepared, FuzzyCandidate(result.name))?.positions ?? [],
+                                   detail: (result.container.map { $0 + " · " } ?? "") + place)
+            }, emptyMessage: "No symbols named like “\(text)”")
+        }
     }
 
     // MARK: Files

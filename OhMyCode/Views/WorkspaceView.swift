@@ -19,6 +19,9 @@ struct WorkspaceView: View {
                     if workspace.references != nil {
                         Image(systemName: "link").help("References").tag(Workspace.SidebarMode.references)
                     }
+                    if workspace.callHierarchy != nil {
+                        Image(systemName: "phone.arrow.down.left").help("Call Hierarchy").tag(Workspace.SidebarMode.callHierarchy)
+                    }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -46,6 +49,8 @@ struct WorkspaceView: View {
                     TestingView(workspace: workspace)
                 case .outline:
                     OutlineView(workspace: workspace)
+                case .callHierarchy:
+                    CallHierarchyView(workspace: workspace)
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)

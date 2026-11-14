@@ -259,3 +259,58 @@ enum HoverContent {
         return blocks
     }
 }
+
+/// A symbol from `workspace/symbol`: SymbolInformation, or WorkspaceSymbol (whose location may
+/// have no range: then its start).
+struct WorkspaceSymbol: Equatable, Sendable {
+    var name: String
+    var kind: Int
+    var containerName: String?
+    var url: URL
+    var range: LSPRange
+
+    init(name: String, kind: Int, containerName: String?, url: URL, range: LSPRange) {
+        self.name = name
+        self.kind = kind
+        self.containerName = containerName
+        self.url = url
+        self.range = range
+    }
+
+    init?(json: [String: Any]) {
+        guard let name = json["name"] as? String, let location = json["location"] as? [String: Any],
+              let uri = location["uri"] as? String, let url = URL(string: uri) else { return nil }
+        let zero = LSPRange(start: LSPPosition(line: 0, character: 0), end: LSPPosition(line: 0, character: 0))
+        self.init(name: name, kind: json["kind"] as? Int ?? 13, containerName: json["containerName"] as? String,
+                  url: url, range: LSPRange(json: location["range"]) ?? zero)
+    }
+}
+
+/// An item of a call hierarchy (a function, method…), kept as the server sent it: the server
+/// may need its `data` back.
+struct CallHierarchyItem: @unchecked Sendable, Equatable {
+    let json: [String: Any]
+    let name: String
+    let kind: Int
+    let detail: String?
+    let url: URL
+    let range: LSPRange
+    let selectionRange: LSPRange
+
+    init?(json: Any?) {
+        guard let object = json as? [String: Any], let name = object["name"] as? String,
+              let uri = object["uri"] as? String, let url = URL(string: uri),
+              let range = LSPRange(json: object["range"]) else { return nil }
+        self.json = object
+        self.name = name
+        self.kind = object["kind"] as? Int ?? 12
+        self.detail = object["detail"] as? String
+        self.url = url
+        self.range = range
+        self.selectionRange = LSPRange(json: object["selectionRange"]) ?? range
+    }
+
+    static func == (a: CallHierarchyItem, b: CallHierarchyItem) -> Bool {
+        a.name == b.name && a.url == b.url && a.range == b.range && a.kind == b.kind
+    }
+}

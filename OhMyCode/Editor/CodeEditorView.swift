@@ -450,6 +450,8 @@ final class EditorController: NSObject {
 
     @objc private func contextGoToDefinition(_ sender: Any?) { perform(.goToDefinition) }
     @objc private func contextFindReferences(_ sender: Any?) { perform(.findReferences) }
+    @objc private func contextGoToImplementation(_ sender: Any?) { perform(.goToImplementation) }
+    @objc private func contextCallHierarchy(_ sender: Any?) { perform(.callHierarchy) }
     @objc private func contextRename(_ sender: Any?) { perform(.rename) }
     @objc private func contextFormat(_ sender: Any?) { perform(.format) }
     @objc private func contextStageLines(_ sender: Any?) { perform(.stageSelectedLines) }
@@ -469,8 +471,12 @@ final class EditorController: NSObject {
         let f2 = String(Character(UnicodeScalar(NSF2FunctionKey)!))
         return [
             item("Go to Definition", #selector(contextGoToDefinition), f12),
+            item("Go to Implementation", #selector(contextGoToImplementation), f12, .command,
+                 enabled: client.supports(.implementation)),
             item("Find All References", #selector(contextFindReferences), f12, .shift,
                  enabled: client.supports(.references)),
+            item("Show Call Hierarchy", #selector(contextCallHierarchy), "h", [.option, .shift],
+                 enabled: client.supports(.callHierarchy)),
             item("Rename Symbol", #selector(contextRename), f2, enabled: client.supports(.rename)),
             .separator(),
             item("Format Document", #selector(contextFormat), "f", [.shift, .option],
@@ -829,6 +835,7 @@ extension EditorController: SyntaxHighlighterClient {
 /// Language actions an editor asks its workspace to run (⌘-click, context menu).
 enum EditorCommand: String {
     case goToDefinition, findReferences, rename, format, stageSelectedLines, revertSelectedLines
+    case goToImplementation, callHierarchy
 }
 
 extension Notification.Name {

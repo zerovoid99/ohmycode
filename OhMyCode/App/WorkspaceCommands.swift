@@ -173,6 +173,9 @@ struct WorkspaceCommands: Commands {
             Button("Command Palette…") { workspace?.showPalette(.commands) }
                 .keyboardShortcut(keys.shortcut("view.commandPalette"))
                 .disabled(workspace == nil)
+            Button("Go to Symbol in Workspace…") { workspace?.showPalette(.workspaceSymbols) }
+                .keyboardShortcut(keys.shortcut("go.workspaceSymbol"))
+                .disabled(workspace?.rootURL == nil)
             Button("Go to Symbol in File…") { workspace?.showPalette(.symbols) }
                 .keyboardShortcut(keys.shortcut("go.symbol"))
                 .disabled(workspace?.activeDocument == nil)
@@ -183,6 +186,15 @@ struct WorkspaceCommands: Commands {
             Button("Go to Definition") { workspace?.goToDefinition() }
                 .keyboardShortcut(keys.shortcut("go.definition"))
                 .disabled(workspace?.activeDocument?.languageClient == nil)
+            Button("Go to Implementation") { workspace?.goToImplementation() }
+                .keyboardShortcut(keys.shortcut("go.implementation"))
+                .disabled(!supports(.implementation))
+            Button("Go to Type Definition") { workspace?.goToTypeDefinition() }
+                .keyboardShortcut(keys.shortcut("go.typeDefinition"))
+                .disabled(!supports(.typeDefinition))
+            Button("Show Call Hierarchy") { workspace?.showCallHierarchy() }
+                .keyboardShortcut(keys.shortcut("go.callHierarchy"))
+                .disabled(!supports(.callHierarchy))
             Button("Find All References") { workspace?.findReferences() }
                 .keyboardShortcut(keys.shortcut("go.references"))
                 .disabled(!supports(.references))

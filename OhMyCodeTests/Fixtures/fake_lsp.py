@@ -92,6 +92,33 @@ def all_uris():
         by_path.setdefault(os.path.realpath(path_of(uri)), uri)
     return sorted(by_path.values())
 
+def functions():
+    """Every "func NAME(...) { body }" line: name -> (uri, line number, line)."""
+    found = {}
+    for uri in all_uris():
+        for number, line in enumerate(text_of(uri).split("\n")):
+            m = re.match(r"func (\w+)", line)
+            if m:
+                found.setdefault(m.group(1), (uri, number, line))
+    return found
+
+def item(name, uri, number, line):
+    start = len(units(line[:line.index(name)]))
+    return {"name": name, "kind": 12, "uri": uri, "detail": "fake",
+            "range": {"start": {"line": number, "character": 0}, "end": {"line": number, "character": len(units(line))}},
+            "selectionRange": {"start": {"line": number, "character": start}, "end": {"line": number, "character": start + len(units(name))}}}
+
+def calls_in(line, name):
+    """Ranges of "name(" calls in a function's body (after its "{")."""
+    body_start = line.find("{")
+    result = []
+    if body_start < 0:
+        return result
+    for m in re.finditer(r"\b%s\(" % re.escape(name), line[body_start:]):
+        start = len(units(line[:body_start + m.start()]))
+        result.append(start)
+    return result
+
 def occurrences(word):
     result = []
     for uri in all_uris():
@@ -110,7 +137,9 @@ while True:
         send({"jsonrpc": "2.0", "id": mid, "result": {"capabilities": {
             "textDocumentSync": 2, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": True,
             "hoverProvider": True, "referencesProvider": True, "renameProvider": {"prepareProvider": True},
-            "documentFormattingProvider": True, "documentSymbolProvider": True}}})
+            "documentFormattingProvider": True, "documentSymbolProvider": True,
+            "implementationProvider": True, "typeDefinitionProvider": True, "callHierarchyProvider": True,
+            "workspaceSymbolProvider": True}}})
     elif method == "textDocument/hover":
         word, rng = word_at(params["textDocument"]["uri"], params["position"])
         result = None
@@ -179,6 +208,49 @@ while True:
                     "range": {"start": {"line": number, "character": 0}, "end": {"line": number, "character": len(units(line))}},
                     "selectionRange": {"start": {"line": number, "character": 5}, "end": {"line": number, "character": 5 + len(name)}}})
         send({"jsonrpc": "2.0", "id": mid, "result": symbols})
+    elif method in ("textDocument/implementation", "textDocument/typeDefinition"):
+        word, _ = word_at(params["textDocument"]["uri"], params["position"])
+        if method == "textDocument/typeDefinition":
+            result = {"uri": params["textDocument"]["uri"], "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 4}}}
+        else:  # every "func WORD" and "// implements WORD" line
+            result = []
+            for uri in all_uris():
+                for number, line in enumerate(text_of(uri).split("\n")):
+                    if word and ("implements " + word) in line:
+                        result.append({"uri": uri, "range": {"start": {"line": number, "character": 0}, "end": {"line": number, "character": 1}}})
+        send({"jsonrpc": "2.0", "id": mid, "result": result})
+    elif method == "workspace/symbol":
+        query = params["query"].lower()
+        result = []
+        for name, (uri, number, line) in sorted(functions().items()):
+            if query in name.lower():
+                result.append({"name": name, "kind": 12, "containerName": "fake",
+                               "location": {"uri": uri, "range": item(name, uri, number, line)["selectionRange"]}})
+        send({"jsonrpc": "2.0", "id": mid, "result": result})
+    elif method == "textDocument/prepareCallHierarchy":
+        word, _ = word_at(params["textDocument"]["uri"], params["position"])
+        found = functions().get(word)
+        send({"jsonrpc": "2.0", "id": mid, "result": [item(word, *found)] if found else None})
+    elif method == "callHierarchy/incomingCalls":
+        target = params["item"]["name"]
+        result = []
+        for name, (uri, number, line) in sorted(functions().items()):
+            starts = calls_in(line, target) if name != target else []
+            if starts:
+                result.append({"from": item(name, uri, number, line), "fromRanges": [
+                    {"start": {"line": number, "character": c}, "end": {"line": number, "character": c + len(units(target))}} for c in starts]})
+        send({"jsonrpc": "2.0", "id": mid, "result": result})
+    elif method == "callHierarchy/outgoingCalls":
+        source = params["item"]["name"]
+        everything = functions()
+        uri, number, line = everything[source]
+        result = []
+        for name, (other_uri, other_number, other_line) in sorted(everything.items()):
+            starts = calls_in(line, name) if name != source else []
+            if starts:
+                result.append({"to": item(name, other_uri, other_number, other_line), "fromRanges": [
+                    {"start": {"line": number, "character": c}, "end": {"line": number, "character": c + len(units(name))}} for c in starts]})
+        send({"jsonrpc": "2.0", "id": mid, "result": result})
     elif method == "omc/text":
         send({"jsonrpc": "2.0", "id": mid, "result": docs.get(params["uri"])})
     elif method == "shutdown":

@@ -32,6 +32,8 @@ final class Workspace {
     /// Replaces the debug adapter's command (tests).
     @ObservationIgnored var debugAdapter: [String]?
     enum BottomPanel { case terminal, debugConsole, problems, tasks }
+    /// The folder's declarations from syntax trees (⌘T).
+    @ObservationIgnored private(set) var symbolIndex = WorkspaceSymbolIndex()
     /// The folder's tests (the Testing panel).
     @ObservationIgnored private(set) lazy var testing = TestController(workspace: self)
     /// Markdown documents shown with their preview beside them.
@@ -87,6 +89,7 @@ final class Workspace {
         case debug = "Run and Debug"
         case testing = "Testing"
         case outline = "Outline"
+        case callHierarchy = "Call Hierarchy"
     }
 
     @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
@@ -118,6 +121,8 @@ final class Workspace {
     var pendingEdit: EditPreview?
     /// Last Find All References result, shown in the sidebar.
     var references: ReferenceList?
+    /// The last call hierarchy shown (the sidebar).
+    var callHierarchy: CallHierarchy?
     /// Replaces the Format on Save setting (tests); nil follows Settings.
     @ObservationIgnored var formatOnSave: Bool?
     /// How long saving waits for the formatter before saving the text as it is.
@@ -258,6 +263,7 @@ final class Workspace {
         taskRuns = []
         testing.reset()
         Task { await testing.discover() }
+        symbolIndex = WorkspaceSymbolIndex()
         taskHistory = []
         problems.removeAll()
         launchConfigurations = []
@@ -347,6 +353,8 @@ final class Workspace {
             document.reloadFromDiskIfChanged()
         }
         testing.filesChanged(Array(changedPaths))
+        let changed = changedPaths.compactMap { relativePath(of: URL(filePath: $0)) }
+        if !changed.isEmpty { Task { [symbolIndex] in await symbolIndex.invalidate(changed) } }
     }
 
     // MARK: Language servers
@@ -407,6 +415,8 @@ final class Workspace {
         switch command {
         case .goToDefinition: goToDefinition(in: document)
         case .findReferences: findReferences(in: document)
+        case .goToImplementation: goToImplementation(in: document)
+        case .callHierarchy: showCallHierarchy(in: document)
         case .rename: renameSymbol(in: document)
         case .format: formatDocument(document)
         case .stageSelectedLines: stageSelectedLines(in: document)

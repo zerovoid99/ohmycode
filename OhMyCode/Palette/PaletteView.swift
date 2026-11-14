@@ -49,6 +49,7 @@ struct PaletteView: View {
         case .commands: "chevron.right"
         case .goToLine: "number"
         case .symbols: "at"
+        case .workspaceSymbols: "number"
         case .prompt: "questionmark.bubble"
         }
     }
