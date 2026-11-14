@@ -65,6 +65,13 @@ enum ProcessIO {
         return exitStatus(of: pid, wait: true) ?? reapedElsewhere
     }
 
+    /// The status `Process` got when it reaped the child first (a signal as 128 + its number,
+    /// as `exitStatus` gives it).
+    static func statusFromProcess(_ process: Process) -> Int32 {
+        process.waitUntilExit() // it has the status already: returns at once
+        return process.terminationReason == .uncaughtSignal ? 128 + process.terminationStatus : process.terminationStatus
+    }
+
     /// Runs `process` (pipes already set) to the end on this thread: its output and error, and status.
     static func run(_ process: Process, output: Pipe, error: Pipe?, timeout: Duration? = nil) throws -> (output: Data, error: Data, status: Int32) {
         try process.run()
@@ -73,10 +80,7 @@ enum ProcessIO {
         var status = collect(pid: process.processIdentifier, descriptors: descriptors, timeout: timeout) { index, chunk in
             if index == 0 { data.append(chunk) } else { errorData.append(chunk) }
         }
-        if status == reapedElsewhere {
-            process.waitUntilExit() // Process has it: returns at once
-            status = process.terminationStatus
-        }
+        if status == reapedElsewhere { status = statusFromProcess(process) }
         return (data, errorData, status)
     }
 }

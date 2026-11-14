@@ -88,10 +88,7 @@ final class TaskRun: Identifiable {
         }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var status = ProcessIO.collect(pid: pid, descriptors: [descriptor]) { _, data in deliver(data) }
-            if status == ProcessIO.reapedElsewhere {
-                process.waitUntilExit() // Process has it: returns at once
-                status = process.terminationStatus
-            }
+            if status == ProcessIO.reapedElsewhere { status = ProcessIO.statusFromProcess(process) }
             try? pipe.fileHandleForReading.close()
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
