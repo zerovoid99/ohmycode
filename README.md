@@ -46,6 +46,9 @@ With a language server, a 💡 appears beside the cursor's line when there are f
 it; ⌘. lists them with the server's refactorings and source actions (the preferred fix in bold).
 ⌥⇧O organizes imports. Typing a call's `(` shows its signature above the cursor, the current
 argument in bold, following you through the arguments (⇧⌘Space shows it by hand, Esc hides it).
+Inlay hints show what the server infers inside the code — a variable's type (`let total: Int`),
+an argument's parameter name — without changing the text; they're turned off in Settings → Editor
+or with *View: Toggle Inlay Hints*.
 
 ## Outline and breadcrumbs
 The Outline sidebar lists the active file's declarations (classes, functions, properties, Markdown
