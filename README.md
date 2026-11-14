@@ -41,6 +41,12 @@ omc -n ~/code/other       # in a new window
 omc -r notes.md           # in the frontmost window
 ```
 
+## Quick fixes and parameter hints
+With a language server, a 💡 appears beside the cursor's line when there are fixes for a problem on
+it; ⌘. lists them with the server's refactorings and source actions (the preferred fix in bold).
+⌥⇧O organizes imports. Typing a call's `(` shows its signature above the cursor, the current
+argument in bold, following you through the arguments (⇧⌘Space shows it by hand, Esc hides it).
+
 ## Outline and breadcrumbs
 The Outline sidebar lists the active file's declarations (classes, functions, properties, Markdown
 headings), with the one the cursor is in highlighted; click one to go there. Breadcrumbs above the
