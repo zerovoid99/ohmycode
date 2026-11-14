@@ -13,6 +13,7 @@ final class Workspace {
             for document in documents where !oldValue.contains(where: { $0 === document }) {
                 attachBreakpoints(to: document)
                 applyTaskProblems(to: document)
+                document.workspaceRoot = rootURL
             }
             // Tell the extensions (only once they're running: opening a folder starts them).
             guard extensionsStarted else { return }

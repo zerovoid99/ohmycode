@@ -120,6 +120,10 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored var breakpointMarks: (() -> [Int: BreakpointMark])?
     /// Called after each edit and after saving (the window's extensions listen).
     @ObservationIgnored var onDidEdit: (() -> Void)?
+    /// The next storage edit's exact replacement: `range` replaced by `length` characters.
+    @ObservationIgnored var pendingReplacement: (range: NSRange, length: Int)?
+    /// The folder it's open in (for the folder's snippets).
+    @ObservationIgnored var workspaceRoot: URL?
     @ObservationIgnored var onDidSave: (() -> Void)?
     /// What the blame popover can do with a line's commit (set by the workspace).
     @ObservationIgnored var blameActions: BlameActions?
@@ -365,6 +369,15 @@ final class EditorDocument: Identifiable {
         }
         scheduleBlame(after: .milliseconds(800))
         scheduleConflictScan(after: .milliseconds(100))
+        // The storage's edited range can be wider than what was replaced (attribute fixing);
+        // snippet stops need the replacement itself, recorded by whoever made it.
+        var exact = (start: start, oldEnd: oldEnd)
+        if let pending = pendingReplacement, pending.length - pending.range.length == delta,
+           pending.range.location >= start, NSMaxRange(pending.range) <= oldEnd {
+            exact = (pending.range.location, NSMaxRange(pending.range))
+        }
+        pendingReplacement = nil
+        for editor in editors { editor.snippetDocumentEdited(start: exact.start, oldEnd: exact.oldEnd, delta: delta) }
         onDidEdit?()
     }
 

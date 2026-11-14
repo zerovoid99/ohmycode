@@ -27,6 +27,23 @@ enum SourceLanguage: String {
         }
     }
 
+    /// What starts a line comment (`//`, `#`), if the language has them.
+    var lineComment: String? {
+        switch self {
+        case .swift, .javascript, .typescript, .tsx, .rust, .go, .c, .cpp, .objc: "//"
+        case .python, .yaml, .toml, .shell: "#"
+        default: nil
+        }
+    }
+
+    var blockComment: (start: String, end: String)? {
+        switch self {
+        case .swift, .javascript, .typescript, .tsx, .rust, .go, .c, .cpp, .objc, .css: ("/*", "*/")
+        case .html, .markdown: ("<!--", "-->")
+        default: nil
+        }
+    }
+
     var displayName: String {
         switch self {
         case .swift: "Swift"

@@ -89,6 +89,18 @@ struct CompletionItem: Identifiable, Sendable {
     /// Replacement range from the server, if it gave a text edit.
     var editRange: LSPRange?
 
+    init(id: Int, label: String, detail: String?, kind: Int?, filterText: String? = nil, sortText: String? = nil,
+         insertText: String, isSnippet: Bool) {
+        self.id = id
+        self.label = label
+        self.detail = detail
+        self.kind = kind
+        self.filterText = filterText ?? label
+        self.sortText = sortText ?? label
+        self.insertText = insertText
+        self.isSnippet = isSnippet
+    }
+
     init?(json: Any?, id: Int) {
         guard let object = json as? [String: Any], let label = object["label"] as? String else { return nil }
         self.id = id
@@ -126,61 +138,9 @@ struct CompletionItem: Identifiable, Sendable {
 /// first placeholder is so it can be selected after insertion.
 enum Snippet {
     static func expand(_ snippet: String) -> (text: String, firstPlaceholder: NSRange?) {
-        var output = ""
-        var first: (order: Int, range: NSRange)?
-        var index = snippet.startIndex
-
-        func record(_ order: Int, start: Int, length: Int) {
-            let order = order == 0 ? Int.max : order // $0 is the final position: lowest priority
-            if first == nil || order < first!.order { first = (order, NSRange(location: start, length: length)) }
-        }
-
-        while index < snippet.endIndex {
-            let character = snippet[index]
-            if character == "\\", snippet.index(after: index) < snippet.endIndex {
-                output.append(snippet[snippet.index(after: index)])
-                index = snippet.index(index, offsetBy: 2)
-                continue
-            }
-            if character == "$" {
-                let next = snippet.index(after: index)
-                if next < snippet.endIndex, snippet[next] == "{",
-                   let close = matchingBrace(in: snippet, from: next) {
-                    let body = snippet[snippet.index(after: next)..<close]
-                    let parts = body.split(separator: ":", maxSplits: 1)
-                    let placeholder = parts.count == 2 ? expand(String(parts[1])).text : ""
-                    let start = (output as NSString).length
-                    output += placeholder
-                    record(Int(parts[0]) ?? 0, start: start, length: (placeholder as NSString).length)
-                    index = snippet.index(after: close)
-                    continue
-                }
-                var end = next
-                while end < snippet.endIndex, snippet[end].isNumber { end = snippet.index(after: end) }
-                if end > next {
-                    record(Int(snippet[next..<end]) ?? 0, start: (output as NSString).length, length: 0)
-                    index = end
-                    continue
-                }
-            }
-            output.append(character)
-            index = snippet.index(after: index)
-        }
-        return (output, first?.range)
-    }
-
-    private static func matchingBrace(in text: String, from open: String.Index) -> String.Index? {
-        var depth = 0
-        var index = open
-        while index < text.endIndex {
-            if text[index] == "{" { depth += 1 }
-            if text[index] == "}" {
-                depth -= 1
-                if depth == 0 { return index }
-            }
-            index = text.index(after: index)
-        }
-        return nil
+        let parsed = ParsedSnippet(snippet, variables: { _ in "" })
+        let explicit = parsed.stops.count > 1 || snippet.contains("$0") || snippet.contains("${0")
+        return (parsed.text, explicit ? parsed.stops.first?.ranges.first : nil)
     }
 }
 

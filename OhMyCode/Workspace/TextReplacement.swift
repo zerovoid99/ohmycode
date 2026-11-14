@@ -70,6 +70,7 @@ extension EditorDocument {
         // Back to front, so earlier ranges stay valid. One storage edit each: the document's
         // incremental line index, parser and LSP sync all see ordinary single edits.
         for edit in effective.reversed() {
+            pendingReplacement = (edit.range, (edit.text as NSString).length)
             textStorage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.text, attributes: EditorTheme.baseAttributes))
         }
         for (textView, selection) in selections {

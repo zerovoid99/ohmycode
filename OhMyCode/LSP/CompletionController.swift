@@ -50,6 +50,25 @@ final class CompletionController {
     /// Whether anything can complete here: the language server or an extension.
     private var canComplete: Bool {
         client != nil || editor.document.extensionHost?.hasProviders(.completion, for: editor.document) == true
+            || !snippets.isEmpty
+    }
+
+    /// The language's snippets (offered while typing a word).
+    private var snippets: [SnippetDefinition] {
+        SnippetLibrary.shared.snippets(for: editor.document.languageId, root: editor.document.workspaceRoot)
+    }
+
+    static let snippetKind = 15
+
+    private func snippetItems(firstID: Int) -> [CompletionItem] {
+        var items: [CompletionItem] = []
+        for snippet in snippets {
+            for prefix in snippet.prefixes {
+                items.append(CompletionItem(id: firstID + items.count, label: prefix, detail: snippet.description ?? snippet.name,
+                                            kind: Self.snippetKind, sortText: "~" + prefix, insertText: snippet.body, isSnippet: true))
+            }
+        }
+        return items
     }
 
     private var triggerCharacters: Set<String> {
@@ -88,13 +107,13 @@ final class CompletionController {
         let client = self.client
         requestTask?.cancel()
         let document = editor.document
-        requestTask = Task {
+        // Weak: the editor (which owns this) may close while the request waits.
+        requestTask = Task { [weak self] in
             if delay > .zero {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
             }
-            let cursor = editor.textView.selectedRange().location
-            wordStart = Self.wordStart(in: document.textStorage.mutableString, before: cursor)
+            guard let cursor = self?.beginRequest() else { return }
             let position = document.lspPosition(at: cursor)
             // The server's items and the extensions' together, asked at the same time.
             let server = Task { () -> (items: [CompletionItem], isIncomplete: Bool)? in
@@ -103,11 +122,26 @@ final class CompletionController {
             }
             let fromExtensions = await document.extensionHost?.completions(for: document, at: cursor, trigger: trigger, firstID: 1_000_000)
             let result = await server.value
-            guard !Task.isCancelled, result != nil || fromExtensions?.items.isEmpty == false else { return }
-            items = (result?.items ?? []) + (fromExtensions?.items ?? [])
-            isIncomplete = result?.isIncomplete == true || fromExtensions?.isIncomplete == true
-            filter()
+            guard !Task.isCancelled else { return }
+            self?.finishRequest(server: result, extensions: fromExtensions, trigger: trigger)
         }
+    }
+
+    /// Where the word being completed starts; returns the cursor.
+    private func beginRequest() -> Int {
+        let cursor = editor.textView.selectedRange().location
+        wordStart = Self.wordStart(in: editor.document.textStorage.mutableString, before: cursor)
+        return cursor
+    }
+
+    private func finishRequest(server result: (items: [CompletionItem], isIncomplete: Bool)?,
+                               extensions fromExtensions: (items: [CompletionItem], isIncomplete: Bool)?, trigger: String?) {
+        // Snippets while typing a word (not after "." and other trigger characters).
+        let snippets = trigger == nil ? snippetItems(firstID: 2_000_000) : []
+        guard result != nil || fromExtensions?.items.isEmpty == false || !snippets.isEmpty else { return }
+        items = (result?.items ?? []) + (fromExtensions?.items ?? []) + snippets
+        isIncomplete = result?.isIncomplete == true || fromExtensions?.isIncomplete == true
+        filter()
     }
 
     // MARK: Filtering & display
@@ -223,18 +257,20 @@ final class CompletionController {
         var start = wordStart
         if let editRange = item.editRange { start = min(document.range(for: editRange).location, cursor) }
         let replacement = NSRange(location: start, length: max(0, cursor - start))
-        let (text, placeholder) = item.isSnippet ? Snippet.expand(item.insertText) : (item.insertText, nil)
-
         dismiss()
+        if item.isSnippet {
+            // Tab then steps through its placeholders.
+            isInserting = true
+            editor.insertSnippet(item.insertText, replacing: replacement)
+            isInserting = false
+            return
+        }
         isInserting = true
         // Defensive: keep the insertion a separate undo step from coalesced typing.
         textView.breakUndoCoalescing()
-        textView.insertText(text, replacementRange: replacement)
+        textView.insertText(item.insertText, replacementRange: replacement)
         textView.breakUndoCoalescing()
         isInserting = false
-        if let placeholder {
-            textView.setSelectedRange(NSRange(location: start + placeholder.location, length: placeholder.length))
-        }
     }
 
     // MARK: Words

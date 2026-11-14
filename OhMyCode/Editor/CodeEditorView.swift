@@ -40,6 +40,8 @@ final class EditorController: NSObject {
     private weak var containerView: EditorContainerView?
     /// Cursors besides the text view's own selection (see MultiCursor.swift).
     var extraSelections: [NSRange] = []
+    /// The inserted snippet whose stops Tab steps through.
+    var snippetSession: SnippetSession?
     private(set) var minimapView: MinimapView?
     private(set) var stickyView: StickyScrollView?
     private(set) lazy var completion = CompletionController(editor: self)
@@ -670,11 +672,13 @@ extension EditorController: NSTextViewDelegate {
 
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
         pendingTypedText = (replacementString?.isEmpty == false) ? replacementString : nil
+        if let replacementString { document.pendingReplacement = (range, (replacementString as NSString).length) }
         return true
     }
 
     func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if completion.handle(selector) { return true }
+        if handleSnippetCommand(selector) { return true }
         if handleMultiCursorCommand(selector) { return true }
         if selector == #selector(NSResponder.insertNewline(_:)) { return handleNewline() }
         if selector == #selector(NSResponder.deleteBackward(_:)) { return handleDeleteBackward() }
@@ -687,6 +691,7 @@ extension EditorController: NSTextViewDelegate {
 
     func textViewDidChangeSelection(_ notification: Notification) {
         diagnosticsOverlay?.needsDisplay = true // extra cursors are drawn there
+        snippetSelectionChanged()
         // The cursor went into folded lines (arrow keys, find): show them.
         if !document.folds.isEmpty { document.unfold(containing: textView.selectedRange()) }
         // The status bar follows the focused editor; other splits move their selection on edits.
