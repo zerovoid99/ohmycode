@@ -357,6 +357,7 @@ final class ExtensionHost {
     }
 
     private func clearDiagnostics(collection: String) {
+        workspace.problems.clear(source: collection)
         for path in Array(diagnostics.keys) where diagnostics[path]?[collection] != nil {
             diagnostics[path]?[collection] = nil
             if diagnostics[path]?.isEmpty == true { diagnostics[path] = nil }
@@ -745,6 +746,7 @@ final class ExtensionHost {
             let list = (args["diagnostics"]?.array ?? []).compactMap { Self.diagnostic($0) }
             diagnostics[url.path, default: [:]][key] = list.isEmpty ? nil : list
             if diagnostics[url.path]?.isEmpty == true { diagnostics[url.path] = nil }
+            workspace.problems.set(list, for: url, source: key)
             workspace.document(matching: url)?.setExtensionDiagnostics(list, collection: key)
             return nil
         case "diagnostics.clear":

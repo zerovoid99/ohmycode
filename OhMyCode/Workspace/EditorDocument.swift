@@ -68,7 +68,7 @@ final class EditorDocument: Identifiable {
             }
         }
     }
-    @ObservationIgnored private var pendingReveal: NSRange?
+    @ObservationIgnored private(set) var pendingReveal: NSRange?
     /// Scroll position and selection to restore when this tab is shown again.
     @ObservationIgnored var viewState: EditorViewState?
     /// Modification date of the version on disk that the buffer reflects.

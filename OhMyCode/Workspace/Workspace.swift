@@ -26,7 +26,9 @@ final class Workspace {
     var selectedLaunchName: String?
     /// Replaces the debug adapter's command (tests).
     @ObservationIgnored var debugAdapter: [String]?
-    enum BottomPanel { case terminal, debugConsole }
+    enum BottomPanel { case terminal, debugConsole, problems }
+    /// Every diagnostic in the folder (the Problems panel).
+    let problems = ProblemStore()
     /// What the bottom panel shows.
     var bottomPanel = BottomPanel.terminal
     /// The window showing this workspace (set by the window).
@@ -235,6 +237,7 @@ final class Workspace {
         submodules = []
         if let session = debugSession { Task { await session.stop() } }
         debugSession = nil
+        problems.removeAll()
         launchConfigurations = []
         breakpoints.load(for: url)
         breakpoints.onChange = { [weak self] path in self?.breakpointsChanged(in: path) }
@@ -343,8 +346,11 @@ final class Workspace {
                 } catch {
                     return // server missing or failed to launch: the editor works without it
                 }
+                let source = "lsp:" + config.name
                 client.onDiagnostics = { [weak self] url, diagnostics in
-                    self?.document(matching: url)?.setDiagnostics(diagnostics)
+                    guard let self else { return }
+                    self.problems.set(diagnostics, for: self.workspaceURL(for: url), source: source)
+                    self.document(matching: url)?.setDiagnostics(diagnostics)
                 }
                 languageClients[config.name] = client
             }
@@ -1518,17 +1524,46 @@ final class Workspace {
     // MARK: Terminal
 
     func toggleTerminal() {
-        if isTerminalVisible {
-            isTerminalVisible = false
-            activeDocument?.editor?.focus()
+        if isTerminalVisible, bottomPanel == .terminal {
+            hidePanel()
         } else {
             showTerminal()
         }
     }
 
+    /// Hides the bottom panel (whatever it shows).
+    func hidePanel() {
+        isTerminalVisible = false
+        activeDocument?.editor?.focus()
+    }
+
     /// The terminal shown in the panel.
     var terminal: TerminalSession? {
         terminals.first { $0.id == activeTerminalID }
+    }
+
+    /// ⇧⌘M: the Problems panel (or hides it when it's showing).
+    func toggleProblems() {
+        if isTerminalVisible, bottomPanel == .problems {
+            hidePanel()
+        } else {
+            showProblems()
+        }
+    }
+
+    func showProblems() {
+        bottomPanel = .problems
+        isTerminalVisible = true
+    }
+
+    /// Opens a problem's file and selects its range.
+    func open(problem diagnostic: Diagnostic, in url: URL) {
+        open(fileAt: url)
+        guard let document = activeDocument else { return }
+        let start = document.offset(for: diagnostic.range.start)
+        let end = max(start, document.offset(for: diagnostic.range.end))
+        document.reveal(NSRange(location: start, length: end - start))
+        document.editor?.focus()
     }
 
     /// Shows the debug console in the bottom panel.

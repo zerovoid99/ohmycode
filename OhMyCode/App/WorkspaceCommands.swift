@@ -68,6 +68,9 @@ struct WorkspaceCommands: Commands {
             Button("Source Control") { workspace?.sidebarMode = .sourceControl }
                 .keyboardShortcut("g", modifiers: [.control, .shift])
                 .disabled(workspace?.rootNode == nil)
+            Button("Problems") { workspace?.toggleProblems() }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .disabled(workspace?.rootNode == nil)
         }
 
         CommandMenu("Debug") {
@@ -105,7 +108,7 @@ struct WorkspaceCommands: Commands {
         }
 
         CommandMenu("Terminal") {
-            Button(workspace?.isTerminalVisible == true ? "Hide Terminal" : "Show Terminal") {
+            Button(workspace?.isTerminalVisible == true && workspace?.bottomPanel == .terminal ? "Hide Terminal" : "Show Terminal") {
                 workspace?.toggleTerminal()
             }
             .keyboardShortcut("`", modifiers: .control)

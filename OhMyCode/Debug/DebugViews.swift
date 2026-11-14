@@ -289,7 +289,7 @@ struct DebugConsoleView: View {
                 Spacer()
                 Button { workspace.debugSession?.clearConsole() } label: { Image(systemName: "trash") }
                     .help("Clear the console")
-                Button { workspace.toggleTerminal() } label: { Image(systemName: "chevron.down") }
+                Button { workspace.hidePanel() } label: { Image(systemName: "chevron.down") }
                     .help("Hide the panel")
             }
             .buttonStyle(.borderless)
@@ -349,30 +349,6 @@ struct DebugConsoleView: View {
         case .input: .accentColor
         default: .primary
         }
-    }
-}
-
-/// "Terminal | Debug Console" at the top of the bottom panel.
-struct BottomPanelSwitcher: View {
-    let workspace: Workspace
-
-    var body: some View {
-        HStack(spacing: 2) {
-            tab("Terminal", .terminal) { workspace.showTerminal() }
-            tab("Debug Console", .debugConsole) { workspace.showDebugConsole() }
-        }
-    }
-
-    private func tab(_ title: String, _ panel: Workspace.BottomPanel, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title.uppercased())
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(workspace.bottomPanel == panel ? .primary : .secondary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(workspace.bottomPanel == panel ? Color.secondary.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 4))
-        }
-        .buttonStyle(.plain)
     }
 }
 

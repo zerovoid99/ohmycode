@@ -703,11 +703,15 @@ struct ExtensionLanguageTests {
 
         // Diagnostics: on the open file, and waiting for b.txt until it opens.
         #expect(document.diagnostics.map(\.message) == ["Too loud"] && document.diagnostics.first?.severity == .warning)
+        // The Problems panel lists both files, b.txt (an error) first, though b.txt isn't open.
+        #expect(workspace.problems.files().map(\.url.lastPathComponent) == ["b.txt", "a.txt"])
+        #expect(workspace.problems.errorCount == 1 && workspace.problems.warningCount == 1)
         workspace.open(fileAt: root.appending(path: "b.txt"))
         let other = try #require(workspace.activeDocument)
         #expect(other.diagnostics.map(\.message) == ["Shh"] && other.diagnostics.first?.source == "loud")
         _ = try await host.executeCommand("lang.quiet")
         #expect(document.diagnostics.isEmpty && other.diagnostics.count == 1)
+        #expect(workspace.problems.files().map(\.url.lastPathComponent) == ["b.txt"])
 
         // Formatting goes through the extension, as one undo step.
         #expect(workspace.canFormat(document))
@@ -718,6 +722,7 @@ struct ExtensionLanguageTests {
         host.setEnabled(instance, false)
         await host.waitUntilIdle()
         #expect(other.diagnostics.isEmpty && !workspace.canFormat(document))
+        #expect(workspace.problems.totalCount == 0)
         #expect(await host.completions(for: document, at: 0, trigger: nil, firstID: 0).items.isEmpty)
         withExtendedLifetime(workspace) {}
     }

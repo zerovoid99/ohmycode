@@ -66,6 +66,8 @@ struct PaletteCommand: Identifiable {
                        shortcut: "⌃⌘→", isAvailable: { $0.activeDocument != nil }, perform: { $0.moveActiveEditor(by: 1) }),
         PaletteCommand(id: "view.moveEditorPrevious", title: "View: Move Editor into Previous Group", icon: "arrow.left.square",
                        shortcut: "⌃⌘←", isAvailable: { $0.activeDocument != nil }, perform: { $0.moveActiveEditor(by: -1) }),
+        PaletteCommand(id: "view.problems", title: "View: Toggle Problems", icon: "exclamationmark.triangle", shortcut: "⇧⌘M",
+                       isAvailable: { $0.rootNode != nil }, perform: { $0.toggleProblems() }),
         PaletteCommand(id: "view.toggleTerminal", title: "View: Toggle Terminal", icon: "terminal", shortcut: "⌃`",
                        isAvailable: { $0.rootNode != nil }, perform: { $0.toggleTerminal() }),
         PaletteCommand(id: "terminal.new", title: "Terminal: New Terminal", icon: "plus", shortcut: "⌃⇧`",

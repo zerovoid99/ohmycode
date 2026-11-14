@@ -98,6 +98,7 @@ struct LanguageClientTests {
         #expect(try await eventually { document.diagnostics.count == 1 })
         let diagnostic = try #require(document.diagnostics.first)
         #expect(document.range(for: diagnostic.range) == NSRange(location: 15, length: 3))
+        #expect(workspace.problems.files().map(\.url.lastPathComponent) == [document.url.lastPathComponent])
 
         // A red squiggle is actually drawn under exactly that word (not just attributed).
         controller.textView.layoutSubtreeIfNeeded()
@@ -121,6 +122,7 @@ struct LanguageClientTests {
 
         document.textStorage.replaceCharacters(in: NSRange(location: 15, length: 3), with: "fine")
         #expect(try await eventually { document.diagnostics.isEmpty })
+        #expect(workspace.problems.totalCount == 0)
         withExtendedLifetime((workspace, window)) {}
     }
 

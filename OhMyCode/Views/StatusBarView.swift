@@ -3,6 +3,9 @@ import SwiftUI
 struct StatusBarView: View {
     let document: EditorDocument?
     var gitStatus: GitStatus?
+    /// The folder's problems (counted in the bar; clicking shows the Problems panel).
+    var problems: ProblemStore?
+    var showProblems: () -> Void = {}
     /// Extensions' items: left ones after the branch, right ones before the cursor position.
     var items: [ExtensionStatusItem] = []
     var run: (String) -> Void = { _ in }
@@ -25,15 +28,21 @@ struct StatusBarView: View {
                 Label("Changed on disk, your unsaved edits were kept", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             }
-            if let document, !document.diagnostics.isEmpty {
-                let errors = document.diagnostics.filter { $0.severity == .error }.count
-                let warnings = document.diagnostics.count - errors
-                HStack(spacing: 8) {
-                    Label("\(errors)", systemImage: "xmark.circle.fill")
-                        .foregroundStyle(errors > 0 ? .red : .secondary)
-                    Label("\(warnings)", systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(warnings > 0 ? .yellow : .secondary)
+            if let problems {
+                let errors = problems.errorCount
+                let warnings = problems.warningCount
+                Button(action: showProblems) {
+                    HStack(spacing: 8) {
+                        Label("\(errors)", systemImage: "xmark.circle.fill")
+                            .foregroundStyle(errors > 0 ? .red : .secondary)
+                        Label("\(warnings)", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(warnings > 0 ? .yellow : .secondary)
+                    }
                 }
+                .buttonStyle(.plain)
+                .help("Problems (⇧⌘M)")
+            }
+            if let document, !document.diagnostics.isEmpty {
                 if let diagnostic = document.diagnosticAtCursor {
                     Text(diagnostic.message)
                         .lineLimit(1)
