@@ -85,7 +85,7 @@ extension Workspace {
     /// Format on save, as the setting says: the whole file, or the lines changed since the
     /// last commit (when the server can format ranges and the file is in git).
     func formatForSave(_ document: EditorDocument) async throws {
-        if AppSettings.shared.formatOnSaveScope == .modifications, !extensions.hasProviders(.formatting, for: document),
+        if effectiveFormatOnSaveScope == .modifications, !extensions.hasProviders(.formatting, for: document),
            canFormatRanges(document), let changed = document.changedLineRanges() {
             try await format(document, lines: changed, actionName: "Format Changed Lines")
         } else {

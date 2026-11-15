@@ -69,6 +69,8 @@ final class Workspace {
     @ObservationIgnored private var windowObservers: [NSObjectProtocol] = []
     /// This window's identity (its session's key, without a folder).
     let id = UUID()
+    /// The folder's own settings (.omc/settings.json; see ProjectSettings.swift).
+    var projectSettings = ProjectSettings()
     /// The last session written (see Sessions.swift), to write only changes.
     @ObservationIgnored var sessionSignature: String?
     @ObservationIgnored var sessionLoop: Task<Void, Never>?
@@ -324,6 +326,8 @@ final class Workspace {
         watcher = FileWatcher(path: canonicalRootPath) { [weak self] events in
             self?.handleFileEvents(events)
         }
+        projectSettings = ProjectSettings()
+        loadProjectSettings()
         sessionSignature = nil
         restoreSession()
     }
@@ -357,6 +361,7 @@ final class Workspace {
         var needsIndexRebuild = false
         var needsGitRefresh = false
         var editorConfigChanged = false
+        var projectSettingsChanged = false
 
         for event in events {
             if event.requiresRescan || event.path == canonicalRootPath {
@@ -379,6 +384,7 @@ final class Workspace {
 
             changedPaths.insert(event.path)
             if components.last == ".editorconfig" { editorConfigChanged = true }
+            if relative == ProjectSettings.file { projectSettingsChanged = true }
             if event.isStructural {
                 directoriesToReload.insert(components.dropLast().joined(separator: "/"))
                 needsIndexRebuild = true
@@ -386,6 +392,7 @@ final class Workspace {
         }
 
         if editorConfigChanged { documents.forEach { $0.reloadEditorConfig() } }
+        if projectSettingsChanged { loadProjectSettings() }
         for directory in directoriesToReload {
             let components = directory.isEmpty ? [] : directory.split(separator: "/").map(String.init)
             rootNode.loadedNode(atRelativePath: components)?.reloadChildren()
@@ -2210,6 +2217,7 @@ final class Workspace {
             try document.save()
             // Saved here: its files pick it up now, not when the file watcher reports it.
             if document.url.lastPathComponent == ".editorconfig" { documents.forEach { $0.reloadEditorConfig() } }
+            if relativePath(of: document.url) == ProjectSettings.file { loadProjectSettings() }
             stageIfConflictResolved(document)
             return true
         } catch {

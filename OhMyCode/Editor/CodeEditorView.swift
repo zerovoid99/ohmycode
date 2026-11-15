@@ -245,7 +245,10 @@ final class EditorController: NSObject {
 
     // MARK: Theme and font
 
-    @objc private func settingsDidChange() {
+    @objc private func settingsDidChange() { projectSettingsChanged() }
+
+    /// The app's settings or the folder's (.omc/settings.json) changed.
+    func projectSettingsChanged() {
         document.refreshInlayHints() // turned on or off, or the font changed
         document.refreshSemanticTokens()
         document.refreshCodeLenses()

@@ -254,7 +254,7 @@ extension Workspace {
     @discardableResult
     func formatAndSave(_ document: EditorDocument) -> Task<Bool, Never> {
         Task {
-            if formatOnSave ?? AppSettings.shared.formatOnSave, canFormat(document) {
+            if formatsOnSave, canFormat(document) {
                 // Whichever comes first: the formatted text, or the timeout. (Cancelling doesn't
                 // interrupt the wait for the server's reply, so race them explicitly.)
                 let formatting = Task { try? await formatForSave(document) }

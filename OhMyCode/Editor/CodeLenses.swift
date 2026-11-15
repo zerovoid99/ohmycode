@@ -11,7 +11,7 @@ extension EditorDocument {
                 guard !Task.isCancelled else { return }
             }
             guard let self else { return }
-            guard AppSettings.shared.showsCodeLens, let client = self.languageClient, client.state == .ready,
+            guard self.projectSettings.showsCodeLens ?? AppSettings.shared.showsCodeLens, let client = self.languageClient, client.state == .ready,
                   client.supports(.codeLens) else {
                 self.setCodeLenses([:])
                 return
@@ -68,7 +68,7 @@ extension EditorController {
 
     /// The lenses on lines in view, after each line's end (and after the blame there).
     func codeLensMarks() -> [CodeLensMark] {
-        guard AppSettings.shared.showsCodeLens, !document.codeLenses.isEmpty, let visible = visibleCharacterRange() else { return [] }
+        guard document.projectSettings.showsCodeLens ?? AppSettings.shared.showsCodeLens, !document.codeLenses.isEmpty, let visible = visibleCharacterRange() else { return [] }
         let index = document.lineIndex
         let length = document.textStorage.length
         let first = index.line(containing: visible.location), last = index.line(containing: min(NSMaxRange(visible), length))

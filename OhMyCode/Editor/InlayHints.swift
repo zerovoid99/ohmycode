@@ -51,7 +51,7 @@ extension EditorDocument {
                 guard !Task.isCancelled else { return }
             }
             guard let self else { return }
-            guard AppSettings.shared.showsInlayHints, let client = self.languageClient, client.state == .ready,
+            guard self.projectSettings.showsInlayHints ?? AppSettings.shared.showsInlayHints, let client = self.languageClient, client.state == .ready,
                   client.supports(.inlayHint), self.lineIndex.lineCount <= Self.inlayHintLineLimit else {
                 self.setInlayHints([])
                 return

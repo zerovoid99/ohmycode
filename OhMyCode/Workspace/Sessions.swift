@@ -198,8 +198,8 @@ extension Workspace {
     /// Saves files as the setting says: after `autoSaveDelay` without edits (not formatted),
     /// or (on focus change) when told by `focusChanged`.
     func autoSaveTick(now: Date) {
-        let delay = AppSettings.shared.autoSaveDelay
-        guard AppSettings.shared.autoSave == .afterDelay else { autoSaveSeen.removeAll(); return }
+        let delay = effectiveAutoSaveDelay
+        guard effectiveAutoSave == .afterDelay else { autoSaveSeen.removeAll(); return }
         for document in documents where document.isDirty && !document.hasExternalChanges {
             let seen = autoSaveSeen[document.id]
             if seen?.version != document.editVersion {
@@ -213,7 +213,7 @@ extension Workspace {
 
     /// Switching tabs, windows or apps: saves (formatting first if format on save is on).
     func focusChanged() {
-        guard AppSettings.shared.autoSave == .onFocusChange else { return }
+        guard effectiveAutoSave == .onFocusChange else { return }
         for document in documents where document.isDirty && !document.hasExternalChanges {
             formatAndSave(document)
         }

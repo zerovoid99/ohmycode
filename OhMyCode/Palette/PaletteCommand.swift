@@ -375,6 +375,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { _ in true }, perform: { $0.splitTerminal() }),
         PaletteCommand(id: "terminal.rename", title: "Terminal: Rename…", icon: "pencil", key: nil,
                        isAvailable: { $0.terminal != nil }, perform: { $0.renameTerminal() }),
+        PaletteCommand(id: "preferences.folderSettings", title: "Preferences: Open Folder Settings", icon: "gearshape.2", key: nil,
+                       isAvailable: { $0.rootURL != nil }, perform: { $0.openProjectSettings() }),
         PaletteCommand(id: "view.zenMode", title: "View: Toggle Zen Mode", icon: "rectangle.center.inset.filled", key: "alt+cmd+z",
                        isAvailable: { _ in true }, perform: { $0.toggleZenMode() }),
         PaletteCommand(id: "view.toggleSidebar", title: "View: Toggle Sidebar", icon: "sidebar.left", key: "ctrl+cmd+s",

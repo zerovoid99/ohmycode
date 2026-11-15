@@ -27,7 +27,7 @@ enum WordWrap: String, CaseIterable, Identifiable {
 
 extension EditorDocument {
     /// Whether its lines wrap: ⌥Z's choice for this file, else the setting's.
-    var wrapsLines: Bool { wordWrapOverride ?? AppSettings.shared.wordWrap.wraps(language) }
+    var wrapsLines: Bool { wordWrapOverride ?? (projectSettings.wordWrap ?? AppSettings.shared.wordWrap).wraps(language) }
 }
 
 extension EditorController {

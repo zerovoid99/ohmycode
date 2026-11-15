@@ -24,7 +24,7 @@ enum RenderWhitespace: String, CaseIterable, Identifiable {
 extension EditorController {
     /// The whitespace marks in view: each space's or tab's rect, and whether it's a tab.
     func whitespaceMarks() -> [(rect: NSRect, isTab: Bool)] {
-        let mode = AppSettings.shared.renderWhitespace
+        let mode = document.projectSettings.renderWhitespace ?? AppSettings.shared.renderWhitespace
         guard mode != .none, let visible = visibleCharacterRange() else { return [] }
         let text = document.textStorage.mutableString
         var scope = NSIntersectionRange(visible, NSRange(location: 0, length: text.length))

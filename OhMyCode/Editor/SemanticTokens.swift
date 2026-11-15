@@ -59,7 +59,7 @@ extension EditorDocument {
                 guard !Task.isCancelled else { return }
             }
             guard let self else { return }
-            guard AppSettings.shared.semanticHighlighting, let client = self.languageClient, client.state == .ready,
+            guard self.projectSettings.semanticHighlighting ?? AppSettings.shared.semanticHighlighting, let client = self.languageClient, client.state == .ready,
                   client.supports(.semanticTokens), self.lineIndex.lineCount <= Self.semanticTokenLineLimit else {
                 self.setSemanticTokens([])
                 return
@@ -121,7 +121,7 @@ extension EditorDocument {
 extension EditorController {
     /// The server's classification over the syntax tree's colors, in the highlighted range.
     func applySemanticColors(in range: NSRange) {
-        guard AppSettings.shared.semanticHighlighting, !document.semanticTokens.isEmpty,
+        guard document.projectSettings.semanticHighlighting ?? AppSettings.shared.semanticHighlighting, !document.semanticTokens.isEmpty,
               let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager else { return }
         let documentStart = contentManager.documentRange.location
         let foreground = EditorTheme.current.foreground
