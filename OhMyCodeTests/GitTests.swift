@@ -278,7 +278,7 @@ struct GitStageTwoTests {
 
             let text = NSMutableString(string: currentText)
             for hunk in LineDiff.hunks(base: base, current: LineDiff.lines(currentText)).reversed() {
-                let starts = LineIndex(string: text).lineStarts
+                let starts = LineIndex(string: text).lineStarts.array
                 let edit = LineDiff.revertEdit(for: hunk, base: base, text: text, lineStarts: starts)
                 text.replaceCharacters(in: edit.range, with: edit.replacement)
             }

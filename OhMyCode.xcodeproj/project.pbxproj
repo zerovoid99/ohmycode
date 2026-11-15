@@ -64,6 +64,7 @@
 		40852944F9E58B355D0D3A78 /* ProfilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E3D60B77DF453072A0EFC4 /* ProfilesView.swift */; };
 		44F88C3D502540F06F587353 /* LSPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD379088235C2421A7031BC4 /* LSPTests.swift */; };
 		457938F51881756D2E6609BF /* DocumentLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07F077DF9001333C3035F7BE /* DocumentLinkTests.swift */; };
+		457FC2E5EDD237EBA7825391 /* LineIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BA9DA92A03F7F0A135A4135 /* LineIndexTests.swift */; };
 		459A340552EE32009CA09153 /* MarkdownTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BCA72007416F816817C38E1 /* MarkdownTests.swift */; };
 		46AB56208F370EA5D1265CC3 /* CommitSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1564029D78A9D5DCDEF90529 /* CommitSearchTests.swift */; };
 		476F1A5E9F55BE3672D79298 /* RepoHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC60C7DA7C4B6252ACD6263F /* RepoHistoryTests.swift */; };
@@ -375,6 +376,7 @@
 		995D20D57A5D6B2463BCB67A /* WorkspaceCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCommands.swift; sourceTree = "<group>"; };
 		9AE654543EFDE601C8E12DF0 /* Keybindings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keybindings.swift; sourceTree = "<group>"; };
 		9BA27F72EE334EC2CEE7909C /* BracketsAndGuides.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BracketsAndGuides.swift; sourceTree = "<group>"; };
+		9BA9DA92A03F7F0A135A4135 /* LineIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineIndexTests.swift; sourceTree = "<group>"; };
 		9D20F3C4146C1A73972F0F3A /* ExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionTests.swift; sourceTree = "<group>"; };
 		9FEB380BB31707CFA139D310 /* EditorConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorConfigTests.swift; sourceTree = "<group>"; };
 		A14A7EFABD0BFC396322A78C /* SourceControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlView.swift; sourceTree = "<group>"; };
@@ -620,6 +622,7 @@
 				73418B3915E627D3E9C414FA /* KeybindingTests.swift */,
 				7A2EB4BF7034731316A9A0A0 /* LanguageFeatureTests.swift */,
 				5855E19A81E3842B0AD3414B /* LineCommandTests.swift */,
+				9BA9DA92A03F7F0A135A4135 /* LineIndexTests.swift */,
 				AD30FD882FC57FFB419BED7E /* LineStagingTests.swift */,
 				3AD8419A7463D17AF39D48F2 /* LinkedEditingTests.swift */,
 				8FA142EA397F6BFCACCF79BA /* LocalHistoryTests.swift */,
@@ -1187,6 +1190,7 @@
 				44F88C3D502540F06F587353 /* LSPTests.swift in Sources */,
 				034D9CC0BA3A8D8AF6D44394 /* LanguageFeatureTests.swift in Sources */,
 				F5D0E76258A57117F2D14299 /* LineCommandTests.swift in Sources */,
+				457FC2E5EDD237EBA7825391 /* LineIndexTests.swift in Sources */,
 				BFE8B79D8DAF88B2D284AAD6 /* LineStagingTests.swift in Sources */,
 				0B65873D675CA3F4E6024BBF /* LinkedEditingTests.swift in Sources */,
 				488045A3248499F51BD061EA /* LocalHistoryTests.swift in Sources */,

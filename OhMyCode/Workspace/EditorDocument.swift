@@ -602,7 +602,7 @@ final class EditorDocument: Identifiable {
     func revertEdit(for hunk: DiffHunk) -> (range: NSRange, replacement: String)? {
         guard let base = diffBaseLines else { return nil }
         return LineDiff.revertEdit(for: hunk, base: base, text: textStorage.mutableString,
-                                   lineStarts: lineIndex.lineStarts)
+                                   lineStarts: lineIndex.lineStarts.array)
     }
 
     /// Waits for a pending diff (tests).

@@ -1,14 +1,48 @@
 import Foundation
 
 /// UTF-16 offsets of the start of every line, maintained incrementally on edit.
-/// Lookups are O(log n); an edit only scans the inserted characters.
+/// Lookups are O(log n); an edit only scans the inserted characters, and the lines after it
+/// move by a pending shift (see `LineStarts`) instead of being rewritten one by one.
 struct LineIndex: Equatable {
-    private(set) var lineStarts: [Int] = [0]
+    /// The line starts, with the shift of the lines after the latest edits applied as they're
+    /// read: typing in one place keeps adding to the shift (no work per line); an edit
+    /// elsewhere first writes it into the lines it covers.
+    struct LineStarts: RandomAccessCollection, Equatable {
+        fileprivate var base: [Int]
+        /// Lines from here on are `shift` further than `base` says.
+        fileprivate var shiftFrom: Int
+        fileprivate var shift = 0
+
+        fileprivate init(_ base: [Int]) {
+            self.base = base
+            shiftFrom = base.count
+        }
+
+        var startIndex: Int { 0 }
+        var endIndex: Int { base.count }
+
+        subscript(index: Int) -> Int { index >= shiftFrom ? base[index] &+ shift : base[index] }
+
+        /// Writes the pending shift into the lines `from..<to` (that part of it no longer pending).
+        fileprivate mutating func settle(_ from: Int, _ to: Int) {
+            guard shift != 0, from < to else { return }
+            base.withUnsafeMutableBufferPointer { starts in
+                for index in from..<to { starts[index] &+= shift }
+            }
+        }
+
+        /// The starts as a plain array (for code that wants one).
+        var array: [Int] { Array(self) }
+
+        static func == (lhs: LineStarts, rhs: LineStarts) -> Bool { lhs.elementsEqual(rhs) }
+    }
+
+    private(set) var lineStarts = LineStarts([0])
 
     var lineCount: Int { lineStarts.count }
 
     init(string: NSString) {
-        lineStarts = [0] + Self.newlineStarts(in: string, range: NSRange(location: 0, length: string.length))
+        lineStarts = LineStarts([0] + Self.newlineStarts(in: string, range: NSRange(location: 0, length: string.length)))
     }
 
     /// UTF-16 offset for an LSP position (line, UTF-16 column), clamped to its line and the text.
@@ -49,13 +83,20 @@ struct LineIndex: Equatable {
         let removeLower = upperBound(location)
         let removeUpper = upperBound(oldEnd)
 
-        if delta != 0 && removeUpper < lineStarts.count {
-            lineStarts.withUnsafeMutableBufferPointer { starts in
-                for i in removeUpper..<starts.count { starts[i] &+= delta }
-            }
+        // The pending shift has to start at `removeUpper`: write it into the lines between
+        // where it starts and there (few, typing in one place; all of them once, editing above).
+        if lineStarts.shiftFrom < removeUpper {
+            lineStarts.settle(lineStarts.shiftFrom, removeUpper)
+        } else if lineStarts.shiftFrom > removeUpper {
+            lineStarts.settle(lineStarts.shiftFrom, lineStarts.base.count)
+            lineStarts.shift = 0
         }
-        lineStarts.replaceSubrange(removeLower..<removeUpper,
-                                   with: Self.newlineStarts(in: string, range: editedRange))
+        let inserted = Self.newlineStarts(in: string, range: editedRange)
+        lineStarts.base.replaceSubrange(removeLower..<removeUpper, with: inserted)
+        // The lines after the edit move by `delta`, on top of what was pending.
+        lineStarts.shift &+= delta
+        lineStarts.shiftFrom = removeUpper + inserted.count - (removeUpper - removeLower)
+        if lineStarts.shift == 0 { lineStarts.shiftFrom = lineStarts.base.count }
     }
 
     /// Index of the first line start strictly greater than `offset`.

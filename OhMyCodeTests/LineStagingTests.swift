@@ -56,7 +56,7 @@ struct RevertLinesTests {
         let hunks = LineDiff.hunks(base: old, current: new)
         let rows = hunks.flatMap(LineDiff.pairs)
         let text = newText as NSString
-        let lineStarts = LineIndex(string: text).lineStarts
+        let lineStarts = LineIndex(string: text).lineStarts.array
         for mask in 0..<(1 << rows.count) {
             let chosen = Set(rows.indices.filter { mask & (1 << $0) != 0 }.map { rows[$0] })
             let edits = LineDiff.revertEdits(rows: chosen, hunks: hunks, old: old, new: new, text: text, lineStarts: lineStarts)

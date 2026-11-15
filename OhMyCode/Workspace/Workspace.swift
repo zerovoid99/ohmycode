@@ -599,7 +599,7 @@ final class Workspace {
         let hunks = LineDiff.hunks(base: base, current: current)
         guard let selected = rows(hunks), !selected.isEmpty else { NSSound.beep(); return }
         let edits = LineDiff.revertEdits(rows: selected, hunks: hunks, old: base, new: current, text: text,
-                                         lineStarts: document.lineIndex.lineStarts)
+                                         lineStarts: document.lineIndex.lineStarts.array)
         do {
             _ = try document.apply(edits.map { TextReplacement(range: $0.range, text: $0.replacement) },
                                    actionName: "Revert Selected Lines")
