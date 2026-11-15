@@ -184,6 +184,19 @@ The fixes made when saving are one undoable step. The status bar shows the inden
 endings; hover them to see which `.editorconfig` set them. Editing an `.editorconfig` applies it to
 open files at once.
 
+## Unsaved changes, auto save and hot exit
+Quitting never loses unsaved work, and doesn't ask about it. Each window keeps its open tabs and
+the text of its unsaved files in `~/Library/Application Support/OhMyCode/Sessions`, updated a
+moment after every change, so a crash loses nothing either. At the next launch the windows come
+back as they were, unsaved changes included; the file on disk isn't touched until you save. A
+window closed with unsaved changes keeps them, and they come back when its folder is opened
+again. If a file changed on disk meanwhile, you're told to compare before saving. With hot exit
+off (Settings → Editor), quitting asks about each unsaved file instead.
+
+Auto save (Settings → Editor) saves files a moment after you stop typing (the delay is
+adjustable), or when you switch tabs, windows or apps. The second one formats first if format on
+save is on.
+
 ## Local history
 Every save keeps a version of the file (and the version on disk before it, or before another
 program replaced it), whether or not the file is in git. They're listed in the Timeline above the
