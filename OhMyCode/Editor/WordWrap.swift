@@ -33,6 +33,24 @@ extension EditorDocument {
 extension EditorController {
     var wrapsLines: Bool { document.wrapsLines }
 
+    /// The text view's width: the visible width with word wrap; without it, as wide as the
+    /// widest line (and its inlay hints), so lines don't wrap and the view scrolls sideways.
+    /// (The container tracks the view: see `makeView`.)
+    func updateTextWidth() {
+        guard let textView, let scrollView = textView.enclosingScrollView else { return }
+        let visible = scrollView.contentSize.width
+        var width = visible
+        if !(appliedWordWrap ?? wrapsLines) {
+            let column = (" " as NSString).size(withAttributes: [.font: EditorTheme.font]).width
+            let padding = textView.textContainerInset.width * 2 + (textView.textContainer?.lineFragmentPadding ?? 0) * 2
+            width = max(visible, ceil(CGFloat(document.longestLineColumns + 2) * column + padding + document.widestInlayHints))
+        }
+        guard abs(textView.frame.width - width) > 0.5 else { return }
+        textView.minSize = NSSize(width: width, height: 0)
+        textView.maxSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        textView.setFrameSize(NSSize(width: width, height: textView.frame.height))
+    }
+
     /// View: Toggle Word Wrap (⌥Z): for this file, in every editor showing it, until it's closed.
     func toggleWordWrap() {
         document.wordWrapOverride = !document.wrapsLines
@@ -47,20 +65,10 @@ extension EditorController {
         guard wraps != appliedWordWrap else { return }
         appliedWordWrap = wraps
         let topLine = topVisibleLine
-        if wraps {
-            scrollView.hasHorizontalScroller = false
-            textView.isHorizontallyResizable = false
-            textView.setFrameSize(NSSize(width: scrollView.contentSize.width, height: textView.frame.height))
-            container.widthTracksTextView = true
-            container.size = NSSize(width: textView.bounds.width - textView.textContainerInset.width * 2,
-                                    height: CGFloat.greatestFiniteMagnitude)
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollView.contentView.bounds.minY))
-        } else {
-            container.widthTracksTextView = false
-            container.size = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-            textView.isHorizontallyResizable = true
-            scrollView.hasHorizontalScroller = true
-        }
+        _ = container
+        scrollView.hasHorizontalScroller = !wraps
+        updateTextWidth()
+        if wraps { scrollView.contentView.scroll(to: NSPoint(x: 0, y: scrollView.contentView.bounds.minY)) }
         textView.textLayoutManager?.textViewportLayoutController.layoutViewport()
         textView.needsLayout = true
         // The same line stays at the top (heights above it changed).

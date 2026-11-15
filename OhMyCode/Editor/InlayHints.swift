@@ -95,6 +95,12 @@ extension EditorDocument {
             if value != nil { hasMarks = true; stop.pointee = true }
         }
         guard hasMarks || !marks.isEmpty else { return }
+        // The most room hints take on one line: the text view is that much wider without wrap.
+        var perLine: [Int: CGFloat] = [:]
+        for (index, mark) in marks { perLine[lineIndex.line(containing: index), default: 0] += mark.width }
+        let widest = perLine.values.max() ?? 0
+        let widthChanged = widest > widestInlayHints
+        if widthChanged { widestInlayHints = widest }
         // Layout attributes only: the document's edit observer ignores them (no LSP change,
         // not dirty, nothing to undo).
         textStorage.beginEditing()
@@ -105,6 +111,7 @@ extension EditorDocument {
         }
         textStorage.endEditing()
         editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true }
+        if widthChanged { editors.forEach { $0.updateTextWidth() } }
     }
 }
 

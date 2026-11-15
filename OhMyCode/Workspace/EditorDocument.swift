@@ -37,6 +37,12 @@ final class EditorDocument: Identifiable {
     let undoManager = UndoManager()
 
     private(set) var isDirty = false
+    /// The widest line, in columns (tabs to the tab width, wide characters as two): how wide
+    /// the text view is without word wrap. Only grows while editing; measured again when the
+    /// file is opened or saved.
+    @ObservationIgnored private(set) var longestLineColumns = 0
+    /// The most room inlay hints take on one line (added to that width).
+    @ObservationIgnored var widestInlayHints: CGFloat = 0
     /// How many spaces wide a tab is drawn (and indent guides step by).
     @ObservationIgnored private(set) var displayTabWidth = 4
     @ObservationIgnored private var appliedTabInterval: CGFloat = 0
@@ -206,6 +212,7 @@ final class EditorDocument: Identifiable {
         diskModificationDate = Self.modificationDate(of: url)
         editorConfig = EditorConfig.resolve(for: url)
         updateTabWidth()
+        measureLongestLine()
         refreshFoldRegions()
         scheduleConflictScan()
         refreshSymbols()
@@ -237,6 +244,9 @@ final class EditorDocument: Identifiable {
         try text.write(to: url, atomically: true, encoding: .utf8)
         history.record(text, for: url, reason: .saved)
         updateTabWidth() // the indentation may be clear now (a new file)
+        let previousWidth = longestLineColumns
+        measureLongestLine() // lines that got shorter (the width only grows while editing)
+        if longestLineColumns != previousWidth { editors.forEach { $0.updateTextWidth() } }
         diskModificationDate = Self.modificationDate(of: url)
         isDirty = false
         hasExternalChanges = false
@@ -426,6 +436,8 @@ final class EditorDocument: Identifiable {
             old = startLine..<old.upperBound - 1
             count -= 1
         }
+        // The edited lines may be the widest now (the text view widens without word wrap).
+        if noteWidth(ofLines: startLine...newEndLine) { editors.forEach { $0.updateTextWidth() } }
         if old.count != count {
             onLinesReplaced?(old, count)
             shiftFoldRegions(replacing: old, with: count)
@@ -696,9 +708,64 @@ extension EditorDocument {
         let width = max(1, editorConfig.tabWidth ?? indentation.tabSize)
         let space = (" " as NSString).size(withAttributes: [.font: EditorTheme.font]).width
         let interval = CGFloat(width) * space
-        displayTabWidth = width
+        if displayTabWidth != width {
+            displayTabWidth = width
+            measureLongestLine() // tabs count differently
+            editors.forEach { $0.updateTextWidth() }
+        }
         guard abs(interval - appliedTabInterval) > 0.01 else { return }
         appliedTabInterval = interval
         tabIntervalChanged(interval)
+    }
+}
+
+extension EditorDocument {
+    /// Columns a run of UTF-16 units takes: tabs to the next tab stop, wide characters two.
+    private static func columns(_ units: UnsafeBufferPointer<unichar>, tabWidth: Int) -> Int {
+        var column = 0
+        for unit in units {
+            if unit == 0x09 {
+                column += tabWidth - column % tabWidth
+            } else if unit == 0x0A || unit == 0x0D || (unit >= 0xDC00 && unit <= 0xDFFF) {
+                continue // line breaks; a surrogate pair counts once (its high half)
+            } else if unit >= 0x1100 && (unit <= 0x115F || (unit >= 0x2E80 && unit <= 0xA4CF) || (unit >= 0xAC00 && unit <= 0xD7A3)
+                                         || (unit >= 0xF900 && unit <= 0xFAFF) || (unit >= 0xFF00 && unit <= 0xFF60)) {
+                column += 2
+            } else {
+                column += 1
+            }
+        }
+        return column
+    }
+
+    private func columns(ofLines lines: ClosedRange<Int>) -> Int {
+        let text = textStorage.mutableString
+        var widest = 0
+        var buffer = [unichar](repeating: 0, count: 4096)
+        for line in lines where line < lineIndex.lineCount {
+            let start = lineIndex.lineStarts[line]
+            let end = line + 1 < lineIndex.lineCount ? lineIndex.lineStarts[line + 1] : text.length
+            let length = end - start
+            if buffer.count < length { buffer = [unichar](repeating: 0, count: length) }
+            buffer.withUnsafeMutableBufferPointer { pointer in
+                text.getCharacters(pointer.baseAddress!, range: NSRange(location: start, length: length))
+                widest = max(widest, Self.columns(UnsafeBufferPointer(rebasing: pointer[0..<length]), tabWidth: displayTabWidth))
+            }
+        }
+        return widest
+    }
+
+    /// Measures every line (opening, saving).
+    func measureLongestLine() {
+        guard lineIndex.lineCount > 0 else { longestLineColumns = 0; return }
+        longestLineColumns = columns(ofLines: 0...(lineIndex.lineCount - 1))
+    }
+
+    /// Edited lines: true when one of them is now the widest.
+    func noteWidth(ofLines lines: ClosedRange<Int>) -> Bool {
+        let widest = columns(ofLines: lines)
+        guard widest > longestLineColumns else { return false }
+        longestLineColumns = widest
+        return true
     }
 }

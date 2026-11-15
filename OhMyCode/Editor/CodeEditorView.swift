@@ -83,9 +83,12 @@ final class EditorController: NSObject {
         document.textContentStorage.addTextLayoutManager(textLayoutManager)
         self.textLayoutManager = textLayoutManager
 
-        let container = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
-                                                     height: CGFloat.greatestFiniteMagnitude))
-        container.widthTracksTextView = false
+        // The container always tracks the text view's width: one that's wider than its view
+        // (the usual way to turn wrapping off) makes TextKit 2 update every paragraph after an
+        // edit, which made typing in big files slow. Without word wrap the view is made as wide
+        // as the widest line instead (see `updateTextWidth`).
+        let container = NSTextContainer(size: NSSize(width: 1000, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
         container.lineFragmentPadding = 6
         textLayoutManager.textContainer = container
 
@@ -199,6 +202,9 @@ final class EditorController: NSObject {
                                                name: AppSettings.didChange, object: nil)
 
         scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollView.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(clipViewDidResize),
+                                               name: NSView.frameDidChangeNotification, object: scrollView.contentView)
         NotificationCenter.default.addObserver(
             self, selector: #selector(viewportDidScroll),
             name: NSView.boundsDidChangeNotification, object: scrollView.contentView
@@ -235,12 +241,12 @@ final class EditorController: NSObject {
         textView.drawsBackground = true
         textView.textContainerInset = NSSize(width: 4, height: 6)
 
-        // No line wrapping: grow horizontally, scroll sideways.
+        // The width is set by `updateTextWidth` (the widest line, or the view without wrap).
         textView.minSize = .zero
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = true
-        textView.autoresizingMask = [.width, .height]
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.height]
     }
 
     // MARK: Theme and font
@@ -273,6 +279,7 @@ final class EditorController: NSObject {
         refreshHighlights(force: true)
 
         applyWordWrap()
+        updateTextWidth() // the font's width changed
         let settings = AppSettings.shared
         if let minimapView, minimapView.isHidden == settings.showsMinimap {
             minimapView.isHidden = !settings.showsMinimap
@@ -667,6 +674,9 @@ final class EditorController: NSObject {
         focus()
         textView.performTextFinderAction(item)
     }
+
+    /// The editor got wider or narrower: the text view follows (see `updateTextWidth`).
+    @objc private func clipViewDidResize() { updateTextWidth() }
 
     @objc private func viewportDidScroll() {
         NotificationCenter.default.post(name: Self.didScrollNotification, object: self)
