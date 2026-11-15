@@ -94,6 +94,20 @@ comments. *Check Out* switches to its branch, and the compass button opens it on
 button (or *GitHub: Create Pull Request…*) creates one from the current branch. The form starts
 with the last commit's subject and body, and the branch is pushed first if it has no upstream.
 
+## Merge conflicts
+Conflicted files show each conflict tinted (current green, incoming blue, base gray), with
+*Accept Current*, *Accept Incoming*, *Accept Both*, *Compare* and *Merge Editor* above it.
+
+The merge editor (*Merge Editor*, or *Git: Open Merge Editor*) goes through the file's conflicts
+one by one:
+
+- current, base (when git kept it: `merge.conflictStyle diff3`) and incoming side by side;
+- take one side, both, or both with the incoming first (or *Accept All*);
+- a live preview of the resulting file.
+
+*Apply* makes all the choices one undo step. Conflicts left unresolved keep their markers. Saving a
+file with no markers left stages it.
+
 ## Files in the Explorer
 Right-click in the Explorer for *New File…*, *New Folder…*, *Rename…*, *Move to Trash*,
 *Reveal in Finder*, *Copy Path* and *Copy Relative Path*. Clicking empty space puts new items at
