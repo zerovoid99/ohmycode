@@ -19,6 +19,22 @@ xcodebuild -scheme OhMyCode -destination 'platform=macOS' build
 xcodebuild -scheme OhMyCode -destination 'platform=macOS' test
 ```
 
+## Performance
+Typing stays under a millisecond, and opening shows the first screen in about 10 ms, whatever the
+file's size: only what's on screen is laid out. Without word wrap, the text view is made as wide
+as the file's widest line instead of giving TextKit a container wider than its view. That setup
+made every keystroke update every paragraph after the cursor. Line positions after an edit are
+shifted lazily, so typing in one place costs the same in a 20 MB file as in a small one. The
+hot-exit backup writes only files that changed, at most every two seconds.
+
+`PerformanceGuardTests` (in the normal test run) fail if typing in a big file gets slow again.
+The full benchmarks (opening, typing, scrolling and memory for 1, 5 and 20 MB files) print their
+timings:
+
+```sh
+TEST_RUNNER_OMC_BENCH=1 xcodebuild -scheme OhMyCode test -only-testing:OhMyCodeTests/PerformanceBenchmarks
+```
+
 ## Third-party libraries
 - [libghostty-vt](https://github.com/ghostty-org/ghostty) 1.0.1 (MIT): terminal emulation for
   the integrated terminal. Prebuilt XCFramework from `release.files.ghostty.org`, pinned by
