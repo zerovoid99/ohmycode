@@ -74,6 +74,7 @@
 		530DE8347F8920C0C4DB8772 /* StatusBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B14BECEA4F9A853D675100EC /* StatusBarView.swift */; };
 		53BE3B6C48E1CC420B46A3E5 /* FileNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A5A0BAC2727057DD16E1E8 /* FileNode.swift */; };
 		54B330A780A1B8BED2769BDA /* InlayHints.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DFE8E50D9BE65E00601B2EB /* InlayHints.swift */; };
+		5660DEE8191226F186E4130B /* TerminalLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4932ADA2034EED08CCF5EAC3 /* TerminalLinks.swift */; };
 		582482340451A6F5324EC2D9 /* WordWrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1EA766EA033C850581F49B3 /* WordWrap.swift */; };
 		58D3DC92C836F7785FC195CC /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 607A7ABC5B7602AA443B249E /* TasksView.swift */; };
 		58E6FD0B3F991A526AA362E5 /* PullRequestsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43643E76874FE9E68AAC9835 /* PullRequestsView.swift */; };
@@ -185,6 +186,7 @@
 		CA8784795CD76C0DC39DC043 /* SnippetLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7F2B13AD432E2469E0C58C /* SnippetLibrary.swift */; };
 		CABEED7DF19DCC31E8FFCA57 /* EditPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2064E56401AD034E47F05028 /* EditPreview.swift */; };
 		CCF3FEB6ABD8D4B06EE01189 /* BranchOperationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */; };
+		CE38648F31A1B5069B2505D0 /* TerminalLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717D9E61C3E74E899FD53900 /* TerminalLinkTests.swift */; };
 		CF3CC73FB18DFAF15E4D40DE /* DebugSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F43BD238A2B371BBCAFBCDA4 /* DebugSession.swift */; };
 		D0C69CCCDCCC46C9DEF53105 /* OccurrenceHighlights.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD38CC20E29A70B456DCC3E3 /* OccurrenceHighlights.swift */; };
 		D0E3E3D7A358C6E79F69C3E1 /* ProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863CD7F66E0BE4F5DDC6C3E2 /* ProfileTests.swift */; };
@@ -298,6 +300,7 @@
 		466601DA9EFFBBFF52428B7A /* ProcessIOTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessIOTests.swift; sourceTree = "<group>"; };
 		481642F135B6F6F57714FB42 /* XcodeProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XcodeProject.swift; sourceTree = "<group>"; };
 		48E7BA781D696548AAD229A3 /* TaskRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRun.swift; sourceTree = "<group>"; };
+		4932ADA2034EED08CCF5EAC3 /* TerminalLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinks.swift; sourceTree = "<group>"; };
 		4A76E72897EB0575B5F95E98 /* PTYProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYProcess.swift; sourceTree = "<group>"; };
 		4BA3F2309DB72CB1A8E30443 /* CodeLensTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeLensTests.swift; sourceTree = "<group>"; };
 		4F4A1D4E9786FCAEC6E2C553 /* MultiCursorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiCursorTests.swift; sourceTree = "<group>"; };
@@ -327,6 +330,7 @@
 		6C6DC7EAB94EABAD4CADAAA5 /* OhMyCodeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OhMyCodeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		6FB8339443B219FB68634B94 /* OhMyCode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OhMyCode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		706ED70875F472C4F029C013 /* GitHubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubTests.swift; sourceTree = "<group>"; };
+		717D9E61C3E74E899FD53900 /* TerminalLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkTests.swift; sourceTree = "<group>"; };
 		719D7D0162382A74BF88E691 /* OutlineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlineTests.swift; sourceTree = "<group>"; };
 		71D369325866CC9B5DF7B9EA /* TabDrag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabDrag.swift; sourceTree = "<group>"; };
 		73418B3915E627D3E9C414FA /* KeybindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeybindingTests.swift; sourceTree = "<group>"; };
@@ -644,6 +648,7 @@
 				283BBF8CB8D107A54E380B0E /* SyntaxHighlighterTests.swift */,
 				192E117635DB667FA34217E9 /* TagTests.swift */,
 				51F8729837633B8511105D43 /* TaskTests.swift */,
+				717D9E61C3E74E899FD53900 /* TerminalLinkTests.swift */,
 				062545FE7797841B1F4B7A4A /* TerminalTests.swift */,
 				B4F2009FE316D50973213A0B /* TestingTests.swift */,
 				CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */,
@@ -778,6 +783,7 @@
 			children = (
 				4A76E72897EB0575B5F95E98 /* PTYProcess.swift */,
 				C0DA477C6C5DD7FADEA27948 /* TerminalKeyMap.swift */,
+				4932ADA2034EED08CCF5EAC3 /* TerminalLinks.swift */,
 				F5526368FD02C2215106BF09 /* TerminalPanel.swift */,
 				A84B684B87EB09C7E0B6F720 /* TerminalRenderer.swift */,
 				57DDDDFEE387635D979AA622 /* TerminalSession.swift */,
@@ -1111,6 +1117,7 @@
 				C2315AE9764D63787337BD78 /* TaskRun.swift in Sources */,
 				58D3DC92C836F7785FC195CC /* TasksView.swift in Sources */,
 				1D3022887233E995E0CC9A98 /* TerminalKeyMap.swift in Sources */,
+				5660DEE8191226F186E4130B /* TerminalLinks.swift in Sources */,
 				19E2283B45FF94DEFF846914 /* TerminalPanel.swift in Sources */,
 				DB9F317917C0AACE91A02A98 /* TerminalRenderer.swift in Sources */,
 				A1704FC0107756EA96D734BF /* TerminalSession.swift in Sources */,
@@ -1206,6 +1213,7 @@
 				811E4E5D449959BFF694A5A8 /* SyntaxHighlighterTests.swift in Sources */,
 				A1B04C0E234802555ECD0947 /* TagTests.swift in Sources */,
 				5EAC44C3A8771A27C94EDA98 /* TaskTests.swift in Sources */,
+				CE38648F31A1B5069B2505D0 /* TerminalLinkTests.swift in Sources */,
 				C1B812E94CAE7B6150426CB0 /* TerminalTests.swift in Sources */,
 				C422ED907B71E4685C30F145 /* TestingTests.swift in Sources */,
 				D7A7FF2C9BF229A9AD1993F2 /* VSCodeThemeTests.swift in Sources */,

@@ -52,7 +52,8 @@ struct TerminalPanel: View {
                 HSplitView {
                     ForEach(group) { member in
                         TerminalViewRepresentable(session: member, focusRequest: member.id == session.id ? workspace.terminalFocusRequest : -1,
-                                                  onFocus: { if workspace.activeTerminalID != member.id { workspace.activeTerminalID = member.id } })
+                                                  onFocus: { if workspace.activeTerminalID != member.id { workspace.activeTerminalID = member.id } },
+                                                  onOpenLink: { workspace.openTerminalLink($0) })
                             .frame(minWidth: 120, maxWidth: .infinity, maxHeight: .infinity)
                             .overlay(alignment: .top) {
                                 // Which pane typing goes to.
@@ -61,7 +62,8 @@ struct TerminalPanel: View {
                     }
                 }
             } else {
-                TerminalViewRepresentable(session: session, focusRequest: workspace.terminalFocusRequest, onFocus: {})
+                TerminalViewRepresentable(session: session, focusRequest: workspace.terminalFocusRequest, onFocus: {},
+                                          onOpenLink: { workspace.openTerminalLink($0) })
             }
         }
     }
@@ -119,6 +121,7 @@ private struct TerminalViewRepresentable: NSViewRepresentable {
     let session: TerminalSession
     let focusRequest: Int
     let onFocus: () -> Void
+    var onOpenLink: (TerminalLink) -> Void = { _ in }
 
     final class Coordinator {
         var lastFocusRequest = -1
@@ -135,6 +138,7 @@ private struct TerminalViewRepresentable: NSViewRepresentable {
     func updateNSView(_ view: TerminalView, context: Context) {
         view.session = session
         view.onFocus = onFocus
+        view.onOpenLink = onOpenLink
         if focusRequest >= 0, context.coordinator.lastFocusRequest != focusRequest {
             context.coordinator.lastFocusRequest = focusRequest
             DispatchQueue.main.async { view.window?.makeFirstResponder(view) }

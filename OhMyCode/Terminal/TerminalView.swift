@@ -652,9 +652,25 @@ final class TerminalView: NSView {
                            x: point.x, y: point.y, geometry: geometry, anyButtonPressed: pressed)
     }
 
+    /// ⌘-click on a link (set by the panel: the workspace opens it).
+    var onOpenLink: ((TerminalLink) -> Void)?
+
+    /// The link under a point in this view, if any.
+    func link(at point: NSPoint) -> TerminalLink? {
+        guard let session else { return nil }
+        let cell = cell(at: point)
+        guard let text = session.rowText(cell.y) else { return nil }
+        return TerminalLink.link(in: text, at: Int(cell.x), base: session.directory)
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         guard let session else { return }
+        if event.modifierFlags.intersection([.command, .option, .control, .shift]) == .command, !reportsToProgram(event),
+           let link = link(at: convert(event.locationInWindow, from: nil)) {
+            onOpenLink?(link)
+            return
+        }
         if reportsToProgram(event) {
             mouseCapturedByProgram = true
             report(event, action: GHOSTTY_MOUSE_ACTION_PRESS, button: GHOSTTY_MOUSE_BUTTON_LEFT, pressed: true)
@@ -704,6 +720,10 @@ final class TerminalView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        // ⌘ over a link: the pointing hand (⌘-click opens it).
+        if event.modifierFlags.contains(.command), link(at: convert(event.locationInWindow, from: nil)) != nil {
+            NSCursor.pointingHand.set()
+        }
         // Only "any event" tracking (mode 1003) reports plain motion; the encoder drops the rest.
         guard reportsToProgram(event) else { return }
         report(event, action: GHOSTTY_MOUSE_ACTION_MOTION, button: nil, pressed: false)

@@ -50,7 +50,11 @@ final class TerminalSession: Identifiable {
     }
 
     /// Starts the user's login shell in `directory`, or `command` when given (used by tests).
+    /// Where the shell started (relative paths in its output are resolved here).
+    @ObservationIgnored private(set) var directory: URL
+
     init(directory: URL, command: [String]? = nil, columns: UInt16 = 80, rows: UInt16 = 24) throws {
+        self.directory = directory
         self.columns = columns
         self.rows = rows
 
@@ -412,6 +416,26 @@ final class TerminalSession: Identifiable {
         var length = 0
         guard ghostty_formatter_format_alloc(formatter, nil, &buffer, &length) == GHOSTTY_SUCCESS, let buffer
         else { return nil }
+        defer { ghostty_free(nil, buffer, length) }
+        return String(decoding: UnsafeBufferPointer(start: buffer, count: length), as: UTF8.self)
+    }
+
+    /// Plain text between two viewport cells (inclusive), without touching the selection.
+    func text(from start: (x: UInt16, y: UInt16), to end: (x: UInt16, y: UInt16)) -> String? {
+        var startRef = GhosttyGridRef(), endRef = GhosttyGridRef()
+        guard gridRef(start, &startRef), gridRef(end, &endRef) else { return nil }
+        var formatter: GhosttyFormatter?
+        guard ghostty_formatter_terminal_new(nil, &formatter, terminal) == GHOSTTY_SUCCESS, let formatter else { return nil }
+        defer { ghostty_formatter_free(formatter) }
+        var emit = GHOSTTY_FORMATTER_FORMAT_PLAIN
+        var on = true
+        var selection = GhosttySelection(start: startRef, end: endRef, rectangle: false)
+        ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_EMIT, &emit)
+        ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_TRIM, &on)
+        ghostty_formatter_set(formatter, GHOSTTY_FORMATTER_OPT_SELECTION, &selection)
+        var buffer: UnsafeMutablePointer<UInt8>?
+        var length = 0
+        guard ghostty_formatter_format_alloc(formatter, nil, &buffer, &length) == GHOSTTY_SUCCESS, let buffer else { return nil }
         defer { ghostty_free(nil, buffer, length) }
         return String(decoding: UnsafeBufferPointer(start: buffer, count: length), as: UTF8.self)
     }
