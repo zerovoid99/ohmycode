@@ -72,6 +72,12 @@ outlined. Without one, the same whole word is highlighted. Selecting text on one
 same text elsewhere. F7 and ⇧F7 go to the next and previous place. Highlights are turned off in
 Settings → Editor or with *View: Toggle Symbol Highlights*.
 
+## Zen mode
+⌥⌘Z (View → Zen Mode) leaves only the text: the sidebar, tabs, breadcrumbs, bottom panel and status
+bar hide, the editor is centered at about 100 columns and the window goes full screen (unless
+turned off in Settings → Editor). ⌥⌘Z again, or Esc twice in the editor, puts everything back as
+it was.
+
 ## Word wrap
 Long lines wrap at the editor's edge in Markdown and plain text, and scroll sideways in code.
 Settings → Editor → Word wrap changes that to always or never. ⌥Z (*View: Toggle Word Wrap*)
