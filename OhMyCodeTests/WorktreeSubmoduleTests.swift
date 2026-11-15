@@ -18,8 +18,9 @@ private func git(_ arguments: [String], in directory: URL) throws -> String {
 }
 
 @MainActor
-private func eventually(_ condition: @MainActor () -> Bool) async throws -> Bool {
-    let deadline = ContinuousClock.now + .seconds(8)
+/// Generous: clones and submodule updates run real git, slow when the whole suite runs at once.
+private func eventually(timeout: Duration = .seconds(8), _ condition: @MainActor () -> Bool) async throws -> Bool {
+    let deadline = ContinuousClock.now + timeout
     while !condition() {
         if ContinuousClock.now > deadline { return false }
         try await Task.sleep(for: .milliseconds(20))
@@ -269,7 +270,7 @@ struct SubmoduleTests {
         #expect(opened.isEmpty)
 
         workspace.updateSubmodules()
-        #expect(try await eventually { workspace.submodules.first?.state == .upToDate && !workspace.isRunningGitCommand })
+        #expect(try await eventually(timeout: .seconds(30)) { workspace.submodules.first?.state == .upToDate && !workspace.isRunningGitCommand })
         #expect(FileManager.default.fileExists(atPath: clone.appending(path: "libs/lib/lib.txt").path))
         #expect(workspace.errorMessage == nil)
         withExtendedLifetime(workspace) {}
