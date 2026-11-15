@@ -50,6 +50,14 @@ Inlay hints show what the server infers inside the code — a variable's type (`
 an argument's parameter name — without changing the text; they're turned off in Settings → Editor
 or with *View: Toggle Inlay Hints*.
 
+## Formatting
+⇧⌥F formats the file with the language server (or an extension's formatter). *Format Selection*
+(palette, or the editor's right-click menu) formats only the selected lines. Format on save
+(Settings → Editor) can format the whole file or only the lines changed since the last commit. The
+second keeps your edits tidy in a repository that isn't formatted yet; files not in git are
+formatted whole. A slow formatter never holds up saving: after two seconds the file is saved as it
+is.
+
 ## Semantic highlighting
 With a language server that classifies names (sourcekit-lsp does), types, functions and properties
 get the theme's colors for what they really are, over the syntax tree's guess. Variables and
