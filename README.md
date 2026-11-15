@@ -72,6 +72,13 @@ outlined. Without one, the same whole word is highlighted. Selecting text on one
 same text elsewhere. F7 and ⇧F7 go to the next and previous place. Highlights are turned off in
 Settings → Editor or with *View: Toggle Symbol Highlights*.
 
+## Terminal
+⌃` shows the integrated terminal and ⌃⇧` opens another one in a new tab. The ⊟ button (or
+*Terminal: Split Terminal*) opens a shell beside the active one in the same tab. Click a pane to
+type in it; a thin accent line marks the active pane. Closing a pane gives its place to its
+neighbour. Double-click a tab, or right-click it, to rename it: the name stays until you clear it,
+even when the shell sets its own title. Right-click also has *Split Terminal* and *Kill Terminal*.
+
 ## Files in the Explorer
 Right-click in the Explorer for *New File…*, *New Folder…*, *Rename…*, *Move to Trash*,
 *Reveal in Finder*, *Copy Path* and *Copy Relative Path*. Clicking empty space puts new items at
