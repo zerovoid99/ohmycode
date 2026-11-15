@@ -51,6 +51,8 @@ final class AppSettings {
     var showsBreadcrumbs: Bool { didSet { changed() } }
     /// Types and parameter names the language server shows inside the code.
     var showsInlayHints: Bool { didSet { changed() } }
+    /// Where the symbol under the cursor appears, highlighted.
+    var highlightsOccurrences: Bool { didSet { changed() } }
     /// Saving a file git reports as conflicted, with no conflict markers left, stages it.
     var stagesResolvedConflicts: Bool { didSet { changed() } }
     /// Closing brackets and quotes typed for you.
@@ -74,6 +76,7 @@ final class AppSettings {
         showsLineBlame = defaults.object(forKey: Keys.showsLineBlame) as? Bool ?? true
         showsBreadcrumbs = defaults.object(forKey: Keys.showsBreadcrumbs) as? Bool ?? true
         showsInlayHints = defaults.object(forKey: Keys.showsInlayHints) as? Bool ?? true
+        highlightsOccurrences = defaults.object(forKey: Keys.highlightsOccurrences) as? Bool ?? true
         stagesResolvedConflicts = defaults.object(forKey: Keys.stagesResolvedConflicts) as? Bool ?? true
         autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
         isLoading = false
@@ -92,6 +95,7 @@ final class AppSettings {
         static let showsLineBlame = "showsLineBlame"
         static let showsBreadcrumbs = "showsBreadcrumbs"
         static let showsInlayHints = "showsInlayHints"
+        static let highlightsOccurrences = "highlightsOccurrences"
         static let stagesResolvedConflicts = "stagesResolvedConflicts"
         static let autoClosePairs = "autoClosePairs"
     }
@@ -120,6 +124,7 @@ final class AppSettings {
         defaults.set(showsLineBlame, forKey: Keys.showsLineBlame)
         defaults.set(showsBreadcrumbs, forKey: Keys.showsBreadcrumbs)
         defaults.set(showsInlayHints, forKey: Keys.showsInlayHints)
+        defaults.set(highlightsOccurrences, forKey: Keys.highlightsOccurrences)
         defaults.set(stagesResolvedConflicts, forKey: Keys.stagesResolvedConflicts)
         defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
@@ -139,7 +144,7 @@ final class AppSettings {
             "showsMinimap": .bool(showsMinimap), "stickyScroll": .bool(stickyScroll), "formatOnSave": .bool(formatOnSave),
             "showsLineBlame": .bool(showsLineBlame), "showsBreadcrumbs": .bool(showsBreadcrumbs),
             "showsInlayHints": .bool(showsInlayHints), "stagesResolvedConflicts": .bool(stagesResolvedConflicts),
-            "autoClosePairs": .bool(autoClosePairs),
+            "autoClosePairs": .bool(autoClosePairs), "highlightsOccurrences": .bool(highlightsOccurrences),
         ]
     }
 
@@ -158,6 +163,7 @@ final class AppSettings {
         if let value = values["showsLineBlame"]?.bool { showsLineBlame = value }
         if let value = values["showsBreadcrumbs"]?.bool { showsBreadcrumbs = value }
         if let value = values["showsInlayHints"]?.bool { showsInlayHints = value }
+        if let value = values["highlightsOccurrences"]?.bool { highlightsOccurrences = value }
         if let value = values["stagesResolvedConflicts"]?.bool { stagesResolvedConflicts = value }
         if let value = values["autoClosePairs"]?.bool { autoClosePairs = value }
         isLoading = false

@@ -222,6 +222,12 @@ struct WorkspaceCommands: Commands {
             Button("Select All Occurrences") { workspace?.activeDocument?.editor?.selectAllOccurrences() }
                 .keyboardShortcut(keys.shortcut("edit.selectAllOccurrences"))
                 .disabled(workspace?.activeDocument == nil)
+            Button("Go to Next Symbol Highlight") { workspace?.activeDocument?.editor?.moveToOccurrence(forward: true) }
+                .keyboardShortcut(keys.shortcut("go.nextHighlight"))
+                .disabled(workspace?.activeDocument == nil)
+            Button("Go to Previous Symbol Highlight") { workspace?.activeDocument?.editor?.moveToOccurrence(forward: false) }
+                .keyboardShortcut(keys.shortcut("go.previousHighlight"))
+                .disabled(workspace?.activeDocument == nil)
             Button("Add Cursor Above") { workspace?.activeDocument?.editor?.addCursorVertically(-1) }
                 .keyboardShortcut(keys.shortcut("edit.cursorAbove"))
                 .disabled(workspace?.activeDocument == nil)

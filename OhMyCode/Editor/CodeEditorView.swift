@@ -51,6 +51,8 @@ final class EditorController: NSObject {
     private(set) lazy var completion = CompletionController(editor: self)
     private(set) lazy var hover = HoverController(editor: self)
     private(set) lazy var blameHover = BlameHoverController(editor: self)
+    /// Where the symbol under the cursor appears.
+    private(set) lazy var occurrences = OccurrenceHighlighter(editor: self)
     /// What the user just typed, captured before the change, for completion triggering.
     private var pendingTypedText: String?
     /// Range that currently has highlight colors applied; scrolling inside it is free.
@@ -93,6 +95,7 @@ final class EditorController: NSObject {
         let overlay = DiagnosticsOverlayView(textView: textView, document: document)
         textView.addSubview(overlay)
         diagnosticsOverlay = overlay
+        overlay.occurrences = { [weak self] in self?.occurrenceRects() ?? [] }
         overlay.foldPlaceholders = { [weak self] in self?.foldPlaceholderRects() ?? [] }
         overlay.extraCursors = { [weak self] in self?.extraCursorShapes() ?? ([], []) }
         overlay.blameAnnotation = { [weak self] in self?.blameAnnotation() }
@@ -214,6 +217,7 @@ final class EditorController: NSObject {
 
     @objc private func settingsDidChange() {
         document.refreshInlayHints() // turned on or off, or the font changed
+        occurrences.update()
         applySettings()
     }
 
@@ -504,6 +508,7 @@ final class EditorController: NSObject {
 
     /// Another editor (split view) changed the shared text.
     func refreshAfterEdit() {
+        occurrences.update()
         gutterView.updateWidth()
         gutterView.needsDisplay = true
         diagnosticsOverlay?.needsDisplay = true
@@ -719,6 +724,7 @@ extension EditorController: NSTextViewDelegate {
         snippetSelectionChanged()
         lightbulb.update()
         signatureHelp.selectionChanged()
+        occurrences.update()
         // The cursor went into folded lines (arrow keys, find): show them.
         if !document.folds.isEmpty { document.unfold(containing: textView.selectedRange()) }
         // The status bar follows the focused editor; other splits move their selection on edits.

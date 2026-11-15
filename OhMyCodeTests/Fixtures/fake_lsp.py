@@ -143,7 +143,7 @@ while True:
             "implementationProvider": True, "typeDefinitionProvider": True, "callHierarchyProvider": True,
             "workspaceSymbolProvider": True, "codeActionProvider": {"resolveProvider": True},
             "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
-            "inlayHintProvider": True}}})
+            "inlayHintProvider": True, "documentHighlightProvider": True}}})
     elif method == "textDocument/hover":
         word, rng = word_at(params["textDocument"]["uri"], params["position"])
         result = None
@@ -303,6 +303,19 @@ while True:
                   "signatures": [{"label": "fooBar(count: Int, name: String) -> Int", "documentation": "Makes a bar.",
                                   "parameters": [{"label": [7, 17], "documentation": "How many."},
                                                  {"label": "name: String"}]}]}})
+    elif method == "textDocument/documentHighlight":
+        uri = params["textDocument"]["uri"]
+        word, _ = word_at(uri, params["position"])
+        result = []
+        if word and word not in ("let", "var", "func"):
+            for line_no, line in enumerate(text_of(uri).split("\n")):
+                for m in re.finditer(r"\b%s\b" % re.escape(word), line):
+                    start16 = len(units(line[:m.start()]))
+                    written = re.match(r"\s*=(?!=)", line[m.end():]) is not None
+                    result.append({"range": {"start": {"line": line_no, "character": start16},
+                                             "end": {"line": line_no, "character": start16 + len(units(word))}},
+                                   "kind": 3 if written else 2})
+        send({"jsonrpc": "2.0", "id": mid, "result": result})
     elif method == "textDocument/inlayHint":
         hints = []
         for number, line in enumerate(text_of(params["textDocument"]["uri"]).split("\n")):

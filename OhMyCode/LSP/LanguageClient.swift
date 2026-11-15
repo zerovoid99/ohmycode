@@ -83,6 +83,7 @@ final class LanguageClient {
                     "typeDefinition": ["linkSupport": true],
                     "callHierarchy": [String: Any](),
                     "inlayHint": [String: Any](),
+                    "documentHighlight": [String: Any](),
                     "codeAction": [
                         "codeActionLiteralSupport": ["codeActionKind": ["valueSet": [
                             "", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite",
@@ -211,6 +212,7 @@ final class LanguageClient {
         case codeAction = "codeActionProvider"
         case signatureHelp = "signatureHelpProvider"
         case inlayHint = "inlayHintProvider"
+        case documentHighlight = "documentHighlightProvider"
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -259,6 +261,14 @@ final class LanguageClient {
     var onApplyEdit: ((WorkspaceEdit, String?) -> Bool)?
 
     // MARK: Inlay hints
+
+    /// Where the symbol at `position` appears in the file, and whether it's read or written there.
+    func documentHighlights(url: URL, position: LSPPosition) async throws -> [DocumentHighlight] {
+        let result = try await request("textDocument/documentHighlight", params: [
+            "textDocument": ["uri": url.absoluteString], "position": position.json,
+        ])
+        return (result as? [Any] ?? []).compactMap(DocumentHighlight.init(json:))
+    }
 
     func inlayHints(url: URL, range: LSPRange) async throws -> [InlayHint] {
         let result = try await request("textDocument/inlayHint", params: [

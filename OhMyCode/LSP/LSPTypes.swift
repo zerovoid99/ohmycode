@@ -427,6 +427,25 @@ struct SignatureHelp: Equatable, Sendable {
     }
 }
 
+/// One place a symbol appears in its file (`textDocument/documentHighlight`).
+struct DocumentHighlight: Equatable, Sendable {
+    enum Kind: Int, Sendable { case text = 1, read, write }
+
+    var range: LSPRange
+    var kind: Kind
+
+    init(range: LSPRange, kind: Kind) {
+        self.range = range
+        self.kind = kind
+    }
+
+    init?(json: Any?) {
+        guard let object = json as? [String: Any], let range = LSPRange(json: object["range"]) else { return nil }
+        self.range = range
+        kind = (object["kind"] as? Int).flatMap(Kind.init(rawValue:)) ?? .text
+    }
+}
+
 /// A label the server shows inside the code: a type (`: Int`) or a parameter name (`count:`).
 struct InlayHint: Equatable, Sendable {
     enum Kind: Int, Sendable { case type = 1, parameter }

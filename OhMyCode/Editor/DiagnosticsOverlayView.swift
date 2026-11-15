@@ -8,6 +8,8 @@ import AppKit
 final class DiagnosticsOverlayView: NSView {
     private weak var textView: NSTextView?
     private let document: EditorDocument
+    /// Where the symbol under the cursor appears (written places are outlined too).
+    var occurrences: (() -> [(rect: NSRect, isWrite: Bool)])?
     /// Placeholders for folded regions, in this view's (= the text view's) coordinates.
     var foldPlaceholders: (() -> [(rect: NSRect, header: Int)])?
     /// Extra cursors (multi-cursor): caret bars and selected text.
@@ -68,6 +70,16 @@ final class DiagnosticsOverlayView: NSView {
         if let rect = executionLine?(), rect.intersects(dirtyRect) {
             NSColor.systemYellow.withAlphaComponent(0.22).setFill()
             rect.fill(using: .sourceOver)
+        }
+        for (rect, isWrite) in occurrences?() ?? [] where rect.intersects(dirtyRect) {
+            let box = NSBezierPath(roundedRect: rect.insetBy(dx: -0.5, dy: 0), xRadius: 2, yRadius: 2)
+            theme.selection.withAlphaComponent(isWrite ? 0.5 : 0.35).setFill()
+            box.fill()
+            if isWrite {
+                theme.foreground.withAlphaComponent(0.35).setStroke()
+                box.lineWidth = 1
+                box.stroke()
+            }
         }
         for (rect, kind) in conflictBands?() ?? [] where rect.intersects(dirtyRect) {
             kind.color.setFill()
