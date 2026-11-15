@@ -58,6 +58,13 @@ second keeps your edits tidy in a repository that isn't formatted yet; files not
 formatted whole. A slow formatter never holds up saving: after two seconds the file is saved as it
 is.
 
+## Code lens
+Language servers that offer code lenses (TypeScript, Rust, Go and others) show them dimmed after
+the line they're about, for example "3 references" after a function. Click one to run it:
+references open in the sidebar, other commands run on the server. They update a moment after you
+stop typing, and move with their lines meanwhile. Turn them off in Settings → Editor or with
+*View: Toggle Code Lens*.
+
 ## Semantic highlighting
 With a language server that classifies names (sourcekit-lsp does), types, functions and properties
 get the theme's colors for what they really are, over the syntax tree's guess. Variables and
