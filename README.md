@@ -144,6 +144,12 @@ closing bracket. Thin indent guides mark each indentation level. The guide of th
 is in (or the block its line opens) is drawn brighter. Both can be turned off in Settings → Editor;
 *View: Toggle Indent Guides* is in the palette.
 
+## Linked tag editing
+In HTML, XML, Markdown and JSX/TSX, typing or deleting in a tag's name changes its closing tag
+(or opening tag) the same way, as one undo step. Nested tags with the same name are matched
+correctly, and self-closing tags and tags still being typed are left alone. Turn it off in
+Settings → Editor.
+
 ## Line editing
 Commands on the selection's lines, each one undoable step:
 
