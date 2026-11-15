@@ -57,6 +57,7 @@ final class AppSettings {
     var highlightsMatchingBrackets: Bool { didSet { changed() } }
     /// Thin lines at each indentation level.
     var showsIndentGuides: Bool { didSet { changed() } }
+    var wordWrap: WordWrap { didSet { changed() } }
     /// Saving a file git reports as conflicted, with no conflict markers left, stages it.
     var stagesResolvedConflicts: Bool { didSet { changed() } }
     /// Closing brackets and quotes typed for you.
@@ -83,6 +84,7 @@ final class AppSettings {
         highlightsOccurrences = defaults.object(forKey: Keys.highlightsOccurrences) as? Bool ?? true
         highlightsMatchingBrackets = defaults.object(forKey: Keys.highlightsMatchingBrackets) as? Bool ?? true
         showsIndentGuides = defaults.object(forKey: Keys.showsIndentGuides) as? Bool ?? true
+        wordWrap = WordWrap(rawValue: defaults.string(forKey: Keys.wordWrap) ?? "") ?? .prose
         stagesResolvedConflicts = defaults.object(forKey: Keys.stagesResolvedConflicts) as? Bool ?? true
         autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
         isLoading = false
@@ -104,6 +106,7 @@ final class AppSettings {
         static let highlightsOccurrences = "highlightsOccurrences"
         static let highlightsMatchingBrackets = "highlightsMatchingBrackets"
         static let showsIndentGuides = "showsIndentGuides"
+        static let wordWrap = "wordWrap"
         static let stagesResolvedConflicts = "stagesResolvedConflicts"
         static let autoClosePairs = "autoClosePairs"
     }
@@ -135,6 +138,7 @@ final class AppSettings {
         defaults.set(highlightsOccurrences, forKey: Keys.highlightsOccurrences)
         defaults.set(highlightsMatchingBrackets, forKey: Keys.highlightsMatchingBrackets)
         defaults.set(showsIndentGuides, forKey: Keys.showsIndentGuides)
+        defaults.set(wordWrap.rawValue, forKey: Keys.wordWrap)
         defaults.set(stagesResolvedConflicts, forKey: Keys.stagesResolvedConflicts)
         defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
@@ -156,6 +160,7 @@ final class AppSettings {
             "showsInlayHints": .bool(showsInlayHints), "stagesResolvedConflicts": .bool(stagesResolvedConflicts),
             "autoClosePairs": .bool(autoClosePairs), "highlightsOccurrences": .bool(highlightsOccurrences),
             "highlightsMatchingBrackets": .bool(highlightsMatchingBrackets), "showsIndentGuides": .bool(showsIndentGuides),
+            "wordWrap": .string(wordWrap.rawValue),
         ]
     }
 
@@ -177,6 +182,7 @@ final class AppSettings {
         if let value = values["highlightsOccurrences"]?.bool { highlightsOccurrences = value }
         if let value = values["highlightsMatchingBrackets"]?.bool { highlightsMatchingBrackets = value }
         if let value = values["showsIndentGuides"]?.bool { showsIndentGuides = value }
+        if let value = values["wordWrap"]?.string.flatMap(WordWrap.init(rawValue:)) { wordWrap = value }
         if let value = values["stagesResolvedConflicts"]?.bool { stagesResolvedConflicts = value }
         if let value = values["autoClosePairs"]?.bool { autoClosePairs = value }
         isLoading = false

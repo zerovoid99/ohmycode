@@ -73,11 +73,18 @@ final class GutterView: NSView {
         // The last fragment can also hold the empty line after a trailing newline.
         let frame = fragment.layoutFragmentFrame
         var lineTop = frame.minY, lineHeight = frame.height
-        for (i, lineFragment) in fragment.textLineFragments.enumerated()
-        where inText.y - origin.y >= frame.minY + lineFragment.typographicBounds.minY {
-            line = document.lineIndex.line(containing: offset) + i
-            lineTop = frame.minY + lineFragment.typographicBounds.minY
-            lineHeight = lineFragment.typographicBounds.height
+        // The row under the point is in a line; a wrapped line's rect covers all its rows.
+        let rows = fragment.textLineFragments.map { lineFragment -> (line: Int, bounds: CGRect) in
+            let start = offset + lineFragment.characterRange.location
+            let found = start >= document.textStorage.length && lineFragment.characterRange.length == 0
+                ? document.lineIndex.lineCount - 1 : document.lineIndex.line(containing: start)
+            return (found, lineFragment.typographicBounds)
+        }
+        if let hit = rows.last(where: { inText.y - origin.y >= frame.minY + $0.bounds.minY }) ?? rows.first {
+            line = hit.line
+            let own = rows.filter { $0.line == hit.line }.map(\.bounds)
+            lineTop = frame.minY + (own.map(\.minY).min() ?? 0)
+            lineHeight = frame.minY + (own.map(\.maxY).max() ?? 0) - lineTop
         }
         let top = convert(NSPoint(x: 0, y: lineTop + origin.y), from: textView).y
         return (line, NSRect(x: 0, y: top, width: width, height: lineHeight))
@@ -213,10 +220,13 @@ final class GutterView: NSView {
             let offset = contentManager.offset(from: documentStart, to: fragment.rangeInElement.location)
             let firstLine = self.document.lineIndex.line(containing: offset)
 
-            // Wrapping is off, so each fragment is one line, except the last one, which
-            // also carries the empty "extra" line after a trailing newline.
-            for (i, lineFragment) in fragment.textLineFragments.enumerated() {
-                let line = firstLine + i
+            // A fragment is one line: wrapped, it has a line fragment per row (marks go on the
+            // first); the last one also carries the empty "extra" line after a trailing newline.
+            for lineFragment in fragment.textLineFragments {
+                let start = offset + lineFragment.characterRange.location
+                let line = start >= self.document.textStorage.length && lineFragment.characterRange.length == 0
+                    ? self.document.lineIndex.lineCount - 1 : self.document.lineIndex.line(containing: start)
+                guard line >= firstLine, start == self.document.lineIndex.lineStarts[line] else { continue }
                 let bounds = lineFragment.typographicBounds
                 let yInTextView = fragmentFrame.minY + containerOrigin.y + bounds.minY
                 let y = self.convert(NSPoint(x: 0, y: yInTextView), from: textView).y

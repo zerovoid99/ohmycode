@@ -51,6 +51,8 @@ final class EditorController: NSObject {
     private(set) lazy var completion = CompletionController(editor: self)
     private(set) lazy var hover = HoverController(editor: self)
     private(set) lazy var blameHover = BlameHoverController(editor: self)
+    /// The word wrap the view is laid out for (nil: not yet).
+    var appliedWordWrap: Bool?
     /// Strings and comments in the highlighted text (brackets there don't match), for `nonCodeVersion`.
     var nonCodeRanges: [NSRange] = []
     var nonCodeVersion = -1
@@ -253,6 +255,7 @@ final class EditorController: NSObject {
         diagnosticsOverlay?.needsDisplay = true
         refreshHighlights(force: true)
 
+        applyWordWrap()
         let settings = AppSettings.shared
         if let minimapView, minimapView.isHidden == settings.showsMinimap {
             minimapView.isHidden = !settings.showsMinimap
@@ -365,7 +368,7 @@ final class EditorController: NSObject {
 
     // MARK: Line geometry (minimap, sticky scroll)
 
-    /// Height of one line; lines don't wrap, so all have the same height.
+    /// Height of one line (one row of a wrapped line).
     var lineHeight: CGFloat {
         if let layoutManager = textView.textLayoutManager,
            let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, textView.visibleRect.minY - textView.textContainerOrigin.y))),
@@ -377,7 +380,12 @@ final class EditorController: NSObject {
     }
 
     var visibleLineCount: Int {
-        max(1, Int(textView.visibleRect.height / max(1, lineHeight)))
+        guard wrapsLines, let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager,
+              let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, textView.visibleRect.maxY - textView.textContainerOrigin.y - 1)))
+        else { return max(1, Int(textView.visibleRect.height / max(1, lineHeight))) }
+        // Wrapped lines are taller: count the lines from the top one to the bottom one.
+        let offset = contentManager.offset(from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
+        return max(1, document.lineIndex.line(containing: offset) - topVisibleLine + 1)
     }
 
     /// Scrolls so `line` (zero-based) is the first visible line.
@@ -386,12 +394,19 @@ final class EditorController: NSObject {
         let index = document.lineIndex
         let offset = index.lineStarts[min(max(0, line), index.lineCount - 1)]
         guard let location = contentManager.location(contentManager.documentRange.location, offsetBy: offset) else { return }
-        var y: CGFloat = 0
-        layoutManager.enumerateTextLayoutFragments(from: location, options: [.ensuresLayout]) { fragment in
-            y = fragment.layoutFragmentFrame.minY
-            return false
+        // Heights above the line may be estimates (wrapped lines): laying out the new viewport
+        // corrects them and moves the line, so measure again until it stays put.
+        for _ in 0..<4 {
+            var y: CGFloat = 0
+            layoutManager.enumerateTextLayoutFragments(from: location, options: [.ensuresLayout]) { fragment in
+                y = fragment.layoutFragmentFrame.minY
+                return false
+            }
+            let target = y + textView.textContainerOrigin.y
+            if abs(textView.visibleRect.minY - target) < 0.5 { break }
+            textView.scroll(NSPoint(x: textView.visibleRect.minX, y: target))
+            layoutManager.textViewportLayoutController.layoutViewport()
         }
-        textView.scroll(NSPoint(x: textView.visibleRect.minX, y: y + textView.textContainerOrigin.y))
     }
 
     /// Puts the cursor at the start of `line` with that line at the top, below any sticky lines.

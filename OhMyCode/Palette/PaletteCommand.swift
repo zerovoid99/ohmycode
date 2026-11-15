@@ -315,6 +315,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.activeDocument?.editor != nil }, perform: { $0.activeDocument?.editor?.moveToOccurrence(forward: false) }),
         PaletteCommand(id: "go.bracket", title: "Go to Bracket", icon: "curlybraces", key: "shift+cmd+\\",
                        isAvailable: { $0.activeDocument?.editor != nil }, perform: { $0.activeDocument?.editor?.jumpToBracket() }),
+        PaletteCommand(id: "view.toggleWordWrap", title: "View: Toggle Word Wrap", icon: "text.word.spacing", key: "alt+z",
+                       isAvailable: { $0.activeDocument?.editor != nil }, perform: { $0.activeDocument?.editor?.toggleWordWrap() }),
         PaletteCommand(id: "view.toggleIndentGuides", title: "View: Toggle Indent Guides", icon: "text.alignleft", key: nil,
                        isAvailable: { _ in true }, perform: { _ in AppSettings.shared.showsIndentGuides.toggle() }),
         PaletteCommand(id: "view.toggleOccurrenceHighlights", title: "View: Toggle Symbol Highlights", icon: "highlighter", key: nil,

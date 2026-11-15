@@ -37,6 +37,8 @@ final class EditorDocument: Identifiable {
     let undoManager = UndoManager()
 
     private(set) var isDirty = false
+    /// ⌥Z's word wrap for this file (nil: the setting's).
+    @ObservationIgnored var wordWrapOverride: Bool?
     /// What the `.editorconfig` files above it set (indentation, what saving fixes).
     private(set) var editorConfig = EditorConfig()
     /// Theme/font generation the text's base attributes were set for.

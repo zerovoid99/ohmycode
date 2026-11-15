@@ -11,7 +11,7 @@ extension EditorController {
     var scrollPosition: Double {
         let line = topVisibleLine
         guard let rect = rect(for: NSRange(location: document.lineIndex.lineStarts[line], length: 0)) else { return Double(line) }
-        let fraction = (textView.visibleRect.minY - rect.minY) / max(1, lineHeight)
+        let fraction = (textView.visibleRect.minY - rect.minY) / max(1, height(ofLine: line))
         return Double(line) + min(max(0, fraction), 0.99)
     }
 
@@ -21,8 +21,18 @@ extension EditorController {
         scrollLineToTop(whole)
         let fraction = line - Double(whole)
         if fraction > 0 {
-            textView.scroll(NSPoint(x: textView.visibleRect.minX, y: textView.visibleRect.minY + fraction * lineHeight))
+            textView.scroll(NSPoint(x: textView.visibleRect.minX, y: textView.visibleRect.minY + fraction * height(ofLine: whole)))
         }
+    }
+
+    /// A line's height: all its rows when it wraps.
+    private func height(ofLine line: Int) -> CGFloat {
+        let index = document.lineIndex
+        guard wrapsLines, line < index.lineCount else { return lineHeight }
+        let start = index.lineStarts[line]
+        let end = line + 1 < index.lineCount ? index.lineStarts[line + 1] - 1 : document.textStorage.length
+        guard end > start, let rect = rect(for: NSRange(location: start, length: end - start)) else { return lineHeight }
+        return max(lineHeight, rect.height)
     }
 }
 

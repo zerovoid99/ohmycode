@@ -94,6 +94,9 @@ struct SettingsView: View {
             Toggle("Highlight where the symbol under the cursor appears", isOn: $settings.highlightsOccurrences)
             Toggle("Highlight matching brackets", isOn: $settings.highlightsMatchingBrackets)
             Toggle("Show indent guides", isOn: $settings.showsIndentGuides)
+            Picker("Word wrap", selection: $settings.wordWrap) {
+                ForEach(WordWrap.allCases) { Text($0.title).tag($0) }
+            }
             Toggle("Show inlay hints (types and parameter names from the language server)", isOn: $settings.showsInlayHints)
             Toggle("Stage files when their merge conflicts are resolved and saved", isOn: $settings.stagesResolvedConflicts)
             Section("Preview") {
