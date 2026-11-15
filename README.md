@@ -72,6 +72,17 @@ outlined. Without one, the same whole word is highlighted. Selecting text on one
 same text elsewhere. F7 and ⇧F7 go to the next and previous place. Highlights are turned off in
 Settings → Editor or with *View: Toggle Symbol Highlights*.
 
+## Files in the Explorer
+Right-click in the Explorer for *New File…*, *New Folder…*, *Rename…*, *Move to Trash*,
+*Reveal in Finder*, *Copy Path* and *Copy Relative Path*. Clicking empty space puts new items at
+the top of the folder. A new file's name can include folders (`src/util.ts`), which are created
+too. Drag an item onto a folder to move it.
+
+Renaming or moving first asks the language servers that want to know (TypeScript does) for the
+edits that keep references working, such as imports that name the file. Those edits are applied
+unsaved, so you can review and save or undo them, before the file moves. Open tabs follow the file
+to its new name, with their unsaved changes.
+
 ## Folding
 The ⌄ in the gutter, ⌥⌘[ and ⌥⌘] fold and unfold code. Regions follow the code's structure:
 
