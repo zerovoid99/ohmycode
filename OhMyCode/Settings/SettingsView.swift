@@ -100,6 +100,7 @@ struct SettingsView: View {
             Picker("Show whitespace", selection: $settings.renderWhitespace) {
                 ForEach(RenderWhitespace.allCases) { Text($0.title).tag($0) }
             }
+            Toggle("Color names by what the language server knows they are (semantic highlighting)", isOn: $settings.semanticHighlighting)
             Toggle("Show inlay hints (types and parameter names from the language server)", isOn: $settings.showsInlayHints)
             Toggle("Stage files when their merge conflicts are resolved and saved", isOn: $settings.stagesResolvedConflicts)
             Section("Preview") {

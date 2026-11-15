@@ -59,6 +59,8 @@ final class AppSettings {
     var showsIndentGuides: Bool { didSet { changed() } }
     var wordWrap: WordWrap { didSet { changed() } }
     var renderWhitespace: RenderWhitespace { didSet { changed() } }
+    /// The language server's classification of names colors them (types, functions, properties).
+    var semanticHighlighting: Bool { didSet { changed() } }
     /// Saving a file git reports as conflicted, with no conflict markers left, stages it.
     var stagesResolvedConflicts: Bool { didSet { changed() } }
     /// Closing brackets and quotes typed for you.
@@ -87,6 +89,7 @@ final class AppSettings {
         showsIndentGuides = defaults.object(forKey: Keys.showsIndentGuides) as? Bool ?? true
         wordWrap = WordWrap(rawValue: defaults.string(forKey: Keys.wordWrap) ?? "") ?? .prose
         renderWhitespace = RenderWhitespace(rawValue: defaults.string(forKey: Keys.renderWhitespace) ?? "") ?? .selection
+        semanticHighlighting = defaults.object(forKey: Keys.semanticHighlighting) as? Bool ?? true
         stagesResolvedConflicts = defaults.object(forKey: Keys.stagesResolvedConflicts) as? Bool ?? true
         autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
         isLoading = false
@@ -110,6 +113,7 @@ final class AppSettings {
         static let showsIndentGuides = "showsIndentGuides"
         static let wordWrap = "wordWrap"
         static let renderWhitespace = "renderWhitespace"
+        static let semanticHighlighting = "semanticHighlighting"
         static let stagesResolvedConflicts = "stagesResolvedConflicts"
         static let autoClosePairs = "autoClosePairs"
     }
@@ -143,6 +147,7 @@ final class AppSettings {
         defaults.set(showsIndentGuides, forKey: Keys.showsIndentGuides)
         defaults.set(wordWrap.rawValue, forKey: Keys.wordWrap)
         defaults.set(renderWhitespace.rawValue, forKey: Keys.renderWhitespace)
+        defaults.set(semanticHighlighting, forKey: Keys.semanticHighlighting)
         defaults.set(stagesResolvedConflicts, forKey: Keys.stagesResolvedConflicts)
         defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
@@ -165,6 +170,7 @@ final class AppSettings {
             "autoClosePairs": .bool(autoClosePairs), "highlightsOccurrences": .bool(highlightsOccurrences),
             "highlightsMatchingBrackets": .bool(highlightsMatchingBrackets), "showsIndentGuides": .bool(showsIndentGuides),
             "wordWrap": .string(wordWrap.rawValue), "renderWhitespace": .string(renderWhitespace.rawValue),
+            "semanticHighlighting": .bool(semanticHighlighting),
         ]
     }
 
@@ -188,6 +194,7 @@ final class AppSettings {
         if let value = values["showsIndentGuides"]?.bool { showsIndentGuides = value }
         if let value = values["wordWrap"]?.string.flatMap(WordWrap.init(rawValue:)) { wordWrap = value }
         if let value = values["renderWhitespace"]?.string.flatMap(RenderWhitespace.init(rawValue:)) { renderWhitespace = value }
+        if let value = values["semanticHighlighting"]?.bool { semanticHighlighting = value }
         if let value = values["stagesResolvedConflicts"]?.bool { stagesResolvedConflicts = value }
         if let value = values["autoClosePairs"]?.bool { autoClosePairs = value }
         isLoading = false

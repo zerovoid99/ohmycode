@@ -388,6 +388,9 @@ final class Workspace {
                 client.onInlayHintRefresh = { [weak self, weak client] in
                     self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshInlayHints() }
                 }
+                client.onSemanticTokensRefresh = { [weak self, weak client] in
+                    self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshSemanticTokens() }
+                }
                 client.onApplyEdit = { [weak self] edit, label in
                     self?.applyServerEdit(edit, actionName: label ?? "\(config.name) Edit") ?? false
                 }
@@ -395,7 +398,11 @@ final class Workspace {
                 client.onDiagnostics = { [weak self] url, diagnostics in
                     guard let self else { return }
                     self.problems.set(diagnostics, for: self.workspaceURL(for: url), source: source)
-                    self.document(matching: url)?.setDiagnostics(diagnostics)
+                    let document = self.document(matching: url)
+                    document?.setDiagnostics(diagnostics)
+                    // Diagnostics mean the server has analyzed the file: its tokens are ready
+                    // (sourcekit-lsp answers with none until then, and doesn't say when).
+                    document?.refreshSemanticTokens(after: .milliseconds(50))
                 }
                 languageClients[config.name] = client
             }
@@ -408,6 +415,7 @@ final class Workspace {
                 document?.refreshSymbols()
                 document?.refreshInlayHints()
                 document?.refreshLinks()
+                document?.refreshSemanticTokens()
             }
         }
     }

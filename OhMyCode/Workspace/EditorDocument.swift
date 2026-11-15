@@ -135,6 +135,9 @@ final class EditorDocument: Identifiable {
     private(set) var symbols: [DocumentSymbol] = []
     @ObservationIgnored private var symbolsTask: Task<Void, Never>?
     @ObservationIgnored var inlayHintsTask: Task<Void, Never>?
+    /// The language server's semantic tokens (see SemanticTokens.swift): moved along by edits.
+    @ObservationIgnored var semanticTokens: [SemanticToken] = []
+    @ObservationIgnored var semanticTokensTask: Task<Void, Never>?
     /// The language server's links in the text (see DocumentLinks.swift), for `serverLinksVersion`.
     @ObservationIgnored var serverLinks: [LSPDocumentLink] = []
     @ObservationIgnored var serverLinksVersion = -1
@@ -438,6 +441,9 @@ final class EditorDocument: Identifiable {
         refreshSymbols(after: .milliseconds(400))
         refreshInlayHints(after: .milliseconds(500))
         refreshLinks(after: .milliseconds(500))
+        shiftSemanticTokens(oldRange: NSRange(location: exact.start, length: exact.oldEnd - exact.start),
+                            newLength: exact.oldEnd - exact.start + delta)
+        refreshSemanticTokens(after: .milliseconds(400))
         onDidEdit?()
     }
 

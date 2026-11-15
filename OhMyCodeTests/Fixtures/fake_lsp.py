@@ -144,7 +144,9 @@ while True:
             "workspaceSymbolProvider": True, "codeActionProvider": {"resolveProvider": True},
             "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
             "inlayHintProvider": True, "documentHighlightProvider": True,
-            "documentLinkProvider": {"resolveProvider": True}}}})
+            "documentLinkProvider": {"resolveProvider": True},
+            "semanticTokensProvider": {"legend": {"tokenTypes": ["type", "function", "variable"], "tokenModifiers": []},
+                                       "full": True}}}})
     elif method == "textDocument/hover":
         word, rng = word_at(params["textDocument"]["uri"], params["position"])
         result = None
@@ -304,6 +306,22 @@ while True:
                   "signatures": [{"label": "fooBar(count: Int, name: String) -> Int", "documentation": "Makes a bar.",
                                   "parameters": [{"label": [7, 17], "documentation": "How many."},
                                                  {"label": "name: String"}]}]}})
+    elif method == "textDocument/semanticTokens/full":
+        # Capitalized words are types, "name(" a function, "let name" a variable.
+        found = []
+        for number, line in enumerate(text_of(params["textDocument"]["uri"]).split("\n")):
+            for m in re.finditer(r"\b[A-Z]\w*\b", line):
+                found.append((number, len(units(line[:m.start()])), len(units(m.group())), 0))
+            for m in re.finditer(r"\b([a-z]\w*)\(", line):
+                found.append((number, len(units(line[:m.start(1)])), len(units(m.group(1))), 1))
+            for m in re.finditer(r"\blet (\w+)", line):
+                found.append((number, len(units(line[:m.start(1)])), len(units(m.group(1))), 2))
+        found.sort()
+        data, last_line, last_start = [], 0, 0
+        for number, start, length, kind in found:
+            data += [number - last_line, start - last_start if number == last_line else start, length, kind, 0]
+            last_line, last_start = number, start
+        send({"jsonrpc": "2.0", "id": mid, "result": {"data": data}})
     elif method == "textDocument/documentLink":
         links = []
         for number, line in enumerate(text_of(params["textDocument"]["uri"]).split("\n")):

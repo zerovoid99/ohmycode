@@ -65,6 +65,7 @@ final class LanguageClient {
                     "workspaceFolders": true, "configuration": true, "applyEdit": true,
                     "symbol": [String: Any](),
                     "inlayHint": ["refreshSupport": true],
+                    "semanticTokens": ["refreshSupport": true],
                     "workspaceEdit": ["documentChanges": true],
                 ],
                 "textDocument": [
@@ -85,6 +86,11 @@ final class LanguageClient {
                     "inlayHint": [String: Any](),
                     "documentHighlight": [String: Any](),
                     "documentLink": ["tooltipSupport": true],
+                    "semanticTokens": [
+                        "requests": ["full": true], "formats": ["relative"],
+                        "tokenTypes": SemanticTokens.knownTypes, "tokenModifiers": [String](),
+                        "multilineTokenSupport": false, "overlappingTokenSupport": false,
+                    ] as [String: Any],
                     "codeAction": [
                         "codeActionLiteralSupport": ["codeActionKind": ["valueSet": [
                             "", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite",
@@ -215,6 +221,7 @@ final class LanguageClient {
         case inlayHint = "inlayHintProvider"
         case documentHighlight = "documentHighlightProvider"
         case documentLink = "documentLinkProvider"
+        case semanticTokens = "semanticTokensProvider"
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -264,6 +271,17 @@ final class LanguageClient {
 
     // MARK: Inlay hints
 
+    /// The token types the server's numbers stand for (its legend).
+    var semanticTokenTypes: [String] {
+        ((capabilities["semanticTokensProvider"] as? [String: Any])?["legend"] as? [String: Any])?["tokenTypes"] as? [String] ?? []
+    }
+
+    /// Every token in the file, as the server encodes them (5 numbers each, relative).
+    func semanticTokens(url: URL) async throws -> [Int] {
+        let result = try await request("textDocument/semanticTokens/full", params: ["textDocument": ["uri": url.absoluteString]])
+        return ((result as? [String: Any])?["data"] as? [Any] ?? []).compactMap { ($0 as? NSNumber)?.intValue }
+    }
+
     /// The file's links (targets may come later, from `resolveDocumentLink`).
     func documentLinks(url: URL) async throws -> [LSPDocumentLink] {
         let result = try await request("textDocument/documentLink", params: ["textDocument": ["uri": url.absoluteString]])
@@ -295,6 +313,8 @@ final class LanguageClient {
 
     /// The server's hints changed (asked for again).
     var onInlayHintRefresh: (() -> Void)?
+    /// The server asked for semantic tokens again (`workspace/semanticTokens/refresh`).
+    var onSemanticTokensRefresh: (() -> Void)?
 
     // MARK: Signature help
 
@@ -454,6 +474,9 @@ final class LanguageClient {
         case "workspace/inlayHint/refresh":
             response["result"] = NSNull()
             onInlayHintRefresh?()
+        case "workspace/semanticTokens/refresh":
+            response["result"] = NSNull()
+            onSemanticTokensRefresh?()
         case "workspace/applyEdit":
             let object = params as? [String: Any]
             let applied = WorkspaceEdit(json: object?["edit"]).map { onApplyEdit?($0, object?["label"] as? String) ?? false } ?? false

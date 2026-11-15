@@ -236,6 +236,7 @@ final class EditorController: NSObject {
 
     @objc private func settingsDidChange() {
         document.refreshInlayHints() // turned on or off, or the font changed
+        document.refreshSemanticTokens()
         occurrences.update()
         applySettings()
     }
@@ -908,6 +909,7 @@ extension EditorController: SyntaxHighlighterClient {
                   let textRange = textRange(for: clipped, in: contentManager) else { continue }
             layoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
         }
+        applySemanticColors(in: range)
         highlightedRange = range
         rememberNonCode(highlights)
         diagnosticsOverlay?.needsDisplay = true // brackets in strings stop matching
