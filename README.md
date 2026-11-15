@@ -64,6 +64,13 @@ the implementations of a protocol, interface or method (several are listed in th
 Type Definition to a value's type, and ⌥⇧H shows the call hierarchy — who calls a function, or
 what it calls — opened level by level.
 
+## Local history
+Every save keeps a version of the file (and the version on disk before it, or before another
+program replaced it), whether or not the file is in git. They're listed in the Timeline above the
+commits: click one to compare it with the current text, or restore it (one undoable change).
+*Local History: Restore a Saved Version…* does it from the command palette. Up to 50 versions per
+file are kept for 30 days, in `~/Library/Application Support/OhMyCode/History`.
+
 ## Tasks and Problems
 Terminal → Run Task… runs a folder's commands; ⇧⌘B runs the default build task. Tasks are found in
 Package.swift, package.json (npm, yarn, pnpm or bun scripts), Makefile, Cargo.toml and go.mod, and
