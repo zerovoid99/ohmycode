@@ -50,6 +50,13 @@ Inlay hints show what the server infers inside the code — a variable's type (`
 an argument's parameter name — without changing the text; they're turned off in Settings → Editor
 or with *View: Toggle Inlay Hints*.
 
+## Symbol highlights
+Putting the cursor on a symbol highlights where else it appears in the file. With a language server
+these are its own places (the same name in another scope isn't), and places where it's assigned are
+outlined. Without one, the same whole word is highlighted. Selecting text on one line highlights the
+same text elsewhere. F7 and ⇧F7 go to the next and previous place. Highlights are turned off in
+Settings → Editor or with *View: Toggle Symbol Highlights*.
+
 ## Outline and breadcrumbs
 The Outline sidebar lists the active file's declarations (classes, functions, properties, Markdown
 headings), with the one the cursor is in highlighted; click one to go there. Breadcrumbs above the
