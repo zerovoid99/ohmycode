@@ -50,6 +50,13 @@ Inlay hints show what the server infers inside the code — a variable's type (`
 an argument's parameter name — without changing the text; they're turned off in Settings → Editor
 or with *View: Toggle Inlay Hints*.
 
+## Semantic highlighting
+With a language server that classifies names (sourcekit-lsp does), types, functions and properties
+get the theme's colors for what they really are, over the syntax tree's guess. Variables and
+parameters get the plain text color. Colors stay in place while you type and are updated a moment
+after you pause. Files over 20,000 lines keep the syntax colors only. Turn it off in
+Settings → Editor.
+
 ## Symbol highlights
 Putting the cursor on a symbol highlights where else it appears in the file. With a language server
 these are its own places (the same name in another scope isn't), and places where it's assigned are
