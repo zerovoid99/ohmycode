@@ -40,6 +40,7 @@ extension EditorController {
 
     /// Handles one typed character; false lets the text view insert it as usual.
     func handleTyped(_ text: String) -> Bool {
+        if handleLinkedTyping(text) { return true }
         guard text.count == 1, let typed = text.first else { return false }
         let selection = textView.selectedRange()
         let next = character(at: NSMaxRange(selection))

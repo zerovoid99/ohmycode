@@ -88,6 +88,7 @@ struct SettingsView: View {
             Toggle("Show minimap", isOn: $settings.showsMinimap)
             Toggle("Sticky scroll (keep enclosing declarations at the top)", isOn: $settings.stickyScroll)
             Toggle("Close brackets and quotes automatically", isOn: $settings.autoClosePairs)
+            Toggle("Rename a tag's closing tag as you type its name (linked editing)", isOn: $settings.linkedEditing)
             Picker("Auto save", selection: $settings.autoSave) {
                 ForEach(AutoSave.allCases) { Text($0.title).tag($0) }
             }

@@ -71,6 +71,8 @@ final class AppSettings {
     var autoSaveDelay: Double { didSet { changed() } }
     /// Quitting keeps unsaved changes for next time instead of asking about them.
     var hotExit: Bool { didSet { changed() } }
+    /// Editing a tag's name edits its closing (or opening) tag's too.
+    var linkedEditing: Bool { didSet { changed() } }
     /// Saving a file git reports as conflicted, with no conflict markers left, stages it.
     var stagesResolvedConflicts: Bool { didSet { changed() } }
     /// Closing brackets and quotes typed for you.
@@ -106,6 +108,7 @@ final class AppSettings {
         autoSave = AutoSave(rawValue: defaults.string(forKey: Keys.autoSave) ?? "") ?? .off
         autoSaveDelay = min(max(defaults.object(forKey: Keys.autoSaveDelay) as? Double ?? 1, 0.2), 60)
         hotExit = defaults.object(forKey: Keys.hotExit) as? Bool ?? true
+        linkedEditing = defaults.object(forKey: Keys.linkedEditing) as? Bool ?? true
         stagesResolvedConflicts = defaults.object(forKey: Keys.stagesResolvedConflicts) as? Bool ?? true
         autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
         isLoading = false
@@ -136,6 +139,7 @@ final class AppSettings {
         static let autoSave = "autoSave"
         static let autoSaveDelay = "autoSaveDelay"
         static let hotExit = "hotExit"
+        static let linkedEditing = "linkedEditing"
         static let stagesResolvedConflicts = "stagesResolvedConflicts"
         static let autoClosePairs = "autoClosePairs"
     }
@@ -176,6 +180,7 @@ final class AppSettings {
         defaults.set(autoSave.rawValue, forKey: Keys.autoSave)
         defaults.set(autoSaveDelay, forKey: Keys.autoSaveDelay)
         defaults.set(hotExit, forKey: Keys.hotExit)
+        defaults.set(linkedEditing, forKey: Keys.linkedEditing)
         defaults.set(stagesResolvedConflicts, forKey: Keys.stagesResolvedConflicts)
         defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
@@ -201,6 +206,7 @@ final class AppSettings {
             "semanticHighlighting": .bool(semanticHighlighting), "formatOnSaveScope": .string(formatOnSaveScope.rawValue),
             "zenModeFullScreen": .bool(zenModeFullScreen), "showsCodeLens": .bool(showsCodeLens),
             "autoSave": .string(autoSave.rawValue), "autoSaveDelay": .number(autoSaveDelay), "hotExit": .bool(hotExit),
+            "linkedEditing": .bool(linkedEditing),
         ]
     }
 
@@ -230,6 +236,7 @@ final class AppSettings {
         if let value = values["autoSave"]?.string.flatMap(AutoSave.init(rawValue:)) { autoSave = value }
         if let value = values["autoSaveDelay"]?.number { autoSaveDelay = min(max(value, 0.2), 60) }
         if let value = values["hotExit"]?.bool { hotExit = value }
+        if let value = values["linkedEditing"]?.bool { linkedEditing = value }
         if let value = values["formatOnSaveScope"]?.string.flatMap(FormatOnSaveScope.init(rawValue:)) { formatOnSaveScope = value }
         if let value = values["stagesResolvedConflicts"]?.bool { stagesResolvedConflicts = value }
         if let value = values["autoClosePairs"]?.bool { autoClosePairs = value }
