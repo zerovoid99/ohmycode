@@ -57,6 +57,12 @@ outlined. Without one, the same whole word is highlighted. Selecting text on one
 same text elsewhere. F7 and ⇧F7 go to the next and previous place. Highlights are turned off in
 Settings → Editor or with *View: Toggle Symbol Highlights*.
 
+## Links
+URLs written in any file (`https://`, `http://`, `ftp://`, `file://`) and links the language server
+finds (such as an import's path) are underlined while ⌘ is held over them. ⌘-click opens them:
+web links in the browser, and files in the editor (`#L12` goes to line 12). Elsewhere, ⌘-click is
+still Go to Definition. Right-clicking a link offers *Open Link* and *Copy Link Address*.
+
 ## Outline and breadcrumbs
 The Outline sidebar lists the active file's declarations (classes, functions, properties, Markdown
 headings), with the one the cursor is in highlighted; click one to go there. Breadcrumbs above the
