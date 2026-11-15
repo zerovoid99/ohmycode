@@ -104,7 +104,10 @@ final class TerminalView: NSView {
     }
     override var acceptsFirstResponder: Bool { true }
 
-    override func becomeFirstResponder() -> Bool { needsDisplay = true; return true }
+    /// Focused (clicked or tabbed into): in a split, it becomes the active terminal.
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool { needsDisplay = true; onFocus?(); return true }
     override func resignFirstResponder() -> Bool { needsDisplay = true; return true }
 
     // MARK: Layout

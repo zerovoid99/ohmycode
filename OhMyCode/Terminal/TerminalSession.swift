@@ -19,6 +19,9 @@ final class TerminalSession: Identifiable {
     }
 
     private(set) var title: String
+    /// A name given by the user (Rename Terminal), shown instead of the shell's title.
+    var customName: String?
+    var displayTitle: String { customName ?? title }
     private(set) var isRunning = true
     private(set) var exitCode: Int32?
     private(set) var columns: UInt16

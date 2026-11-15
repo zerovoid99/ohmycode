@@ -13,10 +13,17 @@ struct TerminalPanel: View {
                 Divider().frame(height: 16).padding(.horizontal, 6)
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 2) {
-                        ForEach(workspace.terminals) { terminal in
-                            TerminalTab(session: terminal, isActive: terminal.id == session.id,
-                                        onSelect: { workspace.selectTerminal(terminal) },
-                                        onClose: { workspace.closeTerminal(terminal) })
+                        // One tab per group of split terminals.
+                        ForEach(Array(workspace.terminalGroups.indices), id: \.self) { index in
+                            let members = workspace.terminalGroup(at: index)
+                            if let first = members.first {
+                                let active = members.first { $0.id == session.id }
+                                TerminalTab(sessions: members, isActive: active != nil,
+                                            onSelect: { workspace.selectTerminal(active ?? first) },
+                                            onClose: { members.forEach { workspace.closeTerminal($0) } },
+                                            onRename: { workspace.renameTerminal(active ?? first) },
+                                            onSplit: { workspace.selectTerminal(active ?? first); workspace.splitTerminal() })
+                            }
                         }
                     }
                     .padding(.horizontal, 6)
@@ -25,6 +32,8 @@ struct TerminalPanel: View {
                 Group {
                     Button { workspace.newTerminal() } label: { Image(systemName: "plus") }
                         .help("New Terminal (⌃⇧`)")
+                    Button { workspace.splitTerminal() } label: { Image(systemName: "square.split.2x1") }
+                        .help("Split Terminal")
                     Button { workspace.restartTerminal() } label: { Image(systemName: "arrow.clockwise") }
                         .help("Restart Terminal")
                     Button { workspace.toggleTerminal() } label: { Image(systemName: "chevron.down") }
@@ -38,30 +47,49 @@ struct TerminalPanel: View {
 
             Divider()
 
-            TerminalViewRepresentable(session: session, focusRequest: workspace.terminalFocusRequest)
+            let group = workspace.activeTerminalGroup
+            if group.count > 1 {
+                HSplitView {
+                    ForEach(group) { member in
+                        TerminalViewRepresentable(session: member, focusRequest: member.id == session.id ? workspace.terminalFocusRequest : -1,
+                                                  onFocus: { if workspace.activeTerminalID != member.id { workspace.activeTerminalID = member.id } })
+                            .frame(minWidth: 120, maxWidth: .infinity, maxHeight: .infinity)
+                            .overlay(alignment: .top) {
+                                // Which pane typing goes to.
+                                if member.id == session.id { Color.accentColor.opacity(0.7).frame(height: 1) }
+                            }
+                    }
+                }
+            } else {
+                TerminalViewRepresentable(session: session, focusRequest: workspace.terminalFocusRequest, onFocus: {})
+            }
         }
     }
 }
 
 private struct TerminalTab: View {
-    let session: TerminalSession
+    let sessions: [TerminalSession]
     let isActive: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
+    let onRename: () -> Void
+    let onSplit: () -> Void
     @State private var isHovering = false
+
+    private var session: TerminalSession { sessions[0] }
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "terminal")
+            Image(systemName: sessions.count > 1 ? "square.split.2x1" : "terminal")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text(session.title)
+            Text(sessions.map(\.displayTitle).joined(separator: " | "))
                 .font(.callout)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: 180)
                 .foregroundStyle(isActive ? .primary : .secondary)
-            if !session.isRunning {
+            if !sessions.contains(where: \.isRunning) {
                 Text("exited").font(.caption2).foregroundStyle(.secondary)
             }
             Button(action: onClose) {
@@ -75,14 +103,22 @@ private struct TerminalTab: View {
         .frame(height: 24)
         .background(isActive ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 5))
         .contentShape(Rectangle())
+        .onTapGesture(count: 2, perform: onRename)
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
+        .contextMenu {
+            Button("Rename…", action: onRename)
+            Button("Split Terminal", action: onSplit)
+            Divider()
+            Button(sessions.count > 1 ? "Kill Terminals" : "Kill Terminal", action: onClose)
+        }
     }
 }
 
 private struct TerminalViewRepresentable: NSViewRepresentable {
     let session: TerminalSession
     let focusRequest: Int
+    let onFocus: () -> Void
 
     final class Coordinator {
         var lastFocusRequest = -1
@@ -98,7 +134,8 @@ private struct TerminalViewRepresentable: NSViewRepresentable {
 
     func updateNSView(_ view: TerminalView, context: Context) {
         view.session = session
-        if context.coordinator.lastFocusRequest != focusRequest {
+        view.onFocus = onFocus
+        if focusRequest >= 0, context.coordinator.lastFocusRequest != focusRequest {
             context.coordinator.lastFocusRequest = focusRequest
             DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         }

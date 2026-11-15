@@ -412,3 +412,56 @@ struct TerminalTabsTests {
         #expect(!workspace.isTerminalVisible)
     }
 }
+
+@MainActor
+struct TerminalSplitTests {
+    @Test func splitsShareATabAndCloseIntoTheirNeighbour() throws {
+        let workspace = Workspace()
+        workspace.openFolder(FileManager.default.temporaryDirectory)
+        defer { workspace.terminals.forEach { workspace.closeTerminal($0) } }
+        workspace.newTerminal()
+        let a = try #require(workspace.terminal)
+        workspace.splitTerminal()
+        let b = try #require(workspace.terminal)
+        #expect(a !== b && workspace.terminalGroups == [[a.id, b.id]])
+        #expect(workspace.activeTerminalGroup.map(\.id) == [a.id, b.id])
+        workspace.newTerminal()
+        let c = try #require(workspace.terminal)
+        #expect(workspace.terminalGroups == [[a.id, b.id], [c.id]] && workspace.activeTerminalGroup.map(\.id) == [c.id])
+
+        // A split inserts after the active pane.
+        workspace.selectTerminal(a)
+        workspace.splitTerminal()
+        let d = try #require(workspace.terminal)
+        #expect(workspace.terminalGroups == [[a.id, d.id, b.id], [c.id]])
+
+        // Closing a pane: its left neighbour in the split takes over.
+        workspace.closeTerminal(d)
+        #expect(workspace.terminal === a && workspace.terminalGroups == [[a.id, b.id], [c.id]])
+        // Restarting keeps its place (and name).
+        a.customName = "server"
+        workspace.restartTerminal()
+        let restarted = try #require(workspace.terminal)
+        #expect(workspace.terminalGroups == [[restarted.id, b.id], [c.id]] && restarted.displayTitle == "server")
+        // The last pane of a tab: the tab goes, the next tab is shown.
+        workspace.closeTerminal(restarted)
+        workspace.closeTerminal(b)
+        #expect(workspace.terminalGroups == [[c.id]] && workspace.terminal === c)
+    }
+
+    @Test func renameShowsTheNameUntilCleared() throws {
+        let workspace = Workspace()
+        workspace.openFolder(FileManager.default.temporaryDirectory)
+        workspace.newTerminal()
+        let session = try #require(workspace.terminal)
+        defer { workspace.closeTerminal(session) }
+        let saved = Workspace.promptForName
+        defer { Workspace.promptForName = saved }
+        Workspace.promptForName = { _, _ in "build" }
+        workspace.renameTerminal()
+        #expect(session.displayTitle == "build" && session.customName == "build")
+        Workspace.promptForName = { _, _ in session.title } // back to the shell's own title
+        workspace.renameTerminal()
+        #expect(session.customName == nil)
+    }
+}

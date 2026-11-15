@@ -201,6 +201,9 @@ final class Workspace {
     private(set) var languageClients: [String: LanguageClient] = [:]
     private(set) var terminals: [TerminalSession] = []
     var activeTerminalID: TerminalSession.ID?
+    /// The panel's terminal tabs: each a group of terminals shown side by side (split), in
+    /// tab order. Every terminal is in exactly one group.
+    private(set) var terminalGroups: [[TerminalSession.ID]] = []
     var isTerminalVisible = false
     /// Bumped to move keyboard focus into the terminal.
     private(set) var terminalFocusRequest = 0
@@ -259,6 +262,7 @@ final class Workspace {
         rebuildFileIndex()
         terminals.forEach { $0.terminate() }
         terminals.removeAll()
+        terminalGroups.removeAll()
         activeTerminalID = nil
         isTerminalVisible = false
 
@@ -1672,7 +1676,41 @@ final class Workspace {
     func newTerminal() {
         guard let session = makeTerminal() else { return }
         terminals.append(session)
+        terminalGroups.append([session.id])
         selectTerminal(session)
+    }
+
+    /// Split Terminal: a new shell beside the active one, in the same tab.
+    func splitTerminal() {
+        guard let current = terminal, let group = terminalGroupIndex(of: current.id) else { return newTerminal() }
+        guard let session = makeTerminal() else { return }
+        terminals.append(session)
+        let position = (terminalGroups[group].firstIndex(of: current.id) ?? terminalGroups[group].count - 1) + 1
+        terminalGroups[group].insert(session.id, at: position)
+        selectTerminal(session)
+    }
+
+    func terminalGroupIndex(of id: TerminalSession.ID) -> Int? {
+        terminalGroups.firstIndex { $0.contains(id) }
+    }
+
+    /// The terminals of the active tab, left to right.
+    var activeTerminalGroup: [TerminalSession] {
+        guard let id = activeTerminalID, let group = terminalGroupIndex(of: id) else { return terminal.map { [$0] } ?? [] }
+        return terminalGroups[group].compactMap { member in terminals.first { $0.id == member } }
+    }
+
+    /// A tab's terminals (by group index).
+    func terminalGroup(at index: Int) -> [TerminalSession] {
+        guard terminalGroups.indices.contains(index) else { return [] }
+        return terminalGroups[index].compactMap { member in terminals.first { $0.id == member } }
+    }
+
+    /// Rename Terminal…: a name the shell's title doesn't replace (empty: the shell's again).
+    func renameTerminal(_ session: TerminalSession? = nil) {
+        guard let session = session ?? terminal,
+              let name = Self.promptForName("Rename Terminal", session.displayTitle) else { return }
+        session.customName = name.isEmpty || name == session.title ? nil : name
     }
 
     func selectTerminal(_ session: TerminalSession) {
@@ -1686,12 +1724,25 @@ final class Workspace {
         guard let index = terminals.firstIndex(where: { $0.id == session.id }) else { return }
         session.terminate()
         terminals.remove(at: index)
+        // Its tab: the neighbour in the split takes over, or the tab goes.
+        var neighbour: TerminalSession.ID?
+        if let group = terminalGroupIndex(of: session.id) {
+            let members = terminalGroups[group]
+            let position = members.firstIndex(of: session.id) ?? 0
+            terminalGroups[group].remove(at: position)
+            if terminalGroups[group].isEmpty {
+                terminalGroups.remove(at: group)
+                if !terminalGroups.isEmpty { neighbour = terminalGroups[min(group, terminalGroups.count - 1)].first }
+            } else {
+                neighbour = terminalGroups[group][max(0, position - 1)]
+            }
+        }
         if terminals.isEmpty {
             activeTerminalID = nil
             isTerminalVisible = false
             activeDocument?.editor?.focus()
         } else if activeTerminalID == session.id {
-            selectTerminal(terminals[min(index, terminals.count - 1)])
+            selectTerminal(neighbour.flatMap { id in terminals.first { $0.id == id } } ?? terminals[min(index, terminals.count - 1)])
         }
     }
 
@@ -1702,7 +1753,11 @@ final class Workspace {
         }
         guard let session = makeTerminal() else { return }
         current.terminate()
+        session.customName = current.customName
         terminals[index] = session
+        for group in terminalGroups.indices {
+            if let position = terminalGroups[group].firstIndex(of: current.id) { terminalGroups[group][position] = session.id }
+        }
         selectTerminal(session)
     }
 
