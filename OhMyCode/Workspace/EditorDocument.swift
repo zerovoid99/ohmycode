@@ -79,7 +79,7 @@ final class EditorDocument: Identifiable {
     /// Scroll position and selection to restore when this tab is shown again.
     @ObservationIgnored var viewState: EditorViewState?
     /// Modification date of the version on disk that the buffer reflects.
-    @ObservationIgnored private var diskModificationDate: Date?
+    @ObservationIgnored private(set) var diskModificationDate: Date?
     /// Language server attached to this document, if one is available for its language.
     @ObservationIgnored var languageClient: LanguageClient?
     /// Diagnostics from the language server, in the server's (LSP) coordinates.

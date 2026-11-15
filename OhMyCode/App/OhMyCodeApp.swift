@@ -85,6 +85,7 @@ struct RootView: View {
                 router.apply(router.takeRequest(for: folder), in: workspace)
             }
             router.register(workspace)
+            if !AppSettings.isRunningTests { workspace.startKeepingSession() }
         }
         .alert(
             "Error",

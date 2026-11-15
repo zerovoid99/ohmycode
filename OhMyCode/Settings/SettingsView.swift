@@ -88,6 +88,14 @@ struct SettingsView: View {
             Toggle("Show minimap", isOn: $settings.showsMinimap)
             Toggle("Sticky scroll (keep enclosing declarations at the top)", isOn: $settings.stickyScroll)
             Toggle("Close brackets and quotes automatically", isOn: $settings.autoClosePairs)
+            Picker("Auto save", selection: $settings.autoSave) {
+                ForEach(AutoSave.allCases) { Text($0.title).tag($0) }
+            }
+            if settings.autoSave == .afterDelay {
+                Stepper("Delay: \(settings.autoSaveDelay.formatted(.number.precision(.fractionLength(0...1)))) s",
+                        value: $settings.autoSaveDelay, in: 0.2...60, step: 0.5)
+            }
+            Toggle("Keep unsaved changes when quitting, and reopen windows (hot exit)", isOn: $settings.hotExit)
             Toggle("Format on save (with the language server)", isOn: $settings.formatOnSave)
             Picker("Format on save formats", selection: $settings.formatOnSaveScope) {
                 ForEach(FormatOnSaveScope.allCases) { Text($0.title).tag($0) }

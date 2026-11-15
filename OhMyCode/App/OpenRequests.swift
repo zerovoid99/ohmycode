@@ -250,6 +250,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            guard !AppSettings.isRunningTests, AppSettings.shared.hotExit else { return }
+            Workspace.reopenLastSessions { OpenRouter.shared.open($0) }
+        }
+    }
+
+    /// Hot exit: the windows' sessions are kept, nothing asked; with it off, unsaved changes are.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated {
+            Workspace.prepareToQuit(OpenRouter.shared.allWorkspaces) ? .terminateNow : .terminateCancel
+        }
+    }
+
+    /// Leaving the app: auto save on focus change.
+    func applicationDidResignActive(_ notification: Notification) {
+        MainActor.assumeIsolated { OpenRouter.shared.allWorkspaces.forEach { $0.focusChanged() } }
+    }
+
     /// Clicking the Dock icon with no window open: a new one.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool { true }
 }

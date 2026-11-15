@@ -50,7 +50,30 @@ final class Workspace {
     /// What the bottom panel shows.
     var bottomPanel = BottomPanel.terminal
     /// The window showing this workspace (set by the window).
-    @ObservationIgnored weak var window: NSWindow?
+    @ObservationIgnored weak var window: NSWindow? {
+        didSet {
+            guard window !== oldValue else { return }
+            windowObservers.forEach(NotificationCenter.default.removeObserver)
+            windowObservers = []
+            guard let window else { return }
+            let center = NotificationCenter.default
+            windowObservers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.windowClosed() }
+            })
+            // Auto save on focus change: leaving the window or the app.
+            windowObservers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.focusChanged() }
+            })
+        }
+    }
+    @ObservationIgnored private var windowObservers: [NSObjectProtocol] = []
+    /// This window's identity (its session's key, without a folder).
+    let id = UUID()
+    /// The last session written (see Sessions.swift), to write only changes.
+    @ObservationIgnored var sessionSignature: String?
+    @ObservationIgnored var sessionLoop: Task<Void, Never>?
+    /// Auto save after a delay: each document's edit version, and since when it's unchanged.
+    @ObservationIgnored var autoSaveSeen: [UUID: (version: Int, since: Date)] = [:]
     /// The window's extensions.
     @ObservationIgnored private(set) lazy var extensions = ExtensionHost(workspace: self)
     @ObservationIgnored private var extensionsStarted = false
@@ -72,8 +95,10 @@ final class Workspace {
     var activeDocumentID: EditorDocument.ID? {
         get { activeGroup.activeDocumentID }
         set {
+            let previous = activeGroup.activeDocumentID
             activeGroup.show(newValue)
             retargetEditor()
+            if previous != nil, previous != newValue { focusChanged() }
         }
     }
     var errorMessage: String?
@@ -250,6 +275,8 @@ final class Workspace {
 
     func openFolder(_ url: URL) {
         guard documents.allSatisfy({ confirmClose($0) }) else { return }
+        // The folder this window leaves isn't open any more (its unsaved changes were asked about).
+        if rootURL != nil { keepSession(wasOpen: false, force: true) }
         RecentFolders.shared.add(url)
         rootURL = url
         rootNode = FileNode(url: url, isDirectory: true)
@@ -297,6 +324,8 @@ final class Workspace {
         watcher = FileWatcher(path: canonicalRootPath) { [weak self] events in
             self?.handleFileEvents(events)
         }
+        sessionSignature = nil
+        restoreSession()
     }
 
     /// Rebuilds the quick-open index in the background. The previous index stays usable until
@@ -1920,10 +1949,12 @@ final class Workspace {
         }
         do {
             let document = try EditorDocument(url: url)
+            let isFirst = documents.isEmpty
             documents.append(document)
             activeDocumentID = document.id
             loadDiffBase(for: document)
             attachLanguageServer(to: document)
+            if isFirst, rootURL == nil { restoreFolderlessSession(firstFile: url) }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -2198,6 +2229,9 @@ final class Workspace {
     }
 
     /// Asks to save unsaved changes. Returns `false` if the user cancelled.
+    /// Asks whether to save a document's changes (quitting with hot exit off).
+    func confirmSaving(_ document: EditorDocument) -> Bool { confirmClose(document) }
+
     private func confirmClose(_ document: EditorDocument) -> Bool {
         guard document.isDirty else { return true }
         let alert = NSAlert()
