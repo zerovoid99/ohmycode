@@ -138,6 +138,9 @@ final class EditorDocument: Identifiable {
     /// The language server's semantic tokens (see SemanticTokens.swift): moved along by edits.
     @ObservationIgnored var semanticTokens: [SemanticToken] = []
     @ObservationIgnored var semanticTokensTask: Task<Void, Never>?
+    /// Fold regions from the code's structure, by header line (see FoldRegions.swift).
+    @ObservationIgnored var foldRegions: [Int: FoldRegion] = [:]
+    @ObservationIgnored var foldRegionsTask: Task<Void, Never>?
     /// The language server's links in the text (see DocumentLinks.swift), for `serverLinksVersion`.
     @ObservationIgnored var serverLinks: [LSPDocumentLink] = []
     @ObservationIgnored var serverLinksVersion = -1
@@ -200,6 +203,7 @@ final class EditorDocument: Identifiable {
         diskModificationDate = Self.modificationDate(of: url)
         editorConfig = EditorConfig.resolve(for: url)
         updateTabWidth()
+        refreshFoldRegions()
         scheduleConflictScan()
         refreshSymbols()
     }
@@ -419,7 +423,10 @@ final class EditorDocument: Identifiable {
             old = startLine..<old.upperBound - 1
             count -= 1
         }
-        if old.count != count { onLinesReplaced?(old, count) }
+        if old.count != count {
+            onLinesReplaced?(old, count)
+            shiftFoldRegions(replacing: old, with: count)
+        }
         // Until blame runs again on the new text: edited lines aren't committed, lines after
         // them move with the edit.
         if let blame {
@@ -444,6 +451,7 @@ final class EditorDocument: Identifiable {
         shiftSemanticTokens(oldRange: NSRange(location: exact.start, length: exact.oldEnd - exact.start),
                             newLength: exact.oldEnd - exact.start + delta)
         refreshSemanticTokens(after: .milliseconds(400))
+        refreshFoldRegions(after: .milliseconds(500))
         onDidEdit?()
     }
 

@@ -24,8 +24,24 @@ extension EditorDocument {
         return nil
     }
 
-    /// The lines `header` folds (header excluded), or nil if it doesn't start a fold region.
+    /// The lines `header` folds (header excluded), or nil if it doesn't start a fold region: the
+    /// code's structure says (see FoldRegions.swift), else indentation.
     func foldRange(atLine header: Int) -> ClosedRange<Int>? {
+        if let region = structuralFold(atLine: header) { return (header + 1)...region.end }
+        return foldsByIndentation ? indentationFoldRange(atLine: header) : nil
+    }
+
+    /// Whether `line` starts a fold region.
+    func isFoldable(line: Int) -> Bool {
+        structuralFold(atLine: line) != nil || (foldsByIndentation && isIndentationFoldable(line: line))
+    }
+
+    /// Indentation folds code only when the structure gives no code regions (Python, YAML,
+    /// plain text): with brackets, it would add a region per `) {` line inside a declaration.
+    var foldsByIndentation: Bool { !foldRegions.values.contains { $0.kind == .code } }
+
+    /// The lines deeper-indented than `header` after it.
+    func indentationFoldRange(atLine header: Int) -> ClosedRange<Int>? {
         guard header < lineIndex.lineCount, let base = indentation(ofLine: header) else { return nil }
         var last: Int?
         var line = header + 1
@@ -40,8 +56,8 @@ extension EditorDocument {
         return (header + 1)...last // trailing blank lines stay visible
     }
 
-    /// Whether `line` starts a fold region; checks only up to the next non-blank line.
-    func isFoldable(line: Int) -> Bool {
+    /// Whether `line` starts an indentation fold region; checks only up to the next non-blank line.
+    func isIndentationFoldable(line: Int) -> Bool {
         guard line < lineIndex.lineCount, let base = indentation(ofLine: line) else { return false }
         var next = line + 1
         while next < lineIndex.lineCount {

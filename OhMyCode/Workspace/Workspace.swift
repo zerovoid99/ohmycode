@@ -422,6 +422,7 @@ final class Workspace {
                 document?.refreshInlayHints()
                 document?.refreshLinks()
                 document?.refreshSemanticTokens()
+                document?.refreshFoldRegions()
             }
         }
     }

@@ -94,6 +94,12 @@ final class SyntaxHighlighter {
         return await engine.outline(for: language)
     }
 
+    /// See `SyntaxEngine.foldRegions`: from the parse of the current text.
+    func foldRegions() async -> [FoldRegion] {
+        await waitUntilIdle()
+        return await engine.foldRegions()
+    }
+
     func waitUntilIdle() async {
         while let inFlight { await inFlight.value }
     }

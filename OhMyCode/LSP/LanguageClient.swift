@@ -80,6 +80,8 @@ final class LanguageClient {
                     "rename": ["prepareSupport": true],
                     "formatting": [String: Any](),
                     "rangeFormatting": [String: Any](),
+                    // Whole lines; a block's end line is the one before its closing bracket.
+                    "foldingRange": ["lineFoldingOnly": true, "foldingRange": ["collapsedText": false]] as [String: Any],
                     "documentSymbol": ["hierarchicalDocumentSymbolSupport": true],
                     "implementation": ["linkSupport": true],
                     "typeDefinition": ["linkSupport": true],
@@ -224,6 +226,7 @@ final class LanguageClient {
         case documentLink = "documentLinkProvider"
         case semanticTokens = "semanticTokensProvider"
         case rangeFormatting = "documentRangeFormattingProvider"
+        case foldingRange = "foldingRangeProvider"
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -272,6 +275,21 @@ final class LanguageClient {
     var onApplyEdit: ((WorkspaceEdit, String?) -> Bool)?
 
     // MARK: Inlay hints
+
+    /// The file's fold regions, as the server sees them.
+    func foldingRanges(url: URL) async throws -> [FoldRegion] {
+        let result = try await request("textDocument/foldingRange", params: ["textDocument": ["uri": url.absoluteString]])
+        return (result as? [[String: Any]] ?? []).compactMap { range in
+            guard let start = range["startLine"] as? Int, let end = range["endLine"] as? Int, end > start else { return nil }
+            let kind: FoldRegion.Kind = switch range["kind"] as? String {
+            case "comment": .comment
+            case "imports": .imports
+            case "region": .region
+            default: .code
+            }
+            return FoldRegion(start: start, end: end, kind: kind)
+        }
+    }
 
     /// The token types the server's numbers stand for (its legend).
     var semanticTokenTypes: [String] {
