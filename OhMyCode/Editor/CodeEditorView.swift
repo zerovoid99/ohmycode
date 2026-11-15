@@ -102,6 +102,7 @@ final class EditorController: NSObject {
         let overlay = DiagnosticsOverlayView(textView: textView, document: document)
         textView.addSubview(overlay)
         diagnosticsOverlay = overlay
+        overlay.whitespace = { [weak self] in self?.whitespaceMarks() ?? [] }
         overlay.indentGuides = { [weak self] in self?.indentGuideRects() ?? [] }
         overlay.brackets = { [weak self] in self?.bracketRects() ?? [] }
         overlay.linkUnderline = { [weak self] in self?.linkUnderlineRect() }

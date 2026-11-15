@@ -171,6 +171,26 @@ final class FoldingDelegate: NSObject, NSTextContentStorageDelegate, @unchecked 
         lock.withLock { hidden = ranges }
     }
 
+    /// Where tabs stop (points; 0: AppKit's default). Lines with tabs get a paragraph style
+    /// with it, so a tab is as wide as the tab width in spaces.
+    private var tabInterval: CGFloat = 0
+
+    func setTabInterval(_ interval: CGFloat) {
+        lock.withLock { tabInterval = interval }
+    }
+
+    func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
+        let interval = lock.withLock { tabInterval }
+        guard interval > 0, let storage = textContentStorage.textStorage,
+              storage.mutableString.range(of: "\t", options: .literal, range: range).location != NSNotFound else { return nil }
+        let paragraph = NSMutableAttributedString(attributedString: storage.attributedSubstring(from: range))
+        let style = NSMutableParagraphStyle()
+        style.tabStops = []
+        style.defaultTabInterval = interval
+        paragraph.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: paragraph.length))
+        return NSTextParagraph(attributedString: paragraph)
+    }
+
     func textContentManager(_ textContentManager: NSTextContentManager, shouldEnumerate textElement: NSTextElement,
                             options: NSTextContentManager.EnumerationOptions = []) -> Bool {
         let ranges = lock.withLock { hidden }

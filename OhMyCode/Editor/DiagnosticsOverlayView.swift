@@ -8,6 +8,8 @@ import AppKit
 final class DiagnosticsOverlayView: NSView {
     private weak var textView: NSTextView?
     private let document: EditorDocument
+    /// Spaces and tabs shown as · and →.
+    var whitespace: (() -> [(rect: NSRect, isTab: Bool)])?
     /// Indent guides (one rect per line and level), brighter for the cursor's block.
     var indentGuides: (() -> [(rect: NSRect, isActive: Bool)])?
     /// The bracket beside the cursor and its match: outlined.
@@ -76,6 +78,29 @@ final class DiagnosticsOverlayView: NSView {
         if let rect = executionLine?(), rect.intersects(dirtyRect) {
             NSColor.systemYellow.withAlphaComponent(0.22).setFill()
             rect.fill(using: .sourceOver)
+        }
+        let marks = whitespace?() ?? []
+        if !marks.isEmpty {
+            let color = theme.lineNumber.withAlphaComponent(0.6)
+            color.setFill()
+            color.setStroke()
+            for (rect, isTab) in marks where rect.intersects(dirtyRect) {
+                if isTab {
+                    // An arrow across the tab's width.
+                    let y = rect.midY.rounded() + 0.5
+                    let arrow = NSBezierPath()
+                    arrow.lineWidth = 1
+                    arrow.move(to: NSPoint(x: rect.minX + 2, y: y))
+                    arrow.line(to: NSPoint(x: rect.maxX - 2, y: y))
+                    arrow.move(to: NSPoint(x: rect.maxX - 5, y: y - 3))
+                    arrow.line(to: NSPoint(x: rect.maxX - 2, y: y))
+                    arrow.line(to: NSPoint(x: rect.maxX - 5, y: y + 3))
+                    arrow.stroke()
+                } else {
+                    let size: CGFloat = 2
+                    NSBezierPath(ovalIn: NSRect(x: rect.midX - size / 2, y: rect.midY - size / 2, width: size, height: size)).fill()
+                }
+            }
         }
         for (rect, isActive) in indentGuides?() ?? [] where rect.intersects(dirtyRect) {
             theme.lineNumber.withAlphaComponent(isActive ? 0.55 : 0.18).setFill()

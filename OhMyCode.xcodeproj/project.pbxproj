@@ -23,6 +23,7 @@
 		1451CEA00381D14E03E0D3D5 /* PTYProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A76E72897EB0575B5F95E98 /* PTYProcess.swift */; };
 		15C8D675FC4F51388ED12DD0 /* Breakpoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = E520F6D2E010896834BCCC39 /* Breakpoints.swift */; };
 		19E2283B45FF94DEFF846914 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5526368FD02C2215106BF09 /* TerminalPanel.swift */; };
+		1AC61C937F4E32F73FA243EB /* WhitespaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E13FA664353862B8CC80898 /* WhitespaceTests.swift */; };
 		1B1B14FBC1EDE8C35433943C /* ProcessIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1982B1E8AC78DF8767EBF8BF /* ProcessIO.swift */; };
 		1CAACB5E1539BC428AF5F78F /* ReferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B2EE7BE3BFA8F86486EE2E /* ReferencesView.swift */; };
 		1D3022887233E995E0CC9A98 /* TerminalKeyMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DA477C6C5DD7FADEA27948 /* TerminalKeyMap.swift */; };
@@ -136,6 +137,7 @@
 		B119694F5D264AD653855F09 /* CallHierarchy.swift in Sources */ = {isa = PBXBuildFile; fileRef = B508791DA58E78D057CDB5EF /* CallHierarchy.swift */; };
 		B48BA65FABF229546105A1F0 /* AmendUndoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B8F8EDE4D1869E66032FBAB /* AmendUndoTests.swift */; };
 		B59360C3BEA98B86EBA39D08 /* ExtensionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 517F578F30739DC0F6EBB92B /* ExtensionsView.swift */; };
+		B60ED05D0898696FA26C666F /* WhitespaceMarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB57ED33528D4A77B307287 /* WhitespaceMarks.swift */; };
 		B773DB2E8BFECE332B2764D3 /* Workspace+Debug.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD07F5C150F868B00344F045 /* Workspace+Debug.swift */; };
 		B7969E56C1EFF0B1AF7B692E /* DAPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A92C6EE9382B2B3DB231B0E /* DAPClient.swift */; };
 		B853DD05756C3701A4ABD234 /* omc in Resources */ = {isa = PBXBuildFile; fileRef = 2D795231714CCF5CEA847EF4 /* omc */; };
@@ -221,6 +223,7 @@
 		0CE2146BEDE3433D4D023C59 /* Workspace+Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+Language.swift"; sourceTree = "<group>"; };
 		0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoEditTests.swift; sourceTree = "<group>"; };
 		0DE8B7417AC9A29F14098B2F /* HoverController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HoverController.swift; sourceTree = "<group>"; };
+		0E13FA664353862B8CC80898 /* WhitespaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhitespaceTests.swift; sourceTree = "<group>"; };
 		0E90646D54E679A22AC13D7A /* GhosttyVt */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GhosttyVt; path = Packages/GhosttyVt; sourceTree = SOURCE_ROOT; };
 		0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchOperationTests.swift; sourceTree = "<group>"; };
 		1025706C8AB204994FD662CA /* LocalHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHistory.swift; sourceTree = "<group>"; };
@@ -398,6 +401,7 @@
 		FD38CC20E29A70B456DCC3E3 /* OccurrenceHighlights.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OccurrenceHighlights.swift; sourceTree = "<group>"; };
 		FD481A433E345CB1885E699A /* Folding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Folding.swift; sourceTree = "<group>"; };
 		FE95ED4D3C508A3BC3A49E26 /* LaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchConfiguration.swift; sourceTree = "<group>"; };
+		FFB57ED33528D4A77B307287 /* WhitespaceMarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhitespaceMarks.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -581,6 +585,7 @@
 				062545FE7797841B1F4B7A4A /* TerminalTests.swift */,
 				B4F2009FE316D50973213A0B /* TestingTests.swift */,
 				CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */,
+				0E13FA664353862B8CC80898 /* WhitespaceTests.swift */,
 				AC3DED2E346532D4378D6C4B /* WordWrapTests.swift */,
 				E51C35CA661DE3585B84B90A /* WorkspaceSymbolTests.swift */,
 				1926672DEF8AA6C2EBB38393 /* WorktreeSubmoduleTests.swift */,
@@ -696,6 +701,7 @@
 				8E7F2B13AD432E2469E0C58C /* SnippetLibrary.swift */,
 				AA8DC1F39DB2BED7EBA925B9 /* Snippets.swift */,
 				E1E7CB6CB93BDCD61F6CE46E /* StickyScrollView.swift */,
+				FFB57ED33528D4A77B307287 /* WhitespaceMarks.swift */,
 				B1EA766EA033C850581F49B3 /* WordWrap.swift */,
 			);
 			path = Editor;
@@ -1041,6 +1047,7 @@
 				3043BD420289D09EDB6B05E8 /* TimelineView.swift in Sources */,
 				1F6340BD53600AC51FF68193 /* VSCodeTheme.swift in Sources */,
 				C6CBA1171534B6D1B3BF508F /* WelcomeView.swift in Sources */,
+				B60ED05D0898696FA26C666F /* WhitespaceMarks.swift in Sources */,
 				582482340451A6F5324EC2D9 /* WordWrap.swift in Sources */,
 				B773DB2E8BFECE332B2764D3 /* Workspace+Debug.swift in Sources */,
 				D477F7BD99917931B16AB872 /* Workspace+Language.swift in Sources */,
@@ -1111,6 +1118,7 @@
 				C1B812E94CAE7B6150426CB0 /* TerminalTests.swift in Sources */,
 				C422ED907B71E4685C30F145 /* TestingTests.swift in Sources */,
 				D7A7FF2C9BF229A9AD1993F2 /* VSCodeThemeTests.swift in Sources */,
+				1AC61C937F4E32F73FA243EB /* WhitespaceTests.swift in Sources */,
 				77385E231648078B92330DB0 /* WordWrapTests.swift in Sources */,
 				AFC35AE18929D58EFA699070 /* WorkspaceSymbolTests.swift in Sources */,
 				23CDEADD4AD2DEE911808ABF /* WorktreeSubmoduleTests.swift in Sources */,

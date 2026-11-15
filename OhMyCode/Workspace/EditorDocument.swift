@@ -37,6 +37,9 @@ final class EditorDocument: Identifiable {
     let undoManager = UndoManager()
 
     private(set) var isDirty = false
+    /// How many spaces wide a tab is drawn (and indent guides step by).
+    @ObservationIgnored private(set) var displayTabWidth = 4
+    @ObservationIgnored private var appliedTabInterval: CGFloat = 0
     /// ⌥Z's word wrap for this file (nil: the setting's).
     @ObservationIgnored var wordWrapOverride: Bool?
     /// What the `.editorconfig` files above it set (indentation, what saving fixes).
@@ -193,6 +196,7 @@ final class EditorDocument: Identifiable {
         storageObserver = observer
         diskModificationDate = Self.modificationDate(of: url)
         editorConfig = EditorConfig.resolve(for: url)
+        updateTabWidth()
         scheduleConflictScan()
         refreshSymbols()
     }
@@ -201,6 +205,7 @@ final class EditorDocument: Identifiable {
     func reloadEditorConfig() {
         let config = EditorConfig.resolve(for: url)
         if config != editorConfig { editorConfig = config }
+        updateTabWidth()
     }
 
     /// The content storage doesn't retain its delegate and may outlive the document.
@@ -221,6 +226,7 @@ final class EditorDocument: Identifiable {
         }
         try text.write(to: url, atomically: true, encoding: .utf8)
         history.record(text, for: url, reason: .saved)
+        updateTabWidth() // the indentation may be clear now (a new file)
         diskModificationDate = Self.modificationDate(of: url)
         isDirty = false
         hasExternalChanges = false
@@ -525,6 +531,17 @@ final class EditorDocument: Identifiable {
         for editor in editors { editor.foldsDidChange(affected) }
     }
 
+    /// New tab stops: lines with tabs are made again (an attribute-only edit: no undo, not dirty,
+    /// nothing sent to the language server) and laid out.
+    fileprivate func tabIntervalChanged(_ interval: CGFloat) {
+        foldingDelegate.setTabInterval(interval)
+        guard textStorage.length > 0, textStorage.mutableString.range(of: "\t", options: .literal).location != NSNotFound else { return }
+        textStorage.beginEditing()
+        textStorage.edited(.editedAttributes, range: NSRange(location: 0, length: textStorage.length), changeInLength: 0)
+        textStorage.endEditing()
+        for editor in editors { editor.refreshAfterEdit() }
+    }
+
     /// Registers an editor showing this document (without making it the target of actions).
     func attach(_ editor: EditorController) {
         editorTable.add(editor)
@@ -541,6 +558,7 @@ final class EditorDocument: Identifiable {
         guard styleGeneration != EditorTheme.generation else { return }
         styleGeneration = EditorTheme.generation
         textStorage.addAttributes(EditorTheme.baseAttributes, range: NSRange(location: 0, length: textStorage.length))
+        updateTabWidth() // the font's space width changed
     }
 
     func hunk(atLine line: Int) -> DiffHunk? {
@@ -651,4 +669,17 @@ extension EditorDocument {
 
     /// The symbols the cursor is in, outermost first (the breadcrumbs).
     var symbolPathAtCursor: [DocumentSymbol] { DocumentSymbol.path(to: cursorOffset, in: symbols) }
+}
+
+extension EditorDocument {
+    /// Tabs drawn as wide as `tab_width` (or the indentation's width) in spaces of the editor font.
+    func updateTabWidth() {
+        let width = max(1, editorConfig.tabWidth ?? indentation.tabSize)
+        let space = (" " as NSString).size(withAttributes: [.font: EditorTheme.font]).width
+        let interval = CGFloat(width) * space
+        displayTabWidth = width
+        guard abs(interval - appliedTabInterval) > 0.01 else { return }
+        appliedTabInterval = interval
+        tabIntervalChanged(interval)
+    }
 }

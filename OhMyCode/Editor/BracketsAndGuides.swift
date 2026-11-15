@@ -190,7 +190,7 @@ extension EditorController {
         guard AppSettings.shared.showsIndentGuides, let layoutManager = textView.textLayoutManager,
               let contentManager = layoutManager.textContentManager,
               let viewport = layoutManager.textViewportLayoutController.viewportRange else { return [] }
-        let tabSize = max(1, document.indentation.tabSize)
+        let tabSize = max(1, document.displayTabWidth)
         let space = (" " as NSString).size(withAttributes: [.font: EditorTheme.font]).width
         let origin = textView.textContainerOrigin
         let left = origin.x + (textView.textContainer?.lineFragmentPadding ?? 0)
