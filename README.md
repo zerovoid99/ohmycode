@@ -71,6 +71,15 @@ the implementations of a protocol, interface or method (several are listed in th
 Type Definition to a value's type, and ⌥⇧H shows the call hierarchy — who calls a function, or
 what it calls — opened level by level.
 
+## EditorConfig
+`.editorconfig` files in a file's folder and the folders above it (up to one with `root = true`)
+set its indentation and what saving fixes, as in other editors. Supported: `indent_style`,
+`indent_size`, `tab_width`, `end_of_line`, `trim_trailing_whitespace` and `insert_final_newline`.
+Indentation applies to Enter, snippets and formatting; without a setting it's judged from the file.
+The fixes made when saving are one undoable step. The status bar shows the indentation and line
+endings; hover them to see which `.editorconfig` set them. Editing an `.editorconfig` applies it to
+open files at once.
+
 ## Local history
 Every save keeps a version of the file (and the version on disk before it, or before another
 program replaced it), whether or not the file is in git. They're listed in the Timeline above the
