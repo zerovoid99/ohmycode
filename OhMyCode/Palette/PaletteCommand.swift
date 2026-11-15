@@ -336,5 +336,5 @@ struct PaletteCommand: Identifiable {
                        perform: { _ in
                            NSApp.sendAction(#selector(NSSplitViewController.toggleSidebar(_:)), to: nil, from: nil)
                        }),
-    ]
+    ] + LineCommand.allCases.map(\.paletteCommand)
 }

@@ -222,6 +222,16 @@ struct WorkspaceCommands: Commands {
             Button("Select All Occurrences") { workspace?.activeDocument?.editor?.selectAllOccurrences() }
                 .keyboardShortcut(keys.shortcut("edit.selectAllOccurrences"))
                 .disabled(workspace?.activeDocument == nil)
+            // No menu shortcuts: the editor handles their keys itself, so they still work in
+            // other text fields (⌥↑ in the commit message).
+            Menu("Lines") {
+                ForEach(LineCommand.allCases, id: \.self) { command in
+                    Button(keys.display(for: command.id).map { "\(command.title)  \($0)" } ?? command.title) {
+                        workspace?.activeDocument?.editor?.perform(command)
+                    }
+                }
+            }
+            .disabled(workspace?.activeDocument?.editor == nil)
             Button("Go to Next Symbol Highlight") { workspace?.activeDocument?.editor?.moveToOccurrence(forward: true) }
                 .keyboardShortcut(keys.shortcut("go.nextHighlight"))
                 .disabled(workspace?.activeDocument == nil)

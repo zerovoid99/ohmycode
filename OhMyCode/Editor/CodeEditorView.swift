@@ -118,6 +118,7 @@ final class EditorController: NSObject {
             self.hover.dismiss()
             self.goToDefinition()
         }
+        textView.onCommandKey = { [weak self] event in self?.handleLineCommandKey(event) ?? false }
         textView.onCommandClickAt = { [weak self] point in self?.followLink(at: point) ?? false }
         textView.onFlagsChanged = { [weak self] point, modifiers in self?.updateLinkHover(at: point, modifiers: modifiers) }
         textView.onMouseMoved = { [weak self] point in
@@ -787,9 +788,19 @@ final class CodeTextView: NSTextView {
         onMouseExited?()
     }
 
+    /// A key press bound to an editor command (line commands); returns true if handled.
+    var onCommandKey: ((NSEvent) -> Bool)?
+
     override func keyDown(with event: NSEvent) {
         onKeyDown?()
+        if onCommandKey?(event) == true { return }
         super.keyDown(with: event)
+    }
+
+    /// ⌘ keys reach views before the menus: the editor's own commands go first while it's focused.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, onCommandKey?(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
     }
 
     override func scrollWheel(with event: NSEvent) {
