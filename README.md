@@ -57,6 +57,13 @@ outlined. Without one, the same whole word is highlighted. Selecting text on one
 same text elsewhere. F7 and ⇧F7 go to the next and previous place. Highlights are turned off in
 Settings → Editor or with *View: Toggle Symbol Highlights*.
 
+## Brackets and indent guides
+With the cursor beside a bracket (`(`, `[`, `{`), it and its match are outlined. Brackets inside
+strings and comments don't count. ⇧⌘\ goes to the matching bracket, or from inside a pair to its
+closing bracket. Thin indent guides mark each indentation level. The guide of the block the cursor
+is in (or the block its line opens) is drawn brighter. Both can be turned off in Settings → Editor;
+*View: Toggle Indent Guides* is in the palette.
+
 ## Line editing
 Commands on the selection's lines, each one undoable step:
 
