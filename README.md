@@ -86,6 +86,14 @@ type in it; a thin accent line marks the active pane. Closing a pane gives its p
 neighbour. Double-click a tab, or right-click it, to rename it: the name stays until you clear it,
 even when the shell sets its own title. Right-click also has *Split Terminal* and *Kill Terminal*.
 
+## GitHub pull requests
+The Pull Requests sidebar lists the repository's open pull requests through the GitHub CLI
+(`brew install gh`, then `gh auth login`). Each one shows its author, branch, draft state and
+review decision. Click one to read its description, changed files (click to open), reviews and
+comments. *Check Out* switches to its branch, and the compass button opens it on GitHub. The +
+button (or *GitHub: Create Pull Request…*) creates one from the current branch. The form starts
+with the last commit's subject and body, and the branch is pushed first if it has no upstream.
+
 ## Files in the Explorer
 Right-click in the Explorer for *New File…*, *New Folder…*, *Rename…*, *Move to Trash*,
 *Reveal in Finder*, *Copy Path* and *Copy Relative Path*. Clicking empty space puts new items at
