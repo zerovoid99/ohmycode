@@ -63,6 +63,13 @@ Settings → Editor → Word wrap changes that to always or never. ⌥Z (*View: 
 switches it for the active file until it's closed. Line numbers, breakpoints and other gutter marks
 stay on a wrapped line's first row.
 
+## Tabs and whitespace
+A tab is drawn as wide as the file's tab width in spaces: `.editorconfig`'s `tab_width`, otherwise
+the indentation's width. Tab-indented code lines up with space-indented code and with the indent
+guides. Spaces show as · and tabs as → in the selection. Settings → Editor → Show whitespace
+changes that to never, leading/trailing/repeated, or all. *View: Toggle Render Whitespace* switches
+between all and the selection.
+
 ## Brackets and indent guides
 With the cursor beside a bracket (`(`, `[`, `{`), it and its match are outlined. Brackets inside
 strings and comments don't count. ⇧⌘\ goes to the matching bracket, or from inside a pair to its
