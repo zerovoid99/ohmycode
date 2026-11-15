@@ -89,7 +89,9 @@ extension EditorController {
     /// Handled here rather than by menu shortcuts, so the keys still work in other text fields.
     func handleLineCommandKey(_ event: NSEvent) -> Bool {
         guard !event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
-              let id = Keybindings.shared.command(for: event), let command = LineCommand.command(id: id) else { return false }
+              let id = Keybindings.shared.command(for: event) else { return false }
+        if id == "go.bracket" { jumpToBracket(); return true }
+        guard let command = LineCommand.command(id: id) else { return false }
         perform(command)
         return true
     }

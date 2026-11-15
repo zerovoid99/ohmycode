@@ -222,6 +222,10 @@ struct WorkspaceCommands: Commands {
             Button("Select All Occurrences") { workspace?.activeDocument?.editor?.selectAllOccurrences() }
                 .keyboardShortcut(keys.shortcut("edit.selectAllOccurrences"))
                 .disabled(workspace?.activeDocument == nil)
+            Button(keys.display(for: "go.bracket").map { "Go to Bracket  \($0)" } ?? "Go to Bracket") {
+                workspace?.activeDocument?.editor?.jumpToBracket()
+            }
+            .disabled(workspace?.activeDocument?.editor == nil)
             // No menu shortcuts: the editor handles their keys itself, so they still work in
             // other text fields (⌥↑ in the commit message).
             Menu("Lines") {

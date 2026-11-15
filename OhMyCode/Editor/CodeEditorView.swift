@@ -51,6 +51,9 @@ final class EditorController: NSObject {
     private(set) lazy var completion = CompletionController(editor: self)
     private(set) lazy var hover = HoverController(editor: self)
     private(set) lazy var blameHover = BlameHoverController(editor: self)
+    /// Strings and comments in the highlighted text (brackets there don't match), for `nonCodeVersion`.
+    var nonCodeRanges: [NSRange] = []
+    var nonCodeVersion = -1
     /// The link under the mouse while ⌘ is held (underlined).
     var hoveredLink: EditorLink?
     /// Where the symbol under the cursor appears.
@@ -97,6 +100,8 @@ final class EditorController: NSObject {
         let overlay = DiagnosticsOverlayView(textView: textView, document: document)
         textView.addSubview(overlay)
         diagnosticsOverlay = overlay
+        overlay.indentGuides = { [weak self] in self?.indentGuideRects() ?? [] }
+        overlay.brackets = { [weak self] in self?.bracketRects() ?? [] }
         overlay.linkUnderline = { [weak self] in self?.linkUnderlineRect() }
         overlay.occurrences = { [weak self] in self?.occurrenceRects() ?? [] }
         overlay.foldPlaceholders = { [weak self] in self?.foldPlaceholderRects() ?? [] }
@@ -888,6 +893,8 @@ extension EditorController: SyntaxHighlighterClient {
             layoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
         }
         highlightedRange = range
+        rememberNonCode(highlights)
+        diagnosticsOverlay?.needsDisplay = true // brackets in strings stop matching
     }
 }
 

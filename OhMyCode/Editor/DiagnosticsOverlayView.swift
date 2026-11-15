@@ -8,6 +8,10 @@ import AppKit
 final class DiagnosticsOverlayView: NSView {
     private weak var textView: NSTextView?
     private let document: EditorDocument
+    /// Indent guides (one rect per line and level), brighter for the cursor's block.
+    var indentGuides: (() -> [(rect: NSRect, isActive: Bool)])?
+    /// The bracket beside the cursor and its match: outlined.
+    var brackets: (() -> [NSRect])?
     /// The link under the mouse while ⌘ is held: underlined.
     var linkUnderline: (() -> NSRect?)?
     /// Where the symbol under the cursor appears (written places are outlined too).
@@ -72,6 +76,18 @@ final class DiagnosticsOverlayView: NSView {
         if let rect = executionLine?(), rect.intersects(dirtyRect) {
             NSColor.systemYellow.withAlphaComponent(0.22).setFill()
             rect.fill(using: .sourceOver)
+        }
+        for (rect, isActive) in indentGuides?() ?? [] where rect.intersects(dirtyRect) {
+            theme.lineNumber.withAlphaComponent(isActive ? 0.55 : 0.18).setFill()
+            rect.fill(using: .sourceOver)
+        }
+        for rect in brackets?() ?? [] where rect.intersects(dirtyRect.insetBy(dx: -2, dy: -2)) {
+            let box = NSBezierPath(roundedRect: rect.insetBy(dx: -0.5, dy: 0.5), xRadius: 2, yRadius: 2)
+            theme.selection.withAlphaComponent(0.3).setFill()
+            box.fill()
+            theme.foreground.withAlphaComponent(0.45).setStroke()
+            box.lineWidth = 1
+            box.stroke()
         }
         for (rect, isWrite) in occurrences?() ?? [] where rect.intersects(dirtyRect) {
             let box = NSBezierPath(roundedRect: rect.insetBy(dx: -0.5, dy: 0), xRadius: 2, yRadius: 2)

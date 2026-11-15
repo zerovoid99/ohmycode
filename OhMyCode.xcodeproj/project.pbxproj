@@ -87,6 +87,7 @@
 		6F155EAA252E5ED13E320E60 /* TreeSitterJSON in Frameworks */ = {isa = PBXBuildFile; productRef = DFFC9B802FF091C8BB16D5AE /* TreeSitterJSON */; };
 		6F6580D30998138BE1E1BAC2 /* GutterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F488C05B906F0EDF3B72B9D /* GutterView.swift */; };
 		7042CD02AA5B9520810A7177 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2903C4AF8D35ECFA693E971 /* AppSettings.swift */; };
+		705E08E8128FB1299B6B4A84 /* BracketsAndGuides.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BA27F72EE334EC2CEE7909C /* BracketsAndGuides.swift */; };
 		70BE660B9B25C427A5DE8207 /* CommitGraphTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 914B50B9C32C4D129975E6BF /* CommitGraphTests.swift */; };
 		72FF0E07BAB372FBE37A8874 /* KeybindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73418B3915E627D3E9C414FA /* KeybindingTests.swift */; };
 		7911ACE28BD32FAAD946A752 /* Workspace+Testing.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4F9F1DAA1DFFC81C33C049F /* Workspace+Testing.swift */; };
@@ -123,6 +124,7 @@
 		A5EEA136CE98C28D3146A78F /* WorkspaceCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 995D20D57A5D6B2463BCB67A /* WorkspaceCommands.swift */; };
 		A7691BACE48515FE4E24533A /* SettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 235C4B58C44E541E5D4CCE51 /* SettingsTests.swift */; };
 		A831D17D876BEE7755F56B1D /* DebuggerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E1653AB1FC39B91FD8C6A3 /* DebuggerTests.swift */; };
+		A94A499556E5989B2A57138E /* BracketGuideTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E738C52C8BA5E39775326DC6 /* BracketGuideTests.swift */; };
 		AA5F484687B73816E1700EAC /* BranchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A31CC2BCD7DAB857B704425 /* BranchViews.swift */; };
 		AAB71F6BE2CE7E5D5864EADF /* DiffHighlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */; };
 		AD848CDFC97760B7DF52D210 /* OutlineViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C6DCEDB6FD252CBA4ECF5E8 /* OutlineViews.swift */; };
@@ -321,6 +323,7 @@
 		9946041B33945585756E431F /* FileIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileIndex.swift; sourceTree = "<group>"; };
 		995D20D57A5D6B2463BCB67A /* WorkspaceCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCommands.swift; sourceTree = "<group>"; };
 		9AE654543EFDE601C8E12DF0 /* Keybindings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keybindings.swift; sourceTree = "<group>"; };
+		9BA27F72EE334EC2CEE7909C /* BracketsAndGuides.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BracketsAndGuides.swift; sourceTree = "<group>"; };
 		9D20F3C4146C1A73972F0F3A /* ExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionTests.swift; sourceTree = "<group>"; };
 		9FEB380BB31707CFA139D310 /* EditorConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorConfigTests.swift; sourceTree = "<group>"; };
 		A14A7EFABD0BFC396322A78C /* SourceControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlView.swift; sourceTree = "<group>"; };
@@ -371,6 +374,7 @@
 		E51C35CA661DE3585B84B90A /* WorkspaceSymbolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSymbolTests.swift; sourceTree = "<group>"; };
 		E520F6D2E010896834BCCC39 /* Breakpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Breakpoints.swift; sourceTree = "<group>"; };
 		E6E89F7D2C70DD77178D0328 /* EditorConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorConfig.swift; sourceTree = "<group>"; };
+		E738C52C8BA5E39775326DC6 /* BracketGuideTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BracketGuideTests.swift; sourceTree = "<group>"; };
 		E80C26D0340BB82FFDA82C16 /* TerminalShaders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalShaders.swift; sourceTree = "<group>"; };
 		E900D8E8A233E7EC65D90EB6 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		EBBC78B08D2E20847B26819B /* StashTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StashTests.swift; sourceTree = "<group>"; };
@@ -523,6 +527,7 @@
 				0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */,
 				7828EF22F88C26490D76FA27 /* BlameCommitTests.swift */,
 				67EAC67DA0BCF2450AAD5F84 /* BlameDiffTests.swift */,
+				E738C52C8BA5E39775326DC6 /* BracketGuideTests.swift */,
 				0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */,
 				CD1EE59BB50DF03FDACEC29F /* CherryPickRevertTests.swift */,
 				B7047525B08553CFC890D220 /* CodeActionTests.swift */,
@@ -672,6 +677,7 @@
 			children = (
 				A920B7257090F4575659642F /* AutoEdit.swift */,
 				51EDB8422CD78390FEAC5620 /* BlameHover.swift */,
+				9BA27F72EE334EC2CEE7909C /* BracketsAndGuides.swift */,
 				95ED4C401864D6BBB7980F5B /* CodeEditorView.swift */,
 				D06B0B21A096AF4D60EC2722 /* DiagnosticsOverlayView.swift */,
 				5E61A8D3BF9CA8E20E330E29 /* DocumentLinks.swift */,
@@ -922,6 +928,7 @@
 				F8468141431F9A6418630B20 /* AutoEdit.swift in Sources */,
 				5EF675E656B87F5D3AF0524C /* BlameHover.swift in Sources */,
 				5EDC7EEE1064B0DFD2722348 /* BottomPanel.swift in Sources */,
+				705E08E8128FB1299B6B4A84 /* BracketsAndGuides.swift in Sources */,
 				AA5F484687B73816E1700EAC /* BranchViews.swift in Sources */,
 				15C8D675FC4F51388ED12DD0 /* Breakpoints.swift in Sources */,
 				B119694F5D264AD653855F09 /* CallHierarchy.swift in Sources */,
@@ -1048,6 +1055,7 @@
 				D3F4C2A897DA315C7F9495F4 /* AutoEditTests.swift in Sources */,
 				0F88E5B7B3FCD696BBD5E5AC /* BlameCommitTests.swift in Sources */,
 				8314EEB610146D25ED51C5DF /* BlameDiffTests.swift in Sources */,
+				A94A499556E5989B2A57138E /* BracketGuideTests.swift in Sources */,
 				CCF3FEB6ABD8D4B06EE01189 /* BranchOperationTests.swift in Sources */,
 				020BDA84409FA41D7BA2F892 /* CherryPickRevertTests.swift in Sources */,
 				A3944809A238BAEE24E8580C /* CodeActionTests.swift in Sources */,

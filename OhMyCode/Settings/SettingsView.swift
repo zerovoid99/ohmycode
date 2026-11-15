@@ -92,6 +92,8 @@ struct SettingsView: View {
             Toggle("Show git blame for the current line", isOn: $settings.showsLineBlame)
             Toggle("Show breadcrumbs (path and symbols above the editor)", isOn: $settings.showsBreadcrumbs)
             Toggle("Highlight where the symbol under the cursor appears", isOn: $settings.highlightsOccurrences)
+            Toggle("Highlight matching brackets", isOn: $settings.highlightsMatchingBrackets)
+            Toggle("Show indent guides", isOn: $settings.showsIndentGuides)
             Toggle("Show inlay hints (types and parameter names from the language server)", isOn: $settings.showsInlayHints)
             Toggle("Stage files when their merge conflicts are resolved and saved", isOn: $settings.stagesResolvedConflicts)
             Section("Preview") {
