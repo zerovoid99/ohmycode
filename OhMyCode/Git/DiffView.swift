@@ -17,6 +17,8 @@ final class DiffSession: Identifiable {
         case compare(GitCommit)
         /// The two sides of a merge conflict, as they were when compared.
         case conflict(ConflictComparison)
+        /// A version from the local history against the editor's text (live, like compare).
+        case history(LocalHistoryEntry)
     }
 
     let id = UUID()
@@ -56,6 +58,23 @@ final class DiffSession: Identifiable {
         self.ownsDocument = ownsDocument
     }
 
+    init(document: EditorDocument, ownsDocument: Bool, comparingWithHistory entry: LocalHistoryEntry) {
+        mode = .history(entry)
+        url = document.url
+        self.document = document
+        self.ownsDocument = ownsDocument
+    }
+
+    /// Loaded text on the left against the live document on the right (compare, history).
+    var isLiveComparison: Bool {
+        switch mode {
+        case .compare, .history: true
+        default: false
+        }
+    }
+
+    private static func short(_ date: Date) -> String { date.formatted(date: .abbreviated, time: .shortened) }
+
     init(stagedChangesOf url: URL) {
         mode = .staged
         self.url = url
@@ -89,6 +108,7 @@ final class DiffSession: Identifiable {
         case .staged: "\(fileName) (Staged)"
         case .commit(let commit): "\(fileName) (\(commit.shortSHA))"
         case .compare(let commit): "\(fileName) (\(commit.shortSHA) ↔ Current)"
+        case .history(let entry): "\(fileName) (\(Self.short(entry.date)) ↔ Current)"
         case .conflict: "\(fileName) (Current ↔ Incoming)"
         }
     }
@@ -99,6 +119,7 @@ final class DiffSession: Identifiable {
         case .staged: "\(url.path) — HEAD ↔ staged"
         case .commit(let commit): "\(url.path) — \(commit.summary) (\(commit.shortSHA))"
         case .compare(let commit): "\(url.path) — \(commit.shortSHA) ↔ working tree"
+        case .history(let entry): "\(url.path) — local history (\(entry.reason.title), \(Self.short(entry.date))) ↔ current"
         case .conflict(let conflict): "\(url.path) — merge conflict: \(conflict.currentLabel) ↔ \(conflict.incomingLabel)"
         }
     }
@@ -110,6 +131,7 @@ final class DiffSession: Identifiable {
         case .staged: ("HEAD", "Staged")
         case .commit(let commit): (commit.parents.first.map { String($0.prefix(7)) } ?? "(none)", commit.shortSHA)
         case .compare(let commit): (commit.shortSHA, "Working Tree")
+        case .history(let entry): ("\(entry.reason.title) \(Self.short(entry.date))", "Current")
         case .conflict(let conflict): ("Current: \(conflict.currentLabel)", "Incoming: \(conflict.incomingLabel)")
         }
     }
@@ -133,7 +155,7 @@ final class DiffSession: Identifiable {
     var hunks: [DiffHunk] {
         switch mode {
         case .workingTree: document?.diffHunks ?? []
-        case .compare: compareHunks
+        case .compare, .history: compareHunks
         case .staged, .commit, .conflict: loadedHunks
         }
     }
@@ -170,7 +192,7 @@ final class DiffSession: Identifiable {
     /// Compare mode: diffs the commit's text against the document's current text (off the main
     /// thread), unless that text was already diffed.
     func refreshCompare() async {
-        guard case .compare = mode, let document, let base = loadedBase else { return }
+        guard isLiveComparison, let document, let base = loadedBase else { return }
         let version = document.diffTextVersion
         guard compareVersion != version || loadedVersion != comparedLoadedVersion else { return }
         let loaded = loadedVersion
@@ -343,6 +365,7 @@ struct DiffView: View {
         case .staged: "The staged version matches the last commit."
         case .commit: "This commit didn't change the file's content."
         case .compare: "The file matches this commit's version."
+        case .history: "The file matches this saved version."
         case .conflict: "Both sides of the conflict are the same."
         }
     }

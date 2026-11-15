@@ -194,7 +194,15 @@ final class EditorDocument: Identifiable {
     }
 
     func save() throws {
-        try textStorage.string.write(to: url, atomically: true, encoding: .utf8)
+        let text = textStorage.string
+        // The local history: what's on disk first if it's not kept yet (the version before
+        // this session's first save, or another program's), then what's saved.
+        let history = LocalHistory.shared
+        if let previous = try? String(contentsOf: url, encoding: .utf8), previous != text {
+            history.record(previous, for: url, reason: .beforeSave)
+        }
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        history.record(text, for: url, reason: .saved)
         diskModificationDate = Self.modificationDate(of: url)
         isDirty = false
         hasExternalChanges = false
@@ -300,6 +308,7 @@ final class EditorDocument: Identifiable {
         diskModificationDate = date
         guard text != textStorage.mutableString as String else { return }
 
+        LocalHistory.shared.record(textStorage.mutableString as String, for: url, reason: .beforeReload)
         let selections = editors.map { ($0, $0.textView.selectedRange()) }
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length),
                                       with: NSAttributedString(string: text, attributes: EditorTheme.baseAttributes))

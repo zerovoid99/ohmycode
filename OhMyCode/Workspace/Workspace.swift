@@ -840,6 +840,12 @@ final class Workspace {
         return session
     }
 
+    /// Shows a new diff tab.
+    func addDiffSession(_ session: DiffSession) {
+        diffSessions.append(session)
+        activeGroup.show(session.id)
+    }
+
     /// The file as it was in a commit against the editor's text now (live).
     @discardableResult
     func compare(_ commit: GitCommit, with url: URL) -> DiffSession? {
@@ -1933,7 +1939,7 @@ final class Workspace {
     }
 
     /// Opens a document without giving it a tab (for a diff tab).
-    private func openWithoutTab(_ url: URL) -> EditorDocument? {
+    func openWithoutTab(_ url: URL) -> EditorDocument? {
         do {
             let document = try EditorDocument(url: url)
             documents.append(document)
