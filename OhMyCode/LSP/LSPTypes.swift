@@ -427,6 +427,24 @@ struct SignatureHelp: Equatable, Sendable {
     }
 }
 
+/// A link the server found in a file (an import's path, a URL in a comment). Without a
+/// target it's resolved when followed.
+struct LSPDocumentLink: @unchecked Sendable {
+    var range: LSPRange
+    var target: URL?
+    var tooltip: String?
+    /// Sent back to resolve it.
+    var json: [String: Any]
+
+    init?(json: Any?) {
+        guard let object = json as? [String: Any], let range = LSPRange(json: object["range"]) else { return nil }
+        self.range = range
+        target = (object["target"] as? String).flatMap(URL.init(string:))
+        tooltip = object["tooltip"] as? String
+        self.json = object
+    }
+}
+
 /// One place a symbol appears in its file (`textDocument/documentHighlight`).
 struct DocumentHighlight: Equatable, Sendable {
     enum Kind: Int, Sendable { case text = 1, read, write }

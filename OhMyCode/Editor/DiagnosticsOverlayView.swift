@@ -8,6 +8,8 @@ import AppKit
 final class DiagnosticsOverlayView: NSView {
     private weak var textView: NSTextView?
     private let document: EditorDocument
+    /// The link under the mouse while ⌘ is held: underlined.
+    var linkUnderline: (() -> NSRect?)?
     /// Where the symbol under the cursor appears (written places are outlined too).
     var occurrences: (() -> [(rect: NSRect, isWrite: Bool)])?
     /// Placeholders for folded regions, in this view's (= the text view's) coordinates.
@@ -140,6 +142,10 @@ final class DiagnosticsOverlayView: NSView {
             let attributes: [NSAttributedString.Key: Any] = [.font: EditorTheme.font, .foregroundColor: theme.foreground]
             let size = dots.size(withAttributes: attributes)
             dots.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
+        }
+        if let rect = linkUnderline?(), rect.intersects(dirtyRect.insetBy(dx: 0, dy: -2)) {
+            NSColor.linkColor.setFill()
+            NSRect(x: rect.minX, y: rect.maxY - 1.5, width: rect.width, height: 1).fill()
         }
         for (rect, color) in segments() where rect.intersects(dirtyRect.insetBy(dx: 0, dy: -4)) {
             color.setStroke()

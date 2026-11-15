@@ -84,6 +84,7 @@ final class LanguageClient {
                     "callHierarchy": [String: Any](),
                     "inlayHint": [String: Any](),
                     "documentHighlight": [String: Any](),
+                    "documentLink": ["tooltipSupport": true],
                     "codeAction": [
                         "codeActionLiteralSupport": ["codeActionKind": ["valueSet": [
                             "", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite",
@@ -213,6 +214,7 @@ final class LanguageClient {
         case signatureHelp = "signatureHelpProvider"
         case inlayHint = "inlayHintProvider"
         case documentHighlight = "documentHighlightProvider"
+        case documentLink = "documentLinkProvider"
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -261,6 +263,20 @@ final class LanguageClient {
     var onApplyEdit: ((WorkspaceEdit, String?) -> Bool)?
 
     // MARK: Inlay hints
+
+    /// The file's links (targets may come later, from `resolveDocumentLink`).
+    func documentLinks(url: URL) async throws -> [LSPDocumentLink] {
+        let result = try await request("textDocument/documentLink", params: ["textDocument": ["uri": url.absoluteString]])
+        return (result as? [Any] ?? []).compactMap(LSPDocumentLink.init(json:))
+    }
+
+    var resolvesDocumentLinks: Bool {
+        (capabilities["documentLinkProvider"] as? [String: Any])?["resolveProvider"] as? Bool ?? false
+    }
+
+    func resolveDocumentLink(_ link: LSPDocumentLink) async throws -> LSPDocumentLink? {
+        LSPDocumentLink(json: try await request("documentLink/resolve", params: link.json))
+    }
 
     /// Where the symbol at `position` appears in the file, and whether it's read or written there.
     func documentHighlights(url: URL, position: LSPPosition) async throws -> [DocumentHighlight] {

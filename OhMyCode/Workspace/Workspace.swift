@@ -407,6 +407,7 @@ final class Workspace {
                 while let client, client.state == .starting { try? await Task.sleep(for: .milliseconds(200)) }
                 document?.refreshSymbols()
                 document?.refreshInlayHints()
+                document?.refreshLinks()
             }
         }
     }

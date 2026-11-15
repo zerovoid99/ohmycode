@@ -143,7 +143,8 @@ while True:
             "implementationProvider": True, "typeDefinitionProvider": True, "callHierarchyProvider": True,
             "workspaceSymbolProvider": True, "codeActionProvider": {"resolveProvider": True},
             "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
-            "inlayHintProvider": True, "documentHighlightProvider": True}}})
+            "inlayHintProvider": True, "documentHighlightProvider": True,
+            "documentLinkProvider": {"resolveProvider": True}}}})
     elif method == "textDocument/hover":
         word, rng = word_at(params["textDocument"]["uri"], params["position"])
         result = None
@@ -303,6 +304,25 @@ while True:
                   "signatures": [{"label": "fooBar(count: Int, name: String) -> Int", "documentation": "Makes a bar.",
                                   "parameters": [{"label": [7, 17], "documentation": "How many."},
                                                  {"label": "name: String"}]}]}})
+    elif method == "textDocument/documentLink":
+        links = []
+        for number, line in enumerate(text_of(params["textDocument"]["uri"]).split("\n")):
+            # include "name": resolved later; goto "name": a target at line 2 now.
+            for m in re.finditer(r'(include|goto) "([^"]+)"', line):
+                start = len(units(line[:m.start(2)]))
+                link = {"range": {"start": {"line": number, "character": start},
+                                  "end": {"line": number, "character": start + len(units(m.group(2)))}}}
+                if m.group(1) == "include":
+                    link["data"] = {"path": m.group(2)}
+                else:
+                    link["target"] = "file://" + quote(os.path.join(root, m.group(2))) + "#L2"
+                    link["tooltip"] = "Open " + m.group(2)
+                links.append(link)
+        send({"jsonrpc": "2.0", "id": mid, "result": links})
+    elif method == "documentLink/resolve":
+        link = dict(params)
+        link["target"] = "file://" + quote(os.path.join(root, params["data"]["path"]))
+        send({"jsonrpc": "2.0", "id": mid, "result": link})
     elif method == "textDocument/documentHighlight":
         uri = params["textDocument"]["uri"]
         word, _ = word_at(uri, params["position"])

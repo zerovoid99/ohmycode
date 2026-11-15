@@ -51,6 +51,8 @@ final class EditorController: NSObject {
     private(set) lazy var completion = CompletionController(editor: self)
     private(set) lazy var hover = HoverController(editor: self)
     private(set) lazy var blameHover = BlameHoverController(editor: self)
+    /// The link under the mouse while ⌘ is held (underlined).
+    var hoveredLink: EditorLink?
     /// Where the symbol under the cursor appears.
     private(set) lazy var occurrences = OccurrenceHighlighter(editor: self)
     /// What the user just typed, captured before the change, for completion triggering.
@@ -95,6 +97,7 @@ final class EditorController: NSObject {
         let overlay = DiagnosticsOverlayView(textView: textView, document: document)
         textView.addSubview(overlay)
         diagnosticsOverlay = overlay
+        overlay.linkUnderline = { [weak self] in self?.linkUnderlineRect() }
         overlay.occurrences = { [weak self] in self?.occurrenceRects() ?? [] }
         overlay.foldPlaceholders = { [weak self] in self?.foldPlaceholderRects() ?? [] }
         overlay.extraCursors = { [weak self] in self?.extraCursorShapes() ?? ([], []) }
@@ -115,8 +118,11 @@ final class EditorController: NSObject {
             self.hover.dismiss()
             self.goToDefinition()
         }
+        textView.onCommandClickAt = { [weak self] point in self?.followLink(at: point) ?? false }
+        textView.onFlagsChanged = { [weak self] point, modifiers in self?.updateLinkHover(at: point, modifiers: modifiers) }
         textView.onMouseMoved = { [weak self] point in
             guard let self else { return }
+            self.updateLinkHover(at: point, modifiers: NSEvent.modifierFlags)
             if self.blameHover.mouseMoved(to: point) { self.hover.dismiss() } else { self.hover.mouseMoved(to: point) }
         }
         textView.onOptionClick = { [weak self] location in self?.toggleCursor(at: location) }
@@ -136,7 +142,11 @@ final class EditorController: NSObject {
             self.document.unfold(atHeader: hit.header)
             return true
         }
-        textView.onMouseExited = { [weak self] in self?.hover.mouseExited(); self?.blameHover.mouseExited() }
+        textView.onMouseExited = { [weak self] in
+            self?.hover.mouseExited()
+            self?.blameHover.mouseExited()
+            self?.updateLinkHover(at: nil, modifiers: [])
+        }
         textView.onKeyDown = { [weak self] in self?.hover.dismiss(); self?.blameHover.dismiss() }
         gutter.onLineClick = { [weak self] line, rect in self?.showHunk(atLine: line, rect: rect) }
         gutter.onFoldClick = { [weak self] line in self?.document.toggleFold(atLine: line) }
@@ -666,7 +676,7 @@ extension EditorController: NSTextViewDelegate {
         if !(NSLocationInRange(charIndex, selection) || (selection.length == 0 && charIndex == selection.location)) {
             view.setSelectedRange(NSRange(location: charIndex, length: 0))
         }
-        var items = languageMenuItems()
+        var items = linkMenuItems(at: charIndex) + languageMenuItems()
         // In a git repository, with changes: stage what the selection touches.
         if document.stageHunkAction != nil, !document.diffHunks.isEmpty {
             let stage = NSMenuItem(title: "Stage Selected Lines", action: #selector(contextStageLines), keyEquivalent: "")
@@ -681,6 +691,7 @@ extension EditorController: NSTextViewDelegate {
 
     func textDidChange(_ notification: Notification) {
         hover.dismiss()
+        hoveredLink = nil
         clearExtraCursors() // an edit that bypassed the cursors (paste, completion): positions are stale
         // Highlighting is rescheduled by the document's edit observer.
         gutterView.updateWidth()
@@ -744,7 +755,18 @@ final class CodeTextView: NSTextView {
     var onMouseMoved: ((NSPoint) -> Void)?
     var onMouseExited: (() -> Void)?
     var onKeyDown: (() -> Void)?
+    /// ⌘-click; returns true if handled (a link), before Go to Definition.
+    var onCommandClickAt: ((NSPoint) -> Bool)?
+    /// Modifier keys changed, with the mouse's point in the view (nil: outside it).
+    var onFlagsChanged: ((NSPoint?, NSEvent.ModifierFlags) -> Void)?
     private var hoverTrackingArea: NSTrackingArea?
+
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        guard let window else { return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        onFlagsChanged?(visibleRect.contains(point) ? point : nil, event.modifierFlags)
+    }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -813,6 +835,7 @@ final class CodeTextView: NSTextView {
            onClick?(convert(event.locationInWindow, from: nil)) == true { return }
         guard event.modifierFlags.contains(.command), let onCommandClick else { return super.mouseDown(with: event) }
         let point = convert(event.locationInWindow, from: nil)
+        if event.modifierFlags.intersection([.command, .option, .shift, .control]) == .command, onCommandClickAt?(point) == true { return }
         setSelectedRange(NSRange(location: characterIndexForInsertion(at: point), length: 0))
         onCommandClick()
     }

@@ -130,6 +130,10 @@ final class EditorDocument: Identifiable {
     private(set) var symbols: [DocumentSymbol] = []
     @ObservationIgnored private var symbolsTask: Task<Void, Never>?
     @ObservationIgnored var inlayHintsTask: Task<Void, Never>?
+    /// The language server's links in the text (see DocumentLinks.swift), for `serverLinksVersion`.
+    @ObservationIgnored var serverLinks: [LSPDocumentLink] = []
+    @ObservationIgnored var serverLinksVersion = -1
+    @ObservationIgnored var linksTask: Task<Void, Never>?
     /// The next storage edit's exact replacement: `range` replaced by `length` characters.
     @ObservationIgnored var pendingReplacement: (range: NSRange, length: Int)?
     /// The folder it's open in (for the folder's snippets).
@@ -425,6 +429,7 @@ final class EditorDocument: Identifiable {
         for editor in editors { editor.snippetDocumentEdited(start: exact.start, oldEnd: exact.oldEnd, delta: delta) }
         refreshSymbols(after: .milliseconds(400))
         refreshInlayHints(after: .milliseconds(500))
+        refreshLinks(after: .milliseconds(500))
         onDidEdit?()
     }
 
