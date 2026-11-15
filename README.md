@@ -72,6 +72,19 @@ outlined. Without one, the same whole word is highlighted. Selecting text on one
 same text elsewhere. F7 and ⇧F7 go to the next and previous place. Highlights are turned off in
 Settings → Editor or with *View: Toggle Symbol Highlights*.
 
+## Folding
+The ⌄ in the gutter, ⌥⌘[ and ⌥⌘] fold and unfold code. Regions follow the code's structure:
+
+- the language server's folding ranges, or the syntax tree's;
+- a block folds from its first line (a function, even with its parameters on several lines) to
+  the line before its closing bracket;
+- multi-line comments and runs of `//` lines fold;
+- a run of imports folds;
+- `// MARK:` sections fold to the next MARK, and `#region` to its `#endregion`.
+
+Languages without brackets (Python, YAML) fold by indentation. *Fold All*, *Fold All Comments*
+and *Fold Level 1/2/3* are in the palette.
+
 ## Zen mode
 ⌥⌘Z (View → Zen Mode) leaves only the text: the sidebar, tabs, breadcrumbs, bottom panel and status
 bar hide, the editor is centered at about 100 columns and the window goes full screen (unless
