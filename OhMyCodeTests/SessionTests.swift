@@ -154,3 +154,38 @@ struct SessionDiskChangeTests {
         #expect(second.notifications.first?.message.contains("changed on disk") == true)
     }
 }
+
+@MainActor
+struct SessionBackupCostTests {
+    @Test func onlyChangedFilesAreWrittenAndNotTooOften() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-session-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for name in ["a.txt", "b.txt"] { try name.write(to: root.appending(path: name), atomically: true, encoding: .utf8) }
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: root.appending(path: "a.txt"))
+        workspace.open(fileAt: root.appending(path: "b.txt"))
+        let a = try #require(workspace.document(matching: root.appending(path: "a.txt")))
+        let b = try #require(workspace.document(matching: root.appending(path: "b.txt")))
+        a.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "1")
+        b.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "1")
+        defer { SessionStore.shared.remove(workspace.sessionKey) }
+        let start = Date()
+        workspace.keepSession(force: true, now: start)
+        let folder = SessionStore.shared.directory.appending(path: workspace.sessionKey)
+        let backup = { (document: EditorDocument) in folder.appending(path: "\(document.id.uuidString)-\(document.url.lastPathComponent).txt") }
+        let modified = { (url: URL) in (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate }
+        let bDate = modified(backup(b))
+
+        // Typing again soon after: not written yet.
+        a.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "2")
+        workspace.keepSession(now: start.addingTimeInterval(0.5))
+        #expect(try String(contentsOf: backup(a), encoding: .utf8) == "1a.txt")
+        // Later: only the changed file's backup is written.
+        Thread.sleep(forTimeInterval: 0.05) // a later modification date, if it were written
+        workspace.keepSession(now: start.addingTimeInterval(3))
+        #expect(try String(contentsOf: backup(a), encoding: .utf8) == "21a.txt")
+        #expect(modified(backup(b)) == bDate)
+        #expect(SessionStore.shared.read(workspace.sessionKey)?.unsaved.count == 2)
+    }
+}

@@ -74,6 +74,10 @@ final class Workspace {
     /// The last session written (see Sessions.swift), to write only changes.
     @ObservationIgnored var sessionSignature: String?
     @ObservationIgnored var sessionLoop: Task<Void, Never>?
+    /// Each unsaved document's edit version when its backup was last written (only changed
+    /// ones are written again), and when the session was.
+    @ObservationIgnored var backedUpVersions: [UUID: Int] = [:]
+    @ObservationIgnored var sessionWrittenAt: Date?
     /// Auto save after a delay: each document's edit version, and since when it's unchanged.
     @ObservationIgnored var autoSaveSeen: [UUID: (version: Int, since: Date)] = [:]
     /// The window's extensions.

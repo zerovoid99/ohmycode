@@ -110,14 +110,18 @@ final class SessionStore {
 extension Workspace {
     var sessionKey: String { SessionStore.key(root: rootURL, windowID: id) }
 
-    /// What the window has open now.
-    func currentSession(wasOpen: Bool) -> (WindowSession, [String: String]) {
+    /// What the window has open now, and the texts of unsaved files changed since their last
+    /// backup (`all`: every unsaved file's).
+    func currentSession(wasOpen: Bool, all: Bool = false) -> (WindowSession, [String: String]) {
         var buffers: [WindowSession.Buffer] = []
         var texts: [String: String] = [:]
-        for (index, document) in documents.enumerated() where document.isDirty {
-            let file = "\(index)-\(document.url.lastPathComponent).txt"
+        for document in documents where document.isDirty {
+            // Named by the document, so a backup stays valid while tabs move around.
+            let file = "\(document.id.uuidString)-\(document.url.lastPathComponent).txt"
             buffers.append(.init(path: document.url.path, file: file, diskDate: document.diskModificationDate))
-            texts[file] = document.textStorage.string
+            if all || backedUpVersions[document.id] != document.editVersion {
+                texts[file] = document.textStorage.string
+            }
         }
         let files = groups.flatMap(\.documentIDs).compactMap { id in document(id: id)?.url.path }
         var seen = Set<String>()
@@ -126,14 +130,21 @@ extension Workspace {
         return (session, texts)
     }
 
+    /// How often, at most, the session is written while typing (a big unsaved file is copied
+    /// each time). Quitting and closing write at once.
+    static let sessionWriteInterval: TimeInterval = 2
+
     /// Writes the session if anything changed since the last write (or `force`).
-    func keepSession(wasOpen: Bool = true, force: Bool = false) {
+    func keepSession(wasOpen: Bool = true, force: Bool = false, now: Date = Date()) {
         guard rootURL != nil || !documents.isEmpty else { return }
         let signature = documents.map { "\($0.id):\($0.editVersion):\($0.isDirty)" }.joined(separator: ",")
             + "|\(groups.flatMap(\.documentIDs))|\(activeDocumentID?.uuidString ?? "")|\(wasOpen)"
         guard force || signature != sessionSignature else { return }
+        if !force, let last = sessionWrittenAt, now.timeIntervalSince(last) < Self.sessionWriteInterval { return }
         sessionSignature = signature
-        let (session, texts) = currentSession(wasOpen: wasOpen)
+        sessionWrittenAt = now
+        let (session, texts) = currentSession(wasOpen: wasOpen, all: force)
+        backedUpVersions = Dictionary(uniqueKeysWithValues: documents.filter(\.isDirty).map { ($0.id, $0.editVersion) })
         // Nothing worth keeping for a window that's going away.
         if !wasOpen, session.unsaved.isEmpty {
             SessionStore.shared.remove(sessionKey)
