@@ -498,6 +498,7 @@ final class EditorController: NSObject {
     @objc private func contextCodeActions(_ sender: Any?) { perform(.codeActions) }
     @objc private func contextRename(_ sender: Any?) { perform(.rename) }
     @objc private func contextFormat(_ sender: Any?) { perform(.format) }
+    @objc private func contextFormatSelection(_ sender: Any?) { perform(.formatSelection) }
     @objc private func contextStageLines(_ sender: Any?) { perform(.stageSelectedLines) }
     @objc private func contextRevertLines(_ sender: Any?) { perform(.revertSelectedLines) }
 
@@ -526,6 +527,7 @@ final class EditorController: NSObject {
             .separator(),
             item("Format Document", #selector(contextFormat), "f", [.shift, .option],
                  enabled: client.supports(.formatting)),
+            item("Format Selection", #selector(contextFormatSelection), enabled: client.supports(.rangeFormatting)),
             .separator(),
         ]
     }
@@ -918,7 +920,7 @@ extension EditorController: SyntaxHighlighterClient {
 
 /// Language actions an editor asks its workspace to run (⌘-click, context menu).
 enum EditorCommand: String {
-    case goToDefinition, findReferences, rename, format, stageSelectedLines, revertSelectedLines
+    case goToDefinition, findReferences, rename, format, formatSelection, stageSelectedLines, revertSelectedLines
     case goToImplementation, callHierarchy, codeActions
 }
 

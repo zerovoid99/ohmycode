@@ -51,6 +51,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { supports($0, .references) }, perform: { $0.findReferences() }),
         PaletteCommand(id: "edit.rename", title: "Rename Symbol…", icon: "pencil", key: "f2",
                        isAvailable: { supports($0, .rename) }, perform: { $0.renameSymbol() }),
+        PaletteCommand(id: "edit.formatSelection", title: "Format Selection", icon: "text.alignleft", key: nil,
+                       isAvailable: { workspace in workspace.activeDocument.map { workspace.canFormatRanges($0) } ?? false }, perform: { $0.formatSelection() }),
         PaletteCommand(id: "edit.format", title: "Format Document", icon: "text.alignleft", key: "alt+shift+f",
                        isAvailable: { workspace in workspace.activeDocument.map { workspace.canFormat($0) } ?? false },
                        perform: { $0.formatDocument() }),

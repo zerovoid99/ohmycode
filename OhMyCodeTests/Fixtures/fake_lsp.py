@@ -139,7 +139,7 @@ while True:
         send({"jsonrpc": "2.0", "id": mid, "result": {"capabilities": {
             "textDocumentSync": 2, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": True,
             "hoverProvider": True, "referencesProvider": True, "renameProvider": {"prepareProvider": True},
-            "documentFormattingProvider": True, "documentSymbolProvider": True,
+            "documentFormattingProvider": True, "documentRangeFormattingProvider": True, "documentSymbolProvider": True,
             "implementationProvider": True, "typeDefinitionProvider": True, "callHierarchyProvider": True,
             "workspaceSymbolProvider": True, "codeActionProvider": {"resolveProvider": True},
             "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
@@ -168,7 +168,7 @@ while True:
         # Open documents as documentChanges, the rest in the same list: both shapes are parsed.
         send({"jsonrpc": "2.0", "id": mid, "result": {"documentChanges": [
             {"textDocument": {"uri": u, "version": None}, "edits": e} for u, e in by_uri.items()]}})
-    elif method == "textDocument/formatting":
+    elif method in ("textDocument/formatting", "textDocument/rangeFormatting"):
         if "SLOW" in docs[params["textDocument"]["uri"]]:
             import time
             time.sleep(1.0)
@@ -176,7 +176,13 @@ while True:
         uri = params["textDocument"]["uri"]
         edits = []
         indent = " " * params["options"]["tabSize"]
+        lines = range(0, 1 << 30)
+        if "range" in params:  # only the range's lines (an end at a line's start stops before it)
+            end = params["range"]["end"]
+            lines = range(params["range"]["start"]["line"], end["line"] + (1 if end["character"] > 0 else 0))
         for line_no, line in enumerate(docs[uri].split("\n")):
+            if line_no not in lines:
+                continue
             stripped = line.rstrip(" \t")
             if len(stripped) != len(line):
                 edits.append({"range": {"start": {"line": line_no, "character": len(units(stripped))},

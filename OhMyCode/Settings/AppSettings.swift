@@ -45,6 +45,7 @@ final class AppSettings {
     var showsMinimap: Bool { didSet { changed() } }
     var stickyScroll: Bool { didSet { changed() } }
     var formatOnSave: Bool { didSet { changed() } }
+    var formatOnSaveScope: FormatOnSaveScope { didSet { changed() } }
     /// Git blame of the cursor's line, shown at its end.
     var showsLineBlame: Bool { didSet { changed() } }
     /// The path and symbols above the editor.
@@ -81,6 +82,7 @@ final class AppSettings {
         showsMinimap = defaults.object(forKey: Keys.showsMinimap) as? Bool ?? true
         stickyScroll = defaults.object(forKey: Keys.stickyScroll) as? Bool ?? true
         formatOnSave = defaults.object(forKey: Keys.formatOnSave) as? Bool ?? false
+        formatOnSaveScope = FormatOnSaveScope(rawValue: defaults.string(forKey: Keys.formatOnSaveScope) ?? "") ?? .file
         showsLineBlame = defaults.object(forKey: Keys.showsLineBlame) as? Bool ?? true
         showsBreadcrumbs = defaults.object(forKey: Keys.showsBreadcrumbs) as? Bool ?? true
         showsInlayHints = defaults.object(forKey: Keys.showsInlayHints) as? Bool ?? true
@@ -105,6 +107,7 @@ final class AppSettings {
         static let showsMinimap = "showsMinimap"
         static let stickyScroll = "stickyScroll"
         static let formatOnSave = "formatOnSave"
+        static let formatOnSaveScope = "formatOnSaveScope"
         static let showsLineBlame = "showsLineBlame"
         static let showsBreadcrumbs = "showsBreadcrumbs"
         static let showsInlayHints = "showsInlayHints"
@@ -139,6 +142,7 @@ final class AppSettings {
         defaults.set(showsMinimap, forKey: Keys.showsMinimap)
         defaults.set(stickyScroll, forKey: Keys.stickyScroll)
         defaults.set(formatOnSave, forKey: Keys.formatOnSave)
+        defaults.set(formatOnSaveScope.rawValue, forKey: Keys.formatOnSaveScope)
         defaults.set(showsLineBlame, forKey: Keys.showsLineBlame)
         defaults.set(showsBreadcrumbs, forKey: Keys.showsBreadcrumbs)
         defaults.set(showsInlayHints, forKey: Keys.showsInlayHints)
@@ -170,7 +174,7 @@ final class AppSettings {
             "autoClosePairs": .bool(autoClosePairs), "highlightsOccurrences": .bool(highlightsOccurrences),
             "highlightsMatchingBrackets": .bool(highlightsMatchingBrackets), "showsIndentGuides": .bool(showsIndentGuides),
             "wordWrap": .string(wordWrap.rawValue), "renderWhitespace": .string(renderWhitespace.rawValue),
-            "semanticHighlighting": .bool(semanticHighlighting),
+            "semanticHighlighting": .bool(semanticHighlighting), "formatOnSaveScope": .string(formatOnSaveScope.rawValue),
         ]
     }
 
@@ -195,6 +199,7 @@ final class AppSettings {
         if let value = values["wordWrap"]?.string.flatMap(WordWrap.init(rawValue:)) { wordWrap = value }
         if let value = values["renderWhitespace"]?.string.flatMap(RenderWhitespace.init(rawValue:)) { renderWhitespace = value }
         if let value = values["semanticHighlighting"]?.bool { semanticHighlighting = value }
+        if let value = values["formatOnSaveScope"]?.string.flatMap(FormatOnSaveScope.init(rawValue:)) { formatOnSaveScope = value }
         if let value = values["stagesResolvedConflicts"]?.bool { stagesResolvedConflicts = value }
         if let value = values["autoClosePairs"]?.bool { autoClosePairs = value }
         isLoading = false

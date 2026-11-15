@@ -79,6 +79,7 @@ final class LanguageClient {
                     "references": [String: Any](),
                     "rename": ["prepareSupport": true],
                     "formatting": [String: Any](),
+                    "rangeFormatting": [String: Any](),
                     "documentSymbol": ["hierarchicalDocumentSymbolSupport": true],
                     "implementation": ["linkSupport": true],
                     "typeDefinition": ["linkSupport": true],
@@ -222,6 +223,7 @@ final class LanguageClient {
         case documentHighlight = "documentHighlightProvider"
         case documentLink = "documentLinkProvider"
         case semanticTokens = "semanticTokensProvider"
+        case rangeFormatting = "documentRangeFormattingProvider"
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -410,6 +412,15 @@ final class LanguageClient {
             "textDocument": ["uri": url.absoluteString],
             "options": ["tabSize": tabSize, "insertSpaces": insertSpaces, "trimTrailingWhitespace": trimTrailingWhitespace,
                         "insertFinalNewline": insertFinalNewline],
+        ])
+        return (result as? [Any] ?? []).compactMap(LSPTextEdit.init(json:))
+    }
+
+    /// Formatting edits for part of the file.
+    func rangeFormatting(url: URL, range: LSPRange, tabSize: Int, insertSpaces: Bool) async throws -> [LSPTextEdit] {
+        let result = try await request("textDocument/rangeFormatting", params: [
+            "textDocument": ["uri": url.absoluteString], "range": range.json,
+            "options": ["tabSize": tabSize, "insertSpaces": insertSpaces],
         ])
         return (result as? [Any] ?? []).compactMap(LSPTextEdit.init(json:))
     }

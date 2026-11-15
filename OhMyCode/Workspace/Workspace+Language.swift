@@ -257,7 +257,7 @@ extension Workspace {
             if formatOnSave ?? AppSettings.shared.formatOnSave, canFormat(document) {
                 // Whichever comes first: the formatted text, or the timeout. (Cancelling doesn't
                 // interrupt the wait for the server's reply, so race them explicitly.)
-                let formatting = Task { _ = try? await format(document) }
+                let formatting = Task { try? await formatForSave(document) }
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     let once = ResumeOnce(continuation)
                     Task { await formatting.value; once.resume() }

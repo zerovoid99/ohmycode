@@ -34,6 +34,7 @@
 		23CDEADD4AD2DEE911808ABF /* WorktreeSubmoduleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1926672DEF8AA6C2EBB38393 /* WorktreeSubmoduleTests.swift */; };
 		24B7957B0621B9E84225341C /* SearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43F3388BA148B4E8F22F589 /* SearchTests.swift */; };
 		28664B92AC99508487820E50 /* Snippets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA8DC1F39DB2BED7EBA925B9 /* Snippets.swift */; };
+		28C480C02AD06B704A5322BA /* RangeFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 446B650C7B4E11DB14D2592C /* RangeFormattingTests.swift */; };
 		28F1A8E7657477770A77DDA9 /* OpenRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7386D21C9C11A319918FF31A /* OpenRequests.swift */; };
 		2B0235D781F2694AD6F4EEB2 /* SemanticTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87B25BF2E8738CD5F709DD71 /* SemanticTokens.swift */; };
 		2B0CD3CDC9A787DE15B8446D /* LaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE95ED4D3C508A3BC3A49E26 /* LaunchConfiguration.swift */; };
@@ -73,6 +74,7 @@
 		5EF675E656B87F5D3AF0524C /* BlameHover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51EDB8422CD78390FEAC5620 /* BlameHover.swift */; };
 		5F430A42226C21B00C6D5136 /* ProblemsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC56AAAAA0ECCF01FEC9B582 /* ProblemsTests.swift */; };
 		6105FE260A7E5F1D19248F68 /* OhMyCodeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95DB07857625F52A05770C90 /* OhMyCodeTests.swift */; };
+		611219575ECC9591D4C92394 /* RangeFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C931C14FBD19669614AF4120 /* RangeFormatting.swift */; };
 		6282F77981B70535D55924D5 /* GitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C36812F51B050541F79C1862 /* GitTests.swift */; };
 		6523E483030DB7FE628945E3 /* ExtensionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D20F3C4146C1A73972F0F3A /* ExtensionTests.swift */; };
 		655A1901D50A5344BFBAF790 /* RemoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E74C25EA407E63F876BE929 /* RemoteTests.swift */; };
@@ -265,6 +267,7 @@
 		3CDE3A5D42C75E7127F24122 /* EditorDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorDocument.swift; sourceTree = "<group>"; };
 		3E1FC2980FDB82C588415FAE /* OpenRequestTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenRequestTests.swift; sourceTree = "<group>"; };
 		444F791D467BD9D84951C7DC /* EditorGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorGroupView.swift; sourceTree = "<group>"; };
+		446B650C7B4E11DB14D2592C /* RangeFormattingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RangeFormattingTests.swift; sourceTree = "<group>"; };
 		466601DA9EFFBBFF52428B7A /* ProcessIOTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessIOTests.swift; sourceTree = "<group>"; };
 		481642F135B6F6F57714FB42 /* XcodeProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XcodeProject.swift; sourceTree = "<group>"; };
 		48E7BA781D696548AAD229A3 /* TaskRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRun.swift; sourceTree = "<group>"; };
@@ -363,6 +366,7 @@
 		C22F1ACD366BDC9907C8479E /* DocumentSymbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentSymbol.swift; sourceTree = "<group>"; };
 		C36812F51B050541F79C1862 /* GitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitTests.swift; sourceTree = "<group>"; };
 		C84CB7A0A0A8C167B6B1E59F /* Profiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profiles.swift; sourceTree = "<group>"; };
+		C931C14FBD19669614AF4120 /* RangeFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RangeFormatting.swift; sourceTree = "<group>"; };
 		CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VSCodeThemeTests.swift; sourceTree = "<group>"; };
 		CCCA5F034FB1A1D75C15F673 /* FileWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatcher.swift; sourceTree = "<group>"; };
 		CD07F5C150F868B00344F045 /* Workspace+Debug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+Debug.swift"; sourceTree = "<group>"; };
@@ -499,6 +503,7 @@
 				1025706C8AB204994FD662CA /* LocalHistory.swift */,
 				8A491A30DB37957E1F83960E /* Problems.swift */,
 				1982B1E8AC78DF8767EBF8BF /* ProcessIO.swift */,
+				C931C14FBD19669614AF4120 /* RangeFormatting.swift */,
 				8902C7C1FC02562C44039229 /* SourceLanguage.swift */,
 				1C7B60F3A673166AEFC17819 /* TextReplacement.swift */,
 				F6163A12092027D9DED0CC99 /* Workspace.swift */,
@@ -576,6 +581,7 @@
 				DC56AAAAA0ECCF01FEC9B582 /* ProblemsTests.swift */,
 				466601DA9EFFBBFF52428B7A /* ProcessIOTests.swift */,
 				863CD7F66E0BE4F5DDC6C3E2 /* ProfileTests.swift */,
+				446B650C7B4E11DB14D2592C /* RangeFormattingTests.swift */,
 				8E74C25EA407E63F876BE929 /* RemoteTests.swift */,
 				FC60C7DA7C4B6252ACD6263F /* RepoHistoryTests.swift */,
 				E43F3388BA148B4E8F22F589 /* SearchTests.swift */,
@@ -1019,6 +1025,7 @@
 				1B1B14FBC1EDE8C35433943C /* ProcessIO.swift in Sources */,
 				3667D816FC7964C5EAD7CD27 /* Profiles.swift in Sources */,
 				40852944F9E58B355D0D3A78 /* ProfilesView.swift in Sources */,
+				611219575ECC9591D4C92394 /* RangeFormatting.swift in Sources */,
 				1CAACB5E1539BC428AF5F78F /* ReferencesView.swift in Sources */,
 				942585BEE4EEF986E5D90309 /* SearchModel.swift in Sources */,
 				6CEEE2541A2EE8879561FE3A /* SearchView.swift in Sources */,
@@ -1112,6 +1119,7 @@
 				5F430A42226C21B00C6D5136 /* ProblemsTests.swift in Sources */,
 				D8C6ABCE8BA051908B8BCA37 /* ProcessIOTests.swift in Sources */,
 				D0E3E3D7A358C6E79F69C3E1 /* ProfileTests.swift in Sources */,
+				28C480C02AD06B704A5322BA /* RangeFormattingTests.swift in Sources */,
 				655A1901D50A5344BFBAF790 /* RemoteTests.swift in Sources */,
 				476F1A5E9F55BE3672D79298 /* RepoHistoryTests.swift in Sources */,
 				24B7957B0621B9E84225341C /* SearchTests.swift in Sources */,

@@ -89,6 +89,10 @@ struct SettingsView: View {
             Toggle("Sticky scroll (keep enclosing declarations at the top)", isOn: $settings.stickyScroll)
             Toggle("Close brackets and quotes automatically", isOn: $settings.autoClosePairs)
             Toggle("Format on save (with the language server)", isOn: $settings.formatOnSave)
+            Picker("Format on save formats", selection: $settings.formatOnSaveScope) {
+                ForEach(FormatOnSaveScope.allCases) { Text($0.title).tag($0) }
+            }
+            .disabled(!settings.formatOnSave)
             Toggle("Show git blame for the current line", isOn: $settings.showsLineBlame)
             Toggle("Show breadcrumbs (path and symbols above the editor)", isOn: $settings.showsBreadcrumbs)
             Toggle("Highlight where the symbol under the cursor appears", isOn: $settings.highlightsOccurrences)

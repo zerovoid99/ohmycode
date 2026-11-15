@@ -444,6 +444,7 @@ final class Workspace {
         case .codeActions: showCodeActions(in: document)
         case .rename: renameSymbol(in: document)
         case .format: formatDocument(document)
+        case .formatSelection: formatSelection(document)
         case .stageSelectedLines: stageSelectedLines(in: document)
         case .revertSelectedLines: revertSelectedLines(in: document)
         }
