@@ -317,9 +317,11 @@ final class Workspace {
         var changedPaths = Set<String>()
         var needsIndexRebuild = false
         var needsGitRefresh = false
+        var editorConfigChanged = false
 
         for event in events {
             if event.requiresRescan || event.path == canonicalRootPath {
+                editorConfigChanged = true
                 rootNode.reloadLoadedSubtree()
                 needsIndexRebuild = true
                 changedPaths.formUnion(documents.map { FileWatcher.canonicalPath($0.url) })
@@ -337,12 +339,14 @@ final class Workspace {
             needsGitRefresh = true
 
             changedPaths.insert(event.path)
+            if components.last == ".editorconfig" { editorConfigChanged = true }
             if event.isStructural {
                 directoriesToReload.insert(components.dropLast().joined(separator: "/"))
                 needsIndexRebuild = true
             }
         }
 
+        if editorConfigChanged { documents.forEach { $0.reloadEditorConfig() } }
         for directory in directoriesToReload {
             let components = directory.isEmpty ? [] : directory.split(separator: "/").map(String.init)
             rootNode.loadedNode(atRelativePath: components)?.reloadChildren()
@@ -2072,6 +2076,8 @@ final class Workspace {
     func save(_ document: EditorDocument) -> Bool {
         do {
             try document.save()
+            // Saved here: its files pick it up now, not when the file watcher reports it.
+            if document.url.lastPathComponent == ".editorconfig" { documents.forEach { $0.reloadEditorConfig() } }
             stageIfConflictResolved(document)
             return true
         } catch {

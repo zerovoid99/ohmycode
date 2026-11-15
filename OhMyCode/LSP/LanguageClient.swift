@@ -368,11 +368,12 @@ final class LanguageClient {
         return WorkspaceEdit(json: result)
     }
 
-    func formatting(url: URL, tabSize: Int, insertSpaces: Bool) async throws -> [LSPTextEdit] {
+    func formatting(url: URL, tabSize: Int, insertSpaces: Bool, trimTrailingWhitespace: Bool = true,
+                    insertFinalNewline: Bool = true) async throws -> [LSPTextEdit] {
         let result = try await request("textDocument/formatting", params: [
             "textDocument": ["uri": url.absoluteString],
-            "options": ["tabSize": tabSize, "insertSpaces": insertSpaces, "trimTrailingWhitespace": true,
-                        "insertFinalNewline": true],
+            "options": ["tabSize": tabSize, "insertSpaces": insertSpaces, "trimTrailingWhitespace": trimTrailingWhitespace,
+                        "insertFinalNewline": insertFinalNewline],
         ])
         return (result as? [Any] ?? []).compactMap(LSPTextEdit.init(json:))
     }

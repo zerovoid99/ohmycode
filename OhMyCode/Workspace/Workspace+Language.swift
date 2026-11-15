@@ -236,7 +236,10 @@ extension Workspace {
             edits = fromExtension
         } else if let client = document.languageClient, client.state == .ready, client.supports(.formatting) {
             let (tabSize, insertSpaces) = document.indentation
-            edits = try await client.formatting(url: document.url, tabSize: tabSize, insertSpaces: insertSpaces)
+            let config = document.editorConfig
+            edits = try await client.formatting(url: document.url, tabSize: tabSize, insertSpaces: insertSpaces,
+                                                trimTrailingWhitespace: config.trimTrailingWhitespace ?? true,
+                                                insertFinalNewline: config.insertFinalNewline ?? true)
                 .map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) }
         } else {
             return false

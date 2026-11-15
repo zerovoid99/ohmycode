@@ -37,6 +37,8 @@ final class EditorDocument: Identifiable {
     let undoManager = UndoManager()
 
     private(set) var isDirty = false
+    /// What the `.editorconfig` files above it set (indentation, what saving fixes).
+    private(set) var editorConfig = EditorConfig()
     /// Theme/font generation the text's base attributes were set for.
     @ObservationIgnored private var styleGeneration = EditorTheme.generation
     /// Bumped on every text change; lets async results (formatting, rename) detect staleness.
@@ -184,8 +186,15 @@ final class EditorDocument: Identifiable {
         textStorage.delegate = observer
         storageObserver = observer
         diskModificationDate = Self.modificationDate(of: url)
+        editorConfig = EditorConfig.resolve(for: url)
         scheduleConflictScan()
         refreshSymbols()
+    }
+
+    /// Reads the `.editorconfig` files again (one of them changed).
+    func reloadEditorConfig() {
+        let config = EditorConfig.resolve(for: url)
+        if config != editorConfig { editorConfig = config }
     }
 
     /// The content storage doesn't retain its delegate and may outlive the document.
@@ -194,6 +203,9 @@ final class EditorDocument: Identifiable {
     }
 
     func save() throws {
+        // What .editorconfig asks for, as an undoable step of its own.
+        let fixes = editorConfigEdits()
+        if !fixes.isEmpty { try apply(fixes, actionName: "Apply .editorconfig") }
         let text = textStorage.string
         // The local history: what's on disk first if it's not kept yet (the version before
         // this session's first save, or another program's), then what's saved.
@@ -247,9 +259,22 @@ final class EditorDocument: Identifiable {
         return NSRange(location: start, length: end - start)
     }
 
-    /// Indentation style for formatting: tabs if most indented lines use them, otherwise
-    /// 2 or 4 spaces judged from the indent widths in the first few thousand lines.
+    /// Indentation style for formatting and typing: what .editorconfig sets, otherwise tabs if
+    /// most indented lines use them, otherwise 2 or 4 spaces judged from the indent widths in
+    /// the first few thousand lines.
     var indentation: (tabSize: Int, insertSpaces: Bool) {
+        let config = editorConfig
+        if let style = config.indentStyle {
+            // Tabs with no width given: 4 (the text's own space indents say nothing about tabs).
+            let size = style == .tab ? config.tabWidth ?? config.indentSize ?? 4 : config.indentSize ?? guessedIndentation.tabSize
+            return (size, style == .space)
+        }
+        if let size = config.indentSize { return (size, guessedIndentation.insertSpaces) }
+        return guessedIndentation
+    }
+
+    /// The indentation the text itself uses.
+    var guessedIndentation: (tabSize: Int, insertSpaces: Bool) {
         let text = textStorage.mutableString
         var tabs = 0, spaces = 0, twoSpaceSteps = 0
         for line in 0..<min(lineIndex.lineCount, 5_000) {

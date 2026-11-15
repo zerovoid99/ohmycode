@@ -72,6 +72,7 @@ struct StatusBarView: View {
             if let document {
                 Text("Ln \(document.cursorLine), Col \(document.cursorColumn)")
                 Text("\(document.lineCount) lines")
+                IndentationBadge(document: document)
                 Text("UTF-8")
                 Text(document.language.displayName)
             }
@@ -103,6 +104,25 @@ private struct LanguageServerBadge: View {
                 .help(message)
         case .stopped:
             EmptyView()
+        }
+    }
+}
+
+/// "Spaces: 4" or "Tab Size: 4", and the line endings; from .editorconfig when it sets them.
+private struct IndentationBadge: View {
+    let document: EditorDocument
+
+    var body: some View {
+        // Read again when lines come or go (not on every keystroke: it reads the text).
+        _ = document.lineCount
+        let (size, spaces) = document.indentation
+        let config = document.editorConfig
+        let source = config.sources.first.map { "set by \($0.path)" }
+        return HStack(spacing: 16) {
+            Text(spaces ? "Spaces: \(size)" : "Tab Size: \(size)")
+                .help("Indentation " + (config.indentStyle != nil || config.indentSize != nil ? source ?? "" : "judged from the file"))
+            Text((config.endOfLine ?? document.lineEnding).rawValue.uppercased())
+                .help(config.endOfLine != nil ? "Line endings " + (source ?? "") : "The file's line endings")
         }
     }
 }
