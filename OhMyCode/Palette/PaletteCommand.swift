@@ -381,6 +381,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.gitRepository != nil }, perform: { $0.sidebarMode = .pullRequests }),
         PaletteCommand(id: "github.createPullRequest", title: "GitHub: Create Pull Request…", icon: "plus.bubble", key: nil,
                        isAvailable: { $0.gitRepository != nil }, perform: { $0.sidebarMode = .pullRequests; $0.isCreatingPullRequest = true }),
+        PaletteCommand(id: "git.mergeEditor", title: "Git: Open Merge Editor", icon: "arrow.triangle.merge", key: nil,
+                       isAvailable: { $0.activeDocument?.conflicts.isEmpty == false }, perform: { $0.openMergeEditor() }),
         PaletteCommand(id: "view.zenMode", title: "View: Toggle Zen Mode", icon: "rectangle.center.inset.filled", key: "alt+cmd+z",
                        isAvailable: { _ in true }, perform: { $0.toggleZenMode() }),
         PaletteCommand(id: "view.toggleSidebar", title: "View: Toggle Sidebar", icon: "sidebar.left", key: "ctrl+cmd+s",

@@ -171,6 +171,8 @@ final class Workspace {
     var pullRequestError: String?
     var isLoadingPullRequests = false
     var openPullRequest: PullRequestDetails?
+    /// The merge editor, when open (see MergeEditor.swift).
+    var pendingMerge: MergeSession?
     /// The Create Pull Request form is showing.
     var isCreatingPullRequest = false
     @ObservationIgnored private(set) var gitRepository: Git.Repository?

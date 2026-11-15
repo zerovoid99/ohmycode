@@ -95,7 +95,8 @@ struct MergeConflictEditorTests {
         let (controller, window) = show(document)
 
         let actions = controller.conflictActionRects()
-        #expect(actions.count == 8)
+        #expect(actions.count == 10) // five per conflict
+        #expect(actions[4].action == .mergeEditor)
         #expect(controller.conflictBands().filter { $0.kind == .current }.count == 2)
         // Actions sit after the "<<<<<<<" line, left to right.
         let marker = try #require(controller.rect(for: document.conflicts[0].startMarker))

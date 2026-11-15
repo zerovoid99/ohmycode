@@ -33,13 +33,15 @@ struct MergeConflict: Equatable {
     enum Action: Equatable, CaseIterable {
         case accept(Resolution)
         case compare
+        case mergeEditor
 
-        static let allCases: [Action] = Resolution.allCases.map(Action.accept) + [.compare]
+        static let allCases: [Action] = Resolution.allCases.map(Action.accept) + [.compare, .mergeEditor]
 
         var title: String {
             switch self {
             case .accept(let resolution): resolution.rawValue
             case .compare: "Compare"
+            case .mergeEditor: "Merge Editor"
             }
         }
     }
@@ -213,6 +215,7 @@ extension EditorController {
         switch hit.action {
         case .accept(let resolution): document.resolve([hit.conflict], with: resolution)
         case .compare: compareConflict(hit.conflict)
+        case .mergeEditor: document.workspace?.openMergeEditor(document)
         }
         return true
     }

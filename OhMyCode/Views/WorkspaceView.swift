@@ -97,6 +97,9 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.pendingEdit) { preview in
             EditPreviewView(preview: preview, workspace: workspace)
         }
+        .sheet(item: $workspace.pendingMerge) { session in
+            MergeEditorView(session: session, workspace: workspace)
+        }
         .sheet(item: $workspace.pendingRebase) { plan in
             InteractiveRebaseView(workspace: workspace, plan: plan)
         }

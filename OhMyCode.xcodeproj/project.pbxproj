@@ -46,6 +46,7 @@
 		2D32CCCD867699BF9F0C1BED /* ExtensionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8072C59AD343113A6A23EE /* ExtensionHost.swift */; };
 		2E028BA8A6DD44C06C727335 /* TreeSitterPython in Frameworks */ = {isa = PBXBuildFile; productRef = B7578A1892DE4A8AD836F880 /* TreeSitterPython */; };
 		3043BD420289D09EDB6B05E8 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D8010605A8A9875A268782 /* TimelineView.swift */; };
+		31D1D6E6497A1357514A302C /* MergeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 609F4481E1A42EE7F8690963 /* MergeEditor.swift */; };
 		33140238CA8B7381A3BE3EB6 /* Workspace+Files.swift in Sources */ = {isa = PBXBuildFile; fileRef = 370DFA55B9A04014B4A290AF /* Workspace+Files.swift */; };
 		34F578D2BA5912C080EBFE8B /* SignatureHelpController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B41E6217990FB95E15D78A /* SignatureHelpController.swift */; };
 		35B02D6D55C20A701230D5E0 /* ZenModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A58572347F6E63EE7072F13 /* ZenModeTests.swift */; };
@@ -207,6 +208,7 @@
 		E56C6C595110950ED8EDC972 /* MergeConflictTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BEDF4FF40338D42156E916E /* MergeConflictTests.swift */; };
 		E5CFE2F260DE1EAD2C15DC54 /* LanguageClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1DAB700EC16F7A11859F8F3 /* LanguageClient.swift */; };
 		E5E5BD6A7BCDB034E59EFF3D /* FoldingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34C6CCE2E22CF5AA37A62ED2 /* FoldingTests.swift */; };
+		E607BAD2578519626F65537A /* MergeEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67423292464882B4BC168F5B /* MergeEditorTests.swift */; };
 		E6450141B38687382E810996 /* ExtensionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05B54BDB4196B0B5897248E3 /* ExtensionStore.swift */; };
 		E72CA92B347F45B1F4297AED /* OhMyCodeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECE0378D95499508CFB1DBD0 /* OhMyCodeApp.swift */; };
 		E8F251A6BAB2837B10195807 /* DiffHighlighting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22A9D5C62A3D394938C0CC07 /* DiffHighlighting.swift */; };
@@ -313,10 +315,12 @@
 		5E61A8D3BF9CA8E20E330E29 /* DocumentLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentLinks.swift; sourceTree = "<group>"; };
 		5F7A3436E1B87CDAA91A3AF8 /* TestingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestingView.swift; sourceTree = "<group>"; };
 		607A7ABC5B7602AA443B249E /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
+		609F4481E1A42EE7F8690963 /* MergeEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MergeEditor.swift; sourceTree = "<group>"; };
 		61A794578540942D2357BE54 /* SyntaxEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxEngine.swift; sourceTree = "<group>"; };
 		6370077B6CFBDF889C95B886 /* EditPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditPreviewView.swift; sourceTree = "<group>"; };
 		63C0BDA667585BA6CF3CCCE0 /* FileWatchingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatchingTests.swift; sourceTree = "<group>"; };
 		66612AF9070152598AA4295F /* SearchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchModel.swift; sourceTree = "<group>"; };
+		67423292464882B4BC168F5B /* MergeEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MergeEditorTests.swift; sourceTree = "<group>"; };
 		67EAC67DA0BCF2450AAD5F84 /* BlameDiffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlameDiffTests.swift; sourceTree = "<group>"; };
 		689AB726F376231D0C97C084 /* XcodeTestingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XcodeTestingTests.swift; sourceTree = "<group>"; };
 		6BCA72007416F816817C38E1 /* MarkdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTests.swift; sourceTree = "<group>"; };
@@ -616,6 +620,7 @@
 				CD379088235C2421A7031BC4 /* LSPTests.swift */,
 				6BCA72007416F816817C38E1 /* MarkdownTests.swift */,
 				5BEDF4FF40338D42156E916E /* MergeConflictTests.swift */,
+				67423292464882B4BC168F5B /* MergeEditorTests.swift */,
 				4F4A1D4E9786FCAEC6E2C553 /* MultiCursorTests.swift */,
 				735C426F494167C9A375A238 /* OccurrenceHighlightTests.swift */,
 				95DB07857625F52A05770C90 /* OhMyCodeTests.swift */,
@@ -845,6 +850,7 @@
 				F8E5167B549E6D5354AE1D47 /* HunkPopoverView.swift */,
 				8DAEC2C15EA27BFE7D293E0E /* InteractiveRebaseView.swift */,
 				257D4B1DFFEADE990E86AC2F /* LineDiff.swift */,
+				609F4481E1A42EE7F8690963 /* MergeEditor.swift */,
 				43643E76874FE9E68AAC9835 /* PullRequestsView.swift */,
 				A14A7EFABD0BFC396322A78C /* SourceControlView.swift */,
 				B1D8010605A8A9875A268782 /* TimelineView.swift */,
@@ -1066,6 +1072,7 @@
 				A1067724769B50220C149882 /* MarkdownPreview.swift in Sources */,
 				8917644A068062DA1BE5B14A /* MarkdownRenderer.swift in Sources */,
 				B0E0A65FCAE5AF00ED3C5A8B /* MergeConflicts.swift in Sources */,
+				31D1D6E6497A1357514A302C /* MergeEditor.swift in Sources */,
 				6DAC14E8CEA115CCE161FB34 /* MultiCursor.swift in Sources */,
 				D0C69CCCDCCC46C9DEF53105 /* OccurrenceHighlights.swift in Sources */,
 				E72CA92B347F45B1F4297AED /* OhMyCodeApp.swift in Sources */,
@@ -1175,6 +1182,7 @@
 				488045A3248499F51BD061EA /* LocalHistoryTests.swift in Sources */,
 				459A340552EE32009CA09153 /* MarkdownTests.swift in Sources */,
 				E56C6C595110950ED8EDC972 /* MergeConflictTests.swift in Sources */,
+				E607BAD2578519626F65537A /* MergeEditorTests.swift in Sources */,
 				7CA904BB3CD95F4207DAB396 /* MultiCursorTests.swift in Sources */,
 				68B67485B2A004AB85A16129 /* OccurrenceHighlightTests.swift in Sources */,
 				6105FE260A7E5F1D19248F68 /* OhMyCodeTests.swift in Sources */,
