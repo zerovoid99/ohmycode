@@ -21,6 +21,7 @@
 		102C110D623A51DE8695EC94 /* EditPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6370077B6CFBDF889C95B886 /* EditPreviewView.swift */; };
 		11D618DD62A741BF5C5FC2E1 /* CodeEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95ED4C401864D6BBB7980F5B /* CodeEditorView.swift */; };
 		1451CEA00381D14E03E0D3D5 /* PTYProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A76E72897EB0575B5F95E98 /* PTYProcess.swift */; };
+		158727EFA177EFB90D1A8413 /* CodeLenses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3009E733B258A1D4C7896F51 /* CodeLenses.swift */; };
 		15C8D675FC4F51388ED12DD0 /* Breakpoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = E520F6D2E010896834BCCC39 /* Breakpoints.swift */; };
 		19E2283B45FF94DEFF846914 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5526368FD02C2215106BF09 /* TerminalPanel.swift */; };
 		1AC61C937F4E32F73FA243EB /* WhitespaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E13FA664353862B8CC80898 /* WhitespaceTests.swift */; };
@@ -189,6 +190,7 @@
 		DB9F317917C0AACE91A02A98 /* TerminalRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A84B684B87EB09C7E0B6F720 /* TerminalRenderer.swift */; };
 		DD013878FE76ABAEDEE70D5E /* LineIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F973E946D73AF21BFAE0D75 /* LineIndex.swift */; };
 		DDA43816F9307AB375DD1B6D /* CompareRefsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A28E2CDB1E00D5CC43EE4F /* CompareRefsTests.swift */; };
+		DDA999E95566EAAF23B8FFF3 /* CodeLensTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4BA3F2309DB72CB1A8E30443 /* CodeLensTests.swift */; };
 		DE6F63AEA1DD8D5A8697925F /* PaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C774D488B792D7089D1DAB /* PaletteTests.swift */; };
 		E1AD3FCB68345C20CCD3CAC5 /* EditorChromeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */; };
 		E2972D4DDC0AF619518EA175 /* TreeSitterGo in Frameworks */ = {isa = PBXBuildFile; productRef = 249C0FB551E41D055CAFFC10 /* TreeSitterGo */; };
@@ -266,6 +268,7 @@
 		2DC6AC2E53244E0E363EE582 /* MultiCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiCursor.swift; sourceTree = "<group>"; };
 		2DFE8E50D9BE65E00601B2EB /* InlayHints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InlayHints.swift; sourceTree = "<group>"; };
 		2E9560FF32AB8A6EEED5F92B /* SyntaxHighlighter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxHighlighter.swift; sourceTree = "<group>"; };
+		3009E733B258A1D4C7896F51 /* CodeLenses.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeLenses.swift; sourceTree = "<group>"; };
 		33874ED4CF60746DCF727D00 /* Workspace+Tasks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+Tasks.swift"; sourceTree = "<group>"; };
 		34C6CCE2E22CF5AA37A62ED2 /* FoldingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoldingTests.swift; sourceTree = "<group>"; };
 		35FE1528841757CF0824617C /* GitStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatus.swift; sourceTree = "<group>"; };
@@ -281,6 +284,7 @@
 		481642F135B6F6F57714FB42 /* XcodeProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XcodeProject.swift; sourceTree = "<group>"; };
 		48E7BA781D696548AAD229A3 /* TaskRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRun.swift; sourceTree = "<group>"; };
 		4A76E72897EB0575B5F95E98 /* PTYProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYProcess.swift; sourceTree = "<group>"; };
+		4BA3F2309DB72CB1A8E30443 /* CodeLensTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeLensTests.swift; sourceTree = "<group>"; };
 		4F4A1D4E9786FCAEC6E2C553 /* MultiCursorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiCursorTests.swift; sourceTree = "<group>"; };
 		4F75F53CE900295074EEE285 /* CommitGraph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommitGraph.swift; sourceTree = "<group>"; };
 		4F973E946D73AF21BFAE0D75 /* LineIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineIndex.swift; sourceTree = "<group>"; };
@@ -563,6 +567,7 @@
 				0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */,
 				CD1EE59BB50DF03FDACEC29F /* CherryPickRevertTests.swift */,
 				B7047525B08553CFC890D220 /* CodeActionTests.swift */,
+				4BA3F2309DB72CB1A8E30443 /* CodeLensTests.swift */,
 				914B50B9C32C4D129975E6BF /* CommitGraphTests.swift */,
 				1564029D78A9D5DCDEF90529 /* CommitSearchTests.swift */,
 				F3A28E2CDB1E00D5CC43EE4F /* CompareRefsTests.swift */,
@@ -718,6 +723,7 @@
 				51EDB8422CD78390FEAC5620 /* BlameHover.swift */,
 				9BA27F72EE334EC2CEE7909C /* BracketsAndGuides.swift */,
 				95ED4C401864D6BBB7980F5B /* CodeEditorView.swift */,
+				3009E733B258A1D4C7896F51 /* CodeLenses.swift */,
 				D06B0B21A096AF4D60EC2722 /* DiagnosticsOverlayView.swift */,
 				5E61A8D3BF9CA8E20E330E29 /* DocumentLinks.swift */,
 				E2206FF6013AF555A1FBEA43 /* EditorTheme.swift */,
@@ -976,6 +982,7 @@
 				B119694F5D264AD653855F09 /* CallHierarchy.swift in Sources */,
 				79D52D3490F0DB1C9BC2A86D /* CodeActions.swift in Sources */,
 				11D618DD62A741BF5C5FC2E1 /* CodeEditorView.swift in Sources */,
+				158727EFA177EFB90D1A8413 /* CodeLenses.swift in Sources */,
 				5D9B5CF0E6E00A594C95880C /* CommandLineTool.swift in Sources */,
 				234640D26A9F03EFA06D017E /* CommitGraph.swift in Sources */,
 				C1BE27B5BFAC1807427CFDCE /* CompletionController.swift in Sources */,
@@ -1108,6 +1115,7 @@
 				CCF3FEB6ABD8D4B06EE01189 /* BranchOperationTests.swift in Sources */,
 				020BDA84409FA41D7BA2F892 /* CherryPickRevertTests.swift in Sources */,
 				A3944809A238BAEE24E8580C /* CodeActionTests.swift in Sources */,
+				DDA999E95566EAAF23B8FFF3 /* CodeLensTests.swift in Sources */,
 				70BE660B9B25C427A5DE8207 /* CommitGraphTests.swift in Sources */,
 				46AB56208F370EA5D1265CC3 /* CommitSearchTests.swift in Sources */,
 				DDA43816F9307AB375DD1B6D /* CompareRefsTests.swift in Sources */,

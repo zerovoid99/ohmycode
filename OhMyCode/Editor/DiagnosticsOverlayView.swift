@@ -8,6 +8,9 @@ import AppKit
 final class DiagnosticsOverlayView: NSView {
     private weak var textView: NSTextView?
     private let document: EditorDocument
+    /// Lenses after their lines, and the one under the mouse.
+    var codeLenses: (() -> [CodeLensMark])?
+    var hoveredCodeLens: (() -> NSRect?)?
     /// Spaces and tabs shown as · and →.
     var whitespace: (() -> [(rect: NSRect, isTab: Bool)])?
     /// Indent guides (one rect per line and level), brighter for the cursor's block.
@@ -158,6 +161,18 @@ final class DiagnosticsOverlayView: NSView {
                 let size = text.size(withAttributes: attributes)
                 text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
             }
+        }
+        let lensHovered = hoveredCodeLens?()
+        for mark in codeLenses?() ?? [] where mark.rect.intersects(dirtyRect) {
+            let isHovered = mark.rect == lensHovered
+            var attributes: [NSAttributedString.Key: Any] = [
+                .font: EditorController.codeLensFont,
+                .foregroundColor: isHovered ? NSColor.linkColor : theme.lineNumber.withAlphaComponent(0.9),
+            ]
+            if isHovered { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            let text = mark.title as NSString
+            let size = text.size(withAttributes: attributes)
+            text.draw(at: NSPoint(x: mark.rect.minX, y: mark.rect.midY - size.height / 2), withAttributes: attributes)
         }
         if let annotation = blameAnnotation?() {
             // Brighter and underlined while the mouse is on it: it can be clicked.

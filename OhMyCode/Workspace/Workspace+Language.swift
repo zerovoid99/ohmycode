@@ -84,7 +84,7 @@ extension Workspace {
         }
     }
 
-    private func referenceResults(_ locations: [LSPLocation]) -> [SearchFileResult] {
+    func referenceResults(_ locations: [LSPLocation]) -> [SearchFileResult] {
         var byURL: [URL: [LSPRange]] = [:]
         for location in locations { byURL[workspaceURL(for: location.url), default: []].append(location.range) }
         return byURL.compactMap { url, ranges -> SearchFileResult? in

@@ -138,6 +138,9 @@ final class EditorDocument: Identifiable {
     /// The language server's semantic tokens (see SemanticTokens.swift): moved along by edits.
     @ObservationIgnored var semanticTokens: [SemanticToken] = []
     @ObservationIgnored var semanticTokensTask: Task<Void, Never>?
+    /// The language server's code lenses, by zero-based line (see CodeLenses.swift).
+    @ObservationIgnored var codeLenses: [Int: [CodeLens]] = [:]
+    @ObservationIgnored var codeLensesTask: Task<Void, Never>?
     /// Fold regions from the code's structure, by header line (see FoldRegions.swift).
     @ObservationIgnored var foldRegions: [Int: FoldRegion] = [:]
     @ObservationIgnored var foldRegionsTask: Task<Void, Never>?
@@ -426,6 +429,7 @@ final class EditorDocument: Identifiable {
         if old.count != count {
             onLinesReplaced?(old, count)
             shiftFoldRegions(replacing: old, with: count)
+            shiftCodeLenses(replacing: old, with: count)
         }
         // Until blame runs again on the new text: edited lines aren't committed, lines after
         // them move with the edit.
@@ -452,6 +456,7 @@ final class EditorDocument: Identifiable {
                             newLength: exact.oldEnd - exact.start + delta)
         refreshSemanticTokens(after: .milliseconds(400))
         refreshFoldRegions(after: .milliseconds(500))
+        refreshCodeLenses(after: .milliseconds(800))
         onDidEdit?()
     }
 

@@ -24,6 +24,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.activeDocument != nil }, perform: { $0.showPalette(.symbols) }),
         PaletteCommand(id: "view.outline", title: "View: Show Outline", icon: "list.bullet.indent", key: nil,
                        isAvailable: { _ in true }, perform: { $0.sidebarMode = .outline }),
+        PaletteCommand(id: "view.toggleCodeLens", title: "View: Toggle Code Lens", icon: "eyeglasses", key: nil,
+                       isAvailable: { _ in true }, perform: { _ in AppSettings.shared.showsCodeLens.toggle() }),
         PaletteCommand(id: "view.toggleInlayHints", title: "View: Toggle Inlay Hints", icon: "text.insert", key: nil,
                        isAvailable: { _ in true }, perform: { _ in AppSettings.shared.showsInlayHints.toggle() }),
         PaletteCommand(id: "view.toggleBreadcrumbs", title: "View: Toggle Breadcrumbs", icon: "chevron.right.2", key: nil,

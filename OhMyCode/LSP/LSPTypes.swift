@@ -445,6 +445,25 @@ struct LSPDocumentLink: @unchecked Sendable {
     }
 }
 
+/// A line's lens from the server ("3 references", "Run"): a command shown above (here: after)
+/// the code. Without a command yet it's resolved later.
+struct CodeLens: @unchecked Sendable {
+    var range: LSPRange
+    /// `{title, command, arguments}`, as sent.
+    var command: [String: Any]?
+    var json: [String: Any]
+
+    var title: String? { (command?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+    var commandName: String { command?["command"] as? String ?? "" }
+
+    init?(json: Any?) {
+        guard let object = json as? [String: Any], let range = LSPRange(json: object["range"]) else { return nil }
+        self.range = range
+        command = object["command"] as? [String: Any]
+        self.json = object
+    }
+}
+
 /// One place a symbol appears in its file (`textDocument/documentHighlight`).
 struct DocumentHighlight: Equatable, Sendable {
     enum Kind: Int, Sendable { case text = 1, read, write }

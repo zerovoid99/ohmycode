@@ -147,6 +147,7 @@ while True:
             "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
             "inlayHintProvider": True, "documentHighlightProvider": True,
             "documentLinkProvider": {"resolveProvider": True},
+            "codeLensProvider": {"resolveProvider": True},
             "workspace": {"fileOperations": {
                 "willRename": {"filters": [{"pattern": {"glob": "**/*.swift", "matches": "file"}}]},
                 "didRename": {"filters": [{"pattern": {"glob": "**/*.swift"}}]}}},
@@ -317,6 +318,24 @@ while True:
                   "signatures": [{"label": "fooBar(count: Int, name: String) -> Int", "documentation": "Makes a bar.",
                                   "parameters": [{"label": [7, 17], "documentation": "How many."},
                                                  {"label": "name: String"}]}]}})
+    elif method == "textDocument/codeLens":
+        # "func NAME": a references lens, resolved later.
+        uri = params["textDocument"]["uri"]
+        lenses = []
+        for number, line in enumerate(text_of(uri).split("\n")):
+            m = re.match(r"func (\w+)", line)
+            if m:
+                lenses.append({"range": {"start": {"line": number, "character": 0}, "end": {"line": number, "character": len(units(line))}},
+                               "data": {"name": m.group(1), "uri": uri, "line": number}})
+        send({"jsonrpc": "2.0", "id": mid, "result": lenses})
+    elif method == "codeLens/resolve":
+        data = params["data"]
+        found = [{"uri": u, "range": r} for u, r in occurrences(data["name"]) if not (u == data["uri"] and r["start"]["line"] == data["line"])]
+        lens = dict(params)
+        lens["command"] = {"title": "%d reference%s" % (len(found), "" if len(found) == 1 else "s"),
+                           "command": "editor.action.showReferences",
+                           "arguments": [data["uri"], params["range"]["start"], found]}
+        send({"jsonrpc": "2.0", "id": mid, "result": lens})
     elif method == "workspace/willRenameFiles":
         # Mentions of a renamed file's name in any Swift file follow it.
         changes = {}

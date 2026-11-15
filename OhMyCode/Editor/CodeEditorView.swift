@@ -56,6 +56,8 @@ final class EditorController: NSObject {
     /// Strings and comments in the highlighted text (brackets there don't match), for `nonCodeVersion`.
     var nonCodeRanges: [NSRange] = []
     var nonCodeVersion = -1
+    /// The code lens under the mouse (underlined), by its rect.
+    var hoveredCodeLens: NSRect?
     /// The link under the mouse while ⌘ is held (underlined).
     var hoveredLink: EditorLink?
     /// Where the symbol under the cursor appears.
@@ -102,6 +104,8 @@ final class EditorController: NSObject {
         let overlay = DiagnosticsOverlayView(textView: textView, document: document)
         textView.addSubview(overlay)
         diagnosticsOverlay = overlay
+        overlay.codeLenses = { [weak self] in self?.codeLensMarks() ?? [] }
+        overlay.hoveredCodeLens = { [weak self] in self?.hoveredCodeLens }
         overlay.whitespace = { [weak self] in self?.whitespaceMarks() ?? [] }
         overlay.indentGuides = { [weak self] in self?.indentGuideRects() ?? [] }
         overlay.brackets = { [weak self] in self?.bracketRects() ?? [] }
@@ -132,6 +136,12 @@ final class EditorController: NSObject {
         textView.onMouseMoved = { [weak self] point in
             guard let self else { return }
             self.updateLinkHover(at: point, modifiers: NSEvent.modifierFlags)
+            let lens = self.codeLens(at: point)
+            if lens?.rect != self.hoveredCodeLens {
+                self.hoveredCodeLens = lens?.rect
+                self.diagnosticsOverlay?.needsDisplay = true
+            }
+            if lens != nil { NSCursor.pointingHand.set(); self.hover.dismiss(); return }
             if self.blameHover.mouseMoved(to: point) { self.hover.dismiss() } else { self.hover.mouseMoved(to: point) }
         }
         textView.onOptionClick = { [weak self] location in self?.toggleCursor(at: location) }
@@ -146,6 +156,7 @@ final class EditorController: NSObject {
         textView.onClick = { [weak self] point in
             self?.clearExtraCursors()
             if self?.handleConflictClick(at: point) == true { return true }
+            if self?.handleCodeLensClick(at: point) == true { return true }
             if self?.handleBlameClick(at: point) == true { return true }
             guard let self, let hit = self.foldPlaceholderRects().first(where: { $0.rect.contains(point) }) else { return false }
             self.document.unfold(atHeader: hit.header)
@@ -237,6 +248,7 @@ final class EditorController: NSObject {
     @objc private func settingsDidChange() {
         document.refreshInlayHints() // turned on or off, or the font changed
         document.refreshSemanticTokens()
+        document.refreshCodeLenses()
         occurrences.update()
         applySettings()
     }

@@ -398,6 +398,9 @@ final class Workspace {
                 client.onInlayHintRefresh = { [weak self, weak client] in
                     self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshInlayHints() }
                 }
+                client.onCodeLensRefresh = { [weak self, weak client] in
+                    self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshCodeLenses() }
+                }
                 client.onSemanticTokensRefresh = { [weak self, weak client] in
                     self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshSemanticTokens() }
                 }
@@ -427,6 +430,7 @@ final class Workspace {
                 document?.refreshLinks()
                 document?.refreshSemanticTokens()
                 document?.refreshFoldRegions()
+                document?.refreshCodeLenses()
             }
         }
     }

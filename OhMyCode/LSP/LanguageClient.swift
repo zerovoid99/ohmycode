@@ -66,6 +66,7 @@ final class LanguageClient {
                     "symbol": [String: Any](),
                     "inlayHint": ["refreshSupport": true],
                     "semanticTokens": ["refreshSupport": true],
+                    "codeLens": ["refreshSupport": true],
                     "workspaceEdit": ["documentChanges": true],
                     "fileOperations": ["dynamicRegistration": false, "willRename": true, "didRename": true],
                 ],
@@ -89,6 +90,7 @@ final class LanguageClient {
                     "callHierarchy": [String: Any](),
                     "inlayHint": [String: Any](),
                     "documentHighlight": [String: Any](),
+                    "codeLens": [String: Any](),
                     "documentLink": ["tooltipSupport": true],
                     "semanticTokens": [
                         "requests": ["full": true], "formats": ["relative"],
@@ -262,6 +264,7 @@ final class LanguageClient {
         case semanticTokens = "semanticTokensProvider"
         case rangeFormatting = "documentRangeFormattingProvider"
         case foldingRange = "foldingRangeProvider"
+        case codeLens = "codeLensProvider"
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -326,6 +329,19 @@ final class LanguageClient {
         }
     }
 
+    func codeLenses(url: URL) async throws -> [CodeLens] {
+        let result = try await request("textDocument/codeLens", params: ["textDocument": ["uri": url.absoluteString]])
+        return (result as? [Any] ?? []).compactMap(CodeLens.init(json:))
+    }
+
+    var resolvesCodeLenses: Bool {
+        (capabilities["codeLensProvider"] as? [String: Any])?["resolveProvider"] as? Bool ?? false
+    }
+
+    func resolveCodeLens(_ lens: CodeLens) async throws -> CodeLens? {
+        CodeLens(json: try await request("codeLens/resolve", params: lens.json))
+    }
+
     /// The token types the server's numbers stand for (its legend).
     var semanticTokenTypes: [String] {
         ((capabilities["semanticTokensProvider"] as? [String: Any])?["legend"] as? [String: Any])?["tokenTypes"] as? [String] ?? []
@@ -368,6 +384,8 @@ final class LanguageClient {
 
     /// The server's hints changed (asked for again).
     var onInlayHintRefresh: (() -> Void)?
+    /// The server asked for code lenses again (`workspace/codeLens/refresh`).
+    var onCodeLensRefresh: (() -> Void)?
     /// The server asked for semantic tokens again (`workspace/semanticTokens/refresh`).
     var onSemanticTokensRefresh: (() -> Void)?
 
@@ -538,6 +556,9 @@ final class LanguageClient {
         case "workspace/inlayHint/refresh":
             response["result"] = NSNull()
             onInlayHintRefresh?()
+        case "workspace/codeLens/refresh":
+            response["result"] = NSNull()
+            onCodeLensRefresh?()
         case "workspace/semanticTokens/refresh":
             response["result"] = NSNull()
             onSemanticTokensRefresh?()

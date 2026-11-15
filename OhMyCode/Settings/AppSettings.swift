@@ -64,6 +64,8 @@ final class AppSettings {
     var semanticHighlighting: Bool { didSet { changed() } }
     /// Zen mode also makes the window full screen.
     var zenModeFullScreen: Bool { didSet { changed() } }
+    /// The language server's lenses ("3 references") after the lines they're about.
+    var showsCodeLens: Bool { didSet { changed() } }
     /// Saving a file git reports as conflicted, with no conflict markers left, stages it.
     var stagesResolvedConflicts: Bool { didSet { changed() } }
     /// Closing brackets and quotes typed for you.
@@ -95,6 +97,7 @@ final class AppSettings {
         renderWhitespace = RenderWhitespace(rawValue: defaults.string(forKey: Keys.renderWhitespace) ?? "") ?? .selection
         semanticHighlighting = defaults.object(forKey: Keys.semanticHighlighting) as? Bool ?? true
         zenModeFullScreen = defaults.object(forKey: Keys.zenModeFullScreen) as? Bool ?? true
+        showsCodeLens = defaults.object(forKey: Keys.showsCodeLens) as? Bool ?? true
         stagesResolvedConflicts = defaults.object(forKey: Keys.stagesResolvedConflicts) as? Bool ?? true
         autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
         isLoading = false
@@ -121,6 +124,7 @@ final class AppSettings {
         static let renderWhitespace = "renderWhitespace"
         static let semanticHighlighting = "semanticHighlighting"
         static let zenModeFullScreen = "zenModeFullScreen"
+        static let showsCodeLens = "showsCodeLens"
         static let stagesResolvedConflicts = "stagesResolvedConflicts"
         static let autoClosePairs = "autoClosePairs"
     }
@@ -157,6 +161,7 @@ final class AppSettings {
         defaults.set(renderWhitespace.rawValue, forKey: Keys.renderWhitespace)
         defaults.set(semanticHighlighting, forKey: Keys.semanticHighlighting)
         defaults.set(zenModeFullScreen, forKey: Keys.zenModeFullScreen)
+        defaults.set(showsCodeLens, forKey: Keys.showsCodeLens)
         defaults.set(stagesResolvedConflicts, forKey: Keys.stagesResolvedConflicts)
         defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
@@ -180,7 +185,7 @@ final class AppSettings {
             "highlightsMatchingBrackets": .bool(highlightsMatchingBrackets), "showsIndentGuides": .bool(showsIndentGuides),
             "wordWrap": .string(wordWrap.rawValue), "renderWhitespace": .string(renderWhitespace.rawValue),
             "semanticHighlighting": .bool(semanticHighlighting), "formatOnSaveScope": .string(formatOnSaveScope.rawValue),
-            "zenModeFullScreen": .bool(zenModeFullScreen),
+            "zenModeFullScreen": .bool(zenModeFullScreen), "showsCodeLens": .bool(showsCodeLens),
         ]
     }
 
@@ -206,6 +211,7 @@ final class AppSettings {
         if let value = values["renderWhitespace"]?.string.flatMap(RenderWhitespace.init(rawValue:)) { renderWhitespace = value }
         if let value = values["semanticHighlighting"]?.bool { semanticHighlighting = value }
         if let value = values["zenModeFullScreen"]?.bool { zenModeFullScreen = value }
+        if let value = values["showsCodeLens"]?.bool { showsCodeLens = value }
         if let value = values["formatOnSaveScope"]?.string.flatMap(FormatOnSaveScope.init(rawValue:)) { formatOnSaveScope = value }
         if let value = values["stagesResolvedConflicts"]?.bool { stagesResolvedConflicts = value }
         if let value = values["autoClosePairs"]?.bool { autoClosePairs = value }
