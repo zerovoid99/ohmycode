@@ -65,7 +65,9 @@ struct ExtensionStatusItem: Identifiable, Equatable {
 @MainActor
 @Observable
 final class ExtensionHost {
-    @ObservationIgnored private unowned let workspace: Workspace
+    /// Weak: work still in flight when the window closes goes to a closed workspace (does nothing).
+    @ObservationIgnored private weak var owner: Workspace?
+    private var workspace: Workspace { owner ?? Workspace.closed }
     private(set) var extensions: [ExtensionInstance] = []
     private(set) var statusItems: [ExtensionStatusItem] = []
     /// Folders in the extensions folder that aren't valid extensions, with why.
@@ -79,7 +81,7 @@ final class ExtensionHost {
     @ObservationIgnored var changeDelay: Duration = .milliseconds(150)
 
     init(workspace: Workspace) {
-        self.workspace = workspace
+        self.owner = workspace
     }
 
     // MARK: Lifecycle

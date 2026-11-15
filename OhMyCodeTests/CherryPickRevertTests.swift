@@ -133,8 +133,8 @@ struct CherryPickRevertTests {
         let merge = try commit("Merge feature", in: workspace)
         #expect(merge.parents.count == 2)
         workspace.revertCommit(merge)
-        #expect(try await eventually { self.read("x.txt", in: root) == nil }) // the feature's file is gone again
-        #expect(read("f.txt", in: root) == "main\n")
+        // The feature's file is gone again and f.txt is main's (git writes them one after the other).
+        #expect(try await eventually { self.read("x.txt", in: root) == nil && self.read("f.txt", in: root) == "main\n" })
         withExtendedLifetime(workspace) {}
     }
 }

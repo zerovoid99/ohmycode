@@ -19,7 +19,8 @@ struct BlameAnnotation {
 final class BlameHoverController: NSObject, NSPopoverDelegate {
     nonisolated(unsafe) static var delay: Duration = .milliseconds(350)
 
-    private unowned let editor: EditorController
+    /// Weak: it may close while a delayed lookup is pending.
+    private weak var editor: EditorController?
     private var task: Task<Void, Never>?
     /// The commit waiting for the delay to show.
     private var pendingCommit: String?
@@ -44,6 +45,7 @@ final class BlameHoverController: NSObject, NSPopoverDelegate {
     /// The text view: returns true while the mouse is on a committed line's annotation (other
     /// hovers wait).
     func mouseMoved(to point: NSPoint) -> Bool {
+        guard let editor else { return false }
         let annotation = editor.blameAnnotation()
         let isOn = annotation.map { !$0.blame.isUncommitted && $0.rect.insetBy(dx: -2, dy: 0).contains(point) } ?? false
         if isOn != isMouseOnAnnotation {
@@ -62,7 +64,7 @@ final class BlameHoverController: NSObject, NSPopoverDelegate {
 
     /// The blame column: the hovered line (nil: none) and its rect in the gutter.
     func gutterMouseMoved(line: Int?, rect: NSRect) {
-        guard let line, let blame = (editor.document.blame?[safe: line] ?? nil), !blame.isUncommitted else {
+        guard let editor, let line, let blame = (editor.document.blame?[safe: line] ?? nil), !blame.isUncommitted else {
             if isShown || pendingCommit != nil { dismiss() }
             return
         }
@@ -89,7 +91,7 @@ final class BlameHoverController: NSObject, NSPopoverDelegate {
         pendingCommit = nil
         if isMouseOnAnnotation {
             isMouseOnAnnotation = false
-            editor.diagnosticsOverlay?.needsDisplay = true
+            editor?.diagnosticsOverlay?.needsDisplay = true
         }
         guard isShown else { return }
         task = Task { [weak self] in
@@ -113,7 +115,7 @@ final class BlameHoverController: NSObject, NSPopoverDelegate {
 
     /// Shows `blame`'s commit once its details are read, if still wanted then.
     private func show(_ blame: BlameLine, rect: NSRect, in view: NSView, stillWanted: @MainActor () -> Bool) async {
-        guard let actions = editor.document.blameActions else { return }
+        guard let editor, let actions = editor.document.blameActions else { return }
         let details = await actions.details(blame)
         guard !Task.isCancelled, let details, stillWanted() else { return }
         popover?.close()

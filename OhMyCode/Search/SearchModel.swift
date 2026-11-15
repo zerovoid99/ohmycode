@@ -20,11 +20,13 @@ final class SearchModel {
     private(set) var isReplacing = false
     @ObservationIgnored private var previewRegex: (SearchOptions, NSRegularExpression)?
 
-    @ObservationIgnored private unowned let workspace: Workspace
+    /// Weak: work still in flight when the window closes goes to a closed workspace (does nothing).
+    @ObservationIgnored private weak var owner: Workspace?
+    private var workspace: Workspace { owner ?? Workspace.closed }
     @ObservationIgnored private var task: Task<Void, Never>?
 
     init(workspace: Workspace) {
-        self.workspace = workspace
+        self.owner = workspace
     }
 
     var matchCount: Int { results.reduce(0) { $0 + $1.matches.count } }

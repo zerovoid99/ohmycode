@@ -203,6 +203,9 @@ final class Workspace {
     /// Root as FSEvents reports paths (symlinks resolved).
     @ObservationIgnored private var canonicalRootPath = ""
 
+    /// Stands in for a window's workspace once it's closed, for work that finishes after it.
+    static let closed = Workspace()
+
     init() {
         let group = EditorGroup()
         groups = [group]

@@ -75,7 +75,9 @@ final class PaletteModel {
     private(set) var emptyMessage: String?
     var selection = 0
 
-    @ObservationIgnored private unowned let workspace: Workspace
+    /// Weak: work still in flight when the window closes goes to a closed workspace (does nothing).
+    @ObservationIgnored private weak var owner: Workspace?
+    private var workspace: Workspace { owner ?? Workspace.closed }
     @ObservationIgnored private var searchTask: Task<Void, Never>?
     @ObservationIgnored private var searchGeneration = 0
 
@@ -102,13 +104,13 @@ final class PaletteModel {
     }
 
     init(workspace: Workspace, mode: Mode) {
-        self.workspace = workspace
+        self.owner = workspace
         self.query = mode.prefix
         refresh()
     }
 
     init(workspace: Workspace, prompt: Prompt, text: String) {
-        self.workspace = workspace
+        self.owner = workspace
         self.prompt = prompt
         self.query = text
         refresh()

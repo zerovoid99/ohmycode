@@ -6,7 +6,8 @@ import SwiftUI
 final class HoverController {
     nonisolated(unsafe) static var delay: Duration = .milliseconds(500)
 
-    private unowned let editor: EditorController
+    /// Weak: it may close while a delayed lookup is pending.
+    private weak var editor: EditorController?
     private var task: Task<Void, Never>?
     private var popover: NSPopover?
     /// The hovered word, in text view coordinates; moving within it keeps the popover.
@@ -26,7 +27,7 @@ final class HoverController {
         dismiss()
         task = Task { [weak self] in
             try? await Task.sleep(for: Self.delay)
-            guard !Task.isCancelled, let self, let index = self.editor.characterIndex(at: point) else { return }
+            guard !Task.isCancelled, let self, let index = self.editor?.characterIndex(at: point) else { return }
             await self.show(at: index)
         }
     }
@@ -56,6 +57,8 @@ final class HoverController {
     /// Looks up hover info for the text at `index` and shows it. Returns whether anything was shown.
     @discardableResult
     func show(at index: Int) async -> Bool {
+        // Held for the lookup: the editor stays while its hover is worked out.
+        guard let editor else { return false }
         let document = editor.document
         let version = document.editVersion
         let range = editor.wordRange(at: index) ?? NSRange(location: index, length: 0)

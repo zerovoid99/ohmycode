@@ -59,7 +59,7 @@ struct WorkspaceNavigationTests {
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(10)], ofItemAtPath: tools.path)
         results = await workspace.workspaceSymbols(matching: "gad")
         let renamed = results.map(\.name)
-        #expect(renamed.first == "gadgetry" && !renamed.contains("gamma")) // the best match first; the old one's gone
+        #expect(renamed.first == "gadgetry" && !renamed.contains("gamma"), "\(renamed)") // the best match first; the old one's gone
 
         // #name in quick open: choosing one selects its name in its file.
         workspace.showPalette(.workspaceSymbols)
