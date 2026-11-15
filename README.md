@@ -57,6 +57,25 @@ outlined. Without one, the same whole word is highlighted. Selecting text on one
 same text elsewhere. F7 and ⇧F7 go to the next and previous place. Highlights are turned off in
 Settings → Editor or with *View: Toggle Symbol Highlights*.
 
+## Line editing
+Commands on the selection's lines, each one undoable step:
+
+| Command | Shortcut |
+| --- | --- |
+| Toggle line comment (a block comment in CSS, HTML, Markdown) | ⌘/ |
+| Move lines up / down | ⌥↑ / ⌥↓ |
+| Copy lines up / down | ⇧⌥↑ / ⇧⌥↓ |
+| Delete lines | ⇧⌘K |
+| Indent / outdent | ⌘] / ⌘[ |
+| Insert a line below / above | ⌘↩ / ⇧⌘↩ |
+| Join lines | ⌃J |
+
+*Sort Lines Ascending/Descending* (natural order: `item2` before `item10`), *Delete Duplicate
+Lines*, *Transform to Uppercase/Lowercase/Title Case* and *Trim Trailing Whitespace* are in
+Edit → Lines and the palette. Sorting works on the selected lines, or the whole file when one line
+is selected. The editor handles these keys itself, so they work as usual in other text fields
+(⌥↑ in the commit message box). They can be changed in Settings → Keyboard Shortcuts.
+
 ## Links
 URLs written in any file (`https://`, `http://`, `ftp://`, `file://`) and links the language server
 finds (such as an import's path) are underlined while ⌘ is held over them. ⌘-click opens them:
