@@ -67,6 +67,7 @@ final class LanguageClient {
                     "inlayHint": ["refreshSupport": true],
                     "semanticTokens": ["refreshSupport": true],
                     "workspaceEdit": ["documentChanges": true],
+                    "fileOperations": ["dynamicRegistration": false, "willRename": true, "didRename": true],
                 ],
                 "textDocument": [
                     "synchronization": ["didSave": true, "dynamicRegistration": false],
@@ -181,6 +182,40 @@ final class LanguageClient {
     }
 
     func isOpen(_ url: URL) -> Bool { versions[url] != nil }
+
+    // MARK: File operations
+
+    /// Whether the server wants to hear about renaming this file (`willRename`/`didRename`
+    /// registration filters: a glob on the path, files or folders).
+    func wantsRename(of url: URL, isFolder: Bool, notification: Bool) -> Bool {
+        let operations = (capabilities["workspace"] as? [String: Any])?["fileOperations"] as? [String: Any]
+        guard let registration = operations?[notification ? "didRename" : "willRename"] as? [String: Any],
+              let filters = registration["filters"] as? [[String: Any]] else { return false }
+        let path = String(url.standardizedFileURL.path.dropFirst())
+        return filters.contains { filter in
+            if let scheme = filter["scheme"] as? String, scheme != "file" { return false }
+            guard let pattern = filter["pattern"] as? [String: Any], let glob = pattern["glob"] as? String else { return false }
+            if let matches = pattern["matches"] as? String, matches != (isFolder ? "folder" : "file") { return false }
+            let ignoreCase = (pattern["options"] as? [String: Any])?["ignoreCase"] as? Bool ?? false
+            let anchored = glob.hasPrefix("/") ? String(glob.dropFirst()) : glob
+            return EditorConfig.matches(ignoreCase ? anchored.lowercased() : anchored,
+                                        relative: ignoreCase ? path.lowercased() : path)
+        }
+    }
+
+    /// The edits the server wants made before files move (imports that name them).
+    func willRenameFiles(_ renames: [(old: URL, new: URL)]) async throws -> WorkspaceEdit? {
+        let result = try await request("workspace/willRenameFiles", params: [
+            "files": renames.map { ["oldUri": $0.old.absoluteString, "newUri": $0.new.absoluteString] },
+        ])
+        return WorkspaceEdit(json: result)
+    }
+
+    func didRenameFiles(_ renames: [(old: URL, new: URL)]) {
+        notify("workspace/didRenameFiles", params: [
+            "files": renames.map { ["oldUri": $0.old.absoluteString, "newUri": $0.new.absoluteString] },
+        ])
+    }
 
     // MARK: Features
 

@@ -30,6 +30,14 @@ final class EditorGroup: Identifiable {
         documentIDs.insert(id, at: min(max(0, target), documentIDs.count))
     }
 
+    /// Puts `new` in `old`'s tab (a renamed file), keeping its place and view state.
+    func replace(_ old: EditorDocument.ID, with new: EditorDocument.ID) {
+        guard let index = documentIDs.firstIndex(of: old) else { return }
+        documentIDs[index] = new
+        viewStates[new] = viewStates.removeValue(forKey: old)
+        if activeDocumentID == old { activeDocumentID = new }
+    }
+
     /// Removes a tab; the next one (or the previous, at the end) becomes active.
     func remove(_ id: EditorDocument.ID) {
         guard let index = documentIDs.firstIndex(of: id) else { return }

@@ -129,6 +129,8 @@ def occurrences(word):
                                      "end": {"line": line_no, "character": start16 + len(units(word))}}))
     return result
 
+renamed = []
+
 while True:
     msg = read()
     method, mid, params = msg.get("method"), msg.get("id"), msg.get("params", {})
@@ -145,6 +147,9 @@ while True:
             "signatureHelpProvider": {"triggerCharacters": ["("], "retriggerCharacters": [","]},
             "inlayHintProvider": True, "documentHighlightProvider": True,
             "documentLinkProvider": {"resolveProvider": True},
+            "workspace": {"fileOperations": {
+                "willRename": {"filters": [{"pattern": {"glob": "**/*.swift", "matches": "file"}}]},
+                "didRename": {"filters": [{"pattern": {"glob": "**/*.swift"}}]}}},
             "semanticTokensProvider": {"legend": {"tokenTypes": ["type", "function", "variable"], "tokenModifiers": []},
                                        "full": True}}}})
     elif method == "textDocument/hover":
@@ -312,6 +317,24 @@ while True:
                   "signatures": [{"label": "fooBar(count: Int, name: String) -> Int", "documentation": "Makes a bar.",
                                   "parameters": [{"label": [7, 17], "documentation": "How many."},
                                                  {"label": "name: String"}]}]}})
+    elif method == "workspace/willRenameFiles":
+        # Mentions of a renamed file's name in any Swift file follow it.
+        changes = {}
+        for rename in params["files"]:
+            old_name = os.path.basename(path_of(rename["oldUri"]))
+            new_name = os.path.basename(path_of(rename["newUri"]))
+            for uri in all_uris():
+                for line_no, line in enumerate(text_of(uri).split("\n")):
+                    for m in re.finditer(re.escape(old_name), line):
+                        start16 = len(units(line[:m.start()]))
+                        changes.setdefault(uri, []).append({"range": {
+                            "start": {"line": line_no, "character": start16},
+                            "end": {"line": line_no, "character": start16 + len(units(old_name))}}, "newText": new_name})
+        send({"jsonrpc": "2.0", "id": mid, "result": {"changes": changes}})
+    elif method == "workspace/didRenameFiles":
+        renamed.extend((f["oldUri"], f["newUri"]) for f in params["files"])
+    elif method == "omc/renamed":
+        send({"jsonrpc": "2.0", "id": mid, "result": [list(pair) for pair in renamed]})
     elif method == "textDocument/semanticTokens/full":
         # Capitalized words are types, "name(" a function, "let name" a variable.
         found = []

@@ -373,7 +373,7 @@ final class Workspace {
 
     // MARK: Language servers
 
-    private func attachLanguageServer(to document: EditorDocument) {
+    func attachLanguageServer(to document: EditorDocument) {
         guard let rootURL else { return }
         Task { [weak self] in
             let environment = await ShellEnvironment.shared.environment()
@@ -768,7 +768,7 @@ final class Workspace {
         return String(path.dropFirst(root.count + 1))
     }
 
-    private func loadDiffBase(for document: EditorDocument) {
+    func loadDiffBase(for document: EditorDocument) {
         document.compareConflictAction = { [weak self, weak document] conflict in
             guard let self, let document else { return }
             self.compareConflict(conflict, in: document)
@@ -1956,6 +1956,31 @@ final class Workspace {
             }
         }
         if group.documentIDs.isEmpty { closeGroup(group) }
+        retargetEditor()
+    }
+
+    /// A file was moved: `old` (open at its former path) is replaced by `new` in the same tabs.
+    func replaceDocument(_ old: EditorDocument, with new: EditorDocument) {
+        for session in diffSessions where session.document === old {
+            for group in groups where group.contains(session.id) { closeDiff(session, in: group) }
+        }
+        guard let index = documents.firstIndex(where: { $0.id == old.id }) else { return }
+        documents[index] = new
+        for group in groups { group.replace(old.id, with: new.id) }
+        old.languageClient?.didClose(url: old.url)
+        loadDiffBase(for: new)
+        attachLanguageServer(to: new)
+        retargetEditor()
+    }
+
+    /// Closes a document whose file is gone (moved to the Trash): no question about saving.
+    func discardDocument(_ document: EditorDocument) {
+        for group in groups where group.contains(document.id) {
+            group.remove(document.id)
+            if group.documentIDs.isEmpty, groups.count > 1 { closeGroup(group) }
+        }
+        documents.removeAll { $0.id == document.id }
+        document.languageClient?.didClose(url: document.url)
         retargetEditor()
     }
 

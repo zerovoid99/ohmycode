@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct FileTreeView: View {
     let root: FileNode
@@ -9,8 +10,18 @@ struct FileTreeView: View {
         List(root.children ?? [], children: \.children, selection: $selection) { node in
             FileRow(node: node, status: workspace.gitStatus(for: node.url, isDirectory: node.isDirectory),
                     submodule: node.isDirectory ? workspace.submodule(at: node.url) : nil)
+                .draggable(node.url)
+                // Dropped on a folder: moved into it (a file's row takes it to the file's folder).
+                .dropDestination(for: URL.self) { urls, _ in
+                    let folder = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
+                    Task { for url in urls where url.isFileURL { await workspace.move(url, into: folder) } }
+                    return true
+                }
         }
         .listStyle(.sidebar)
+        .contextMenu(forSelectionType: URL.self) { urls in
+            ExplorerMenu(workspace: workspace, target: urls.first)
+        }
         .onChange(of: selection) { _, url in
             if let url, !url.hasDirectoryPath {
                 workspace.open(fileAt: url)
@@ -18,6 +29,26 @@ struct FileTreeView: View {
         }
         .onChange(of: workspace.activeDocument?.url) { _, url in
             if let url { selection = url }
+        }
+    }
+}
+
+/// The Explorer's right-click menu: on an item (or, on empty space, the folder itself).
+private struct ExplorerMenu: View {
+    let workspace: Workspace
+    let target: URL?
+
+    var body: some View {
+        Button("New File…") { workspace.promptNewFile(in: target) }
+        Button("New Folder…") { workspace.promptNewFolder(in: target) }
+        if let target {
+            Divider()
+            Button("Rename…") { workspace.promptRename(target) }
+            Button("Move to Trash") { workspace.trash([target]) }
+            Divider()
+            Button("Reveal in Finder") { workspace.revealInFinder(target) }
+            Button("Copy Path") { workspace.copyPath(target, relative: false) }
+            Button("Copy Relative Path") { workspace.copyPath(target, relative: true) }
         }
     }
 }
