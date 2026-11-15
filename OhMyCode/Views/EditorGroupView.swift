@@ -19,7 +19,7 @@ struct EditorGroupView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !group.documentIDs.isEmpty {
+            if !group.documentIDs.isEmpty, !workspace.isZenMode {
                 TabBarView(workspace: workspace, group: group)
                     .overlay(alignment: .top) {
                         // Which pane has focus, when there are several.
@@ -28,7 +28,7 @@ struct EditorGroupView: View {
                 Divider()
             }
             if let document = workspace.document(id: group.activeDocumentID) {
-                if AppSettings.shared.showsBreadcrumbs {
+                if AppSettings.shared.showsBreadcrumbs, !workspace.isZenMode {
                     BreadcrumbsView(workspace: workspace, document: document)
                     Divider()
                 }

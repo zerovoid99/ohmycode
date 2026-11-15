@@ -4,7 +4,7 @@ struct WorkspaceView: View {
     @Bindable var workspace: Workspace
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $workspace.sidebarVisibility) {
             VStack(spacing: 0) {
                 Picker("Sidebar", selection: $workspace.sidebarMode) {
                     Image(systemName: "folder").help("Explorer (⇧⌘E)").tag(Workspace.SidebarMode.files)
@@ -59,7 +59,7 @@ struct WorkspaceView: View {
         } detail: {
             VStack(spacing: 0) {
                 VSplitView {
-                    editorArea
+                    ZenCentered(isZen: workspace.isZenMode) { editorArea }
                         // Fill the split's height: without a max, an empty editor area (no
                         // ideal height) let VSplitView collapse it and misplace the status bar.
                         .frame(minHeight: 120, maxHeight: .infinity)
@@ -77,6 +77,7 @@ struct WorkspaceView: View {
                             .frame(minHeight: 90, idealHeight: 260)
                     }
                 }
+                if !workspace.isZenMode {
                 Divider()
                 StatusBarView(document: workspace.activeDocument, gitStatus: workspace.gitStatus,
                               problems: workspace.rootURL == nil ? nil : workspace.problems,
@@ -84,6 +85,7 @@ struct WorkspaceView: View {
                               tasks: workspace.taskRuns.filter { $0.state.isRunning },
                               showTasks: { workspace.showTasks() },
                               items: workspace.extensions.statusItems) { workspace.extensions.run($0) }
+                }
             }
             .overlay(alignment: .bottomTrailing) {
                 NotificationsOverlay(workspace: workspace).padding(.bottom, 22)

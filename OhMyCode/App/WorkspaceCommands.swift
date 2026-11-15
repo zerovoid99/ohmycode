@@ -88,6 +88,10 @@ struct WorkspaceCommands: Commands {
             Button("Problems") { workspace?.toggleProblems() }
                 .keyboardShortcut(keys.shortcut("view.problems"))
                 .disabled(workspace?.rootNode == nil)
+            Divider()
+            Button(workspace?.isZenMode == true ? "Leave Zen Mode" : "Zen Mode") { workspace?.toggleZenMode() }
+                .keyboardShortcut(keys.shortcut("view.zenMode"))
+                .disabled(workspace == nil)
         }
 
         CommandMenu("Debug") {

@@ -98,6 +98,7 @@ struct SettingsView: View {
             Toggle("Highlight where the symbol under the cursor appears", isOn: $settings.highlightsOccurrences)
             Toggle("Highlight matching brackets", isOn: $settings.highlightsMatchingBrackets)
             Toggle("Show indent guides", isOn: $settings.showsIndentGuides)
+            Toggle("Zen mode makes the window full screen", isOn: $settings.zenModeFullScreen)
             Picker("Word wrap", selection: $settings.wordWrap) {
                 ForEach(WordWrap.allCases) { Text($0.title).tag($0) }
             }

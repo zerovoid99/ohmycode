@@ -42,6 +42,7 @@
 		2E028BA8A6DD44C06C727335 /* TreeSitterPython in Frameworks */ = {isa = PBXBuildFile; productRef = B7578A1892DE4A8AD836F880 /* TreeSitterPython */; };
 		3043BD420289D09EDB6B05E8 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D8010605A8A9875A268782 /* TimelineView.swift */; };
 		34F578D2BA5912C080EBFE8B /* SignatureHelpController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B41E6217990FB95E15D78A /* SignatureHelpController.swift */; };
+		35B02D6D55C20A701230D5E0 /* ZenModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A58572347F6E63EE7072F13 /* ZenModeTests.swift */; };
 		36528DEE6258701543550F8B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC70BDDB10EC612FCBE47F8 /* SettingsView.swift */; };
 		3667D816FC7964C5EAD7CD27 /* Profiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C84CB7A0A0A8C167B6B1E59F /* Profiles.swift */; };
 		370FBC789CD9DA8B0993C0A5 /* TreeSitterJavaScript in Frameworks */ = {isa = PBXBuildFile; productRef = 87DA8D1C0292FBB52565C8F4 /* TreeSitterJavaScript */; };
@@ -114,6 +115,7 @@
 		8D626050E0C9D815F9FE72AA /* TerminalShaders.swift in Sources */ = {isa = PBXBuildFile; fileRef = E80C26D0340BB82FFDA82C16 /* TerminalShaders.swift */; };
 		8DE8BE5D6654BDB6C1BF6D03 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A7C9D84FAB6E84ED23CE13AC /* Assets.xcassets */; };
 		8F15DEE9ADBD6D20F2519CE7 /* ExtensionScaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A5EC602708D880A16A0DF15 /* ExtensionScaffold.swift */; };
+		90F7A5EDD6E5086CEDA331FD /* ZenMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0596C37706EFE1B86FC95844 /* ZenMode.swift */; };
 		9267627B8BA1FD9BF76D5390 /* GrammarRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56E3DC7C8474D02E52D8006C /* GrammarRegistry.swift */; };
 		942585BEE4EEF986E5D90309 /* SearchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66612AF9070152598AA4295F /* SearchModel.swift */; };
 		97FF6B5EE2650B9504A36866 /* ExtensionRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA039A5FEC0049694AC90B8 /* ExtensionRuntime.swift */; };
@@ -219,6 +221,7 @@
 /* Begin PBXFileReference section */
 		0290C26106122CA181C7E90C /* CompletionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompletionController.swift; sourceTree = "<group>"; };
 		02C774D488B792D7089D1DAB /* PaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaletteTests.swift; sourceTree = "<group>"; };
+		0596C37706EFE1B86FC95844 /* ZenMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenMode.swift; sourceTree = "<group>"; };
 		05B54BDB4196B0B5897248E3 /* ExtensionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionStore.swift; sourceTree = "<group>"; };
 		062545FE7797841B1F4B7A4A /* TerminalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTests.swift; sourceTree = "<group>"; };
 		07F077DF9001333C3035F7BE /* DocumentLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentLinkTests.swift; sourceTree = "<group>"; };
@@ -251,6 +254,7 @@
 		257D4B1DFFEADE990E86AC2F /* LineDiff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineDiff.swift; sourceTree = "<group>"; };
 		283BBF8CB8D107A54E380B0E /* SyntaxHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxHighlighterTests.swift; sourceTree = "<group>"; };
 		2A31CC2BCD7DAB857B704425 /* BranchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchViews.swift; sourceTree = "<group>"; };
+		2A58572347F6E63EE7072F13 /* ZenModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenModeTests.swift; sourceTree = "<group>"; };
 		2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffHighlightTests.swift; sourceTree = "<group>"; };
 		2B511C0F6AACECBD26C594F8 /* VSCodeTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VSCodeTheme.swift; sourceTree = "<group>"; };
 		2B8F8EDE4D1869E66032FBAB /* AmendUndoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmendUndoTests.swift; sourceTree = "<group>"; };
@@ -533,6 +537,7 @@
 				CD24CD25D1A3855BF3816B4B /* ThemeStyle.swift */,
 				E900D8E8A233E7EC65D90EB6 /* WelcomeView.swift */,
 				796D31D35763D8DDD9A8020B /* WorkspaceView.swift */,
+				0596C37706EFE1B86FC95844 /* ZenMode.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -601,6 +606,7 @@
 				E51C35CA661DE3585B84B90A /* WorkspaceSymbolTests.swift */,
 				1926672DEF8AA6C2EBB38393 /* WorktreeSubmoduleTests.swift */,
 				689AB726F376231D0C97C084 /* XcodeTestingTests.swift */,
+				2A58572347F6E63EE7072F13 /* ZenModeTests.swift */,
 			);
 			path = OhMyCodeTests;
 			sourceTree = "<group>";
@@ -1072,6 +1078,7 @@
 				406AA38E7274A780851F61A0 /* WorkspaceSymbols.swift in Sources */,
 				9A6FA3A23E349E3154CA0FDD /* WorkspaceView.swift in Sources */,
 				658DD5F6B8A2DA1FFA92BDA7 /* XcodeProject.swift in Sources */,
+				90F7A5EDD6E5086CEDA331FD /* ZenMode.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1139,6 +1146,7 @@
 				AFC35AE18929D58EFA699070 /* WorkspaceSymbolTests.swift in Sources */,
 				23CDEADD4AD2DEE911808ABF /* WorktreeSubmoduleTests.swift in Sources */,
 				06F8AE2A0DC0B42373D08F65 /* XcodeTestingTests.swift in Sources */,
+				35B02D6D55C20A701230D5E0 /* ZenModeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

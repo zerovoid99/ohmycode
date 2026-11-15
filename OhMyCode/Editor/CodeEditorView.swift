@@ -748,6 +748,8 @@ extension EditorController: NSTextViewDelegate {
         if handleMultiCursorCommand(selector) { return true }
         if selector == #selector(NSResponder.insertNewline(_:)) { return handleNewline() }
         if selector == #selector(NSResponder.deleteBackward(_:)) { return handleDeleteBackward() }
+        // Esc with nothing else to dismiss: twice leaves zen mode.
+        if selector == #selector(NSResponder.cancelOperation(_:)), document.workspace?.zenEscape() == true { return true }
         if selector == #selector(NSResponder.complete(_:)) {
             completion.triggerManually()
             return true

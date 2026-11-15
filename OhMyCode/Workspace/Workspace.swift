@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import SwiftUI
 
 /// State for one editor window: the opened folder and its open documents (tabs).
 @MainActor
@@ -118,6 +119,11 @@ final class Workspace {
     }
 
     var sidebarMode = SidebarMode.files
+    /// The sidebar column, shown or hidden.
+    var sidebarVisibility: NavigationSplitViewVisibility = .automatic
+    /// Set while in zen mode: what to put back when leaving it.
+    var zenRestore: ZenRestore?
+    @ObservationIgnored var lastZenEscape: Date?
     /// Multi-file edits waiting for review (rename, replace all), shown as a sheet.
     var pendingEdit: EditPreview?
     /// Last Find All References result, shown in the sidebar.

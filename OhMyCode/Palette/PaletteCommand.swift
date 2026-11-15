@@ -345,6 +345,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { $0.groups.count > 3 }, perform: { $0.focusGroup(at: 3) }),
         PaletteCommand(id: "preferences.keyboardShortcuts", title: "Preferences: Open Keyboard Shortcuts", icon: "keyboard", key: nil,
                        isAvailable: { _ in true }, perform: { _ in KeyboardShortcutsWindow.show() }),
+        PaletteCommand(id: "view.zenMode", title: "View: Toggle Zen Mode", icon: "rectangle.center.inset.filled", key: "alt+cmd+z",
+                       isAvailable: { _ in true }, perform: { $0.toggleZenMode() }),
         PaletteCommand(id: "view.toggleSidebar", title: "View: Toggle Sidebar", icon: "sidebar.left", key: "ctrl+cmd+s",
                        isAvailable: { $0.rootNode != nil },
                        perform: { _ in
