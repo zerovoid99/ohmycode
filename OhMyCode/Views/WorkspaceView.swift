@@ -97,6 +97,8 @@ struct WorkspaceView: View {
         .sheet(item: $workspace.pendingRebase) { plan in
             InteractiveRebaseView(workspace: workspace, plan: plan)
         }
+        // Zen mode: no title bar either (full screen shows it again on hover at the top).
+        .toolbar(workspace.isZenMode ? .hidden : .automatic, for: .windowToolbar)
         .navigationTitle(workspace.displayName)
         .navigationSubtitle(workspace.activeDocument?.fileName ?? "")
     }

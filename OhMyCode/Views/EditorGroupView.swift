@@ -49,7 +49,8 @@ struct EditorGroupView: View {
                                 }
                                 .buttonStyle(.borderless)
                                 .help("Open Preview to the Side (⇧⌘V)")
-                                .padding(.trailing, 22)
+                                // Left of the minimap (and the scroller), not on it.
+                                .padding(.trailing, 22 + (AppSettings.shared.showsMinimap ? MinimapView.width : 0))
                                 .padding(.top, 6)
                             }
                         }

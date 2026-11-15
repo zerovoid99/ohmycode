@@ -39,7 +39,12 @@ struct InlayHintTests {
         let rects = controller.inlayHintRects()
         #expect(rects.count == 2)
         let after = try #require(controller.rect(for: NSRange(location: 9, length: 1)))
-        #expect(rects[0].rect.maxX <= after.minX + 0.5 && rects[0].rect.width > 10)
+        // The label sits in the gap: after the hinted character's glyph, before the next one's.
+        // (The caret, where segments meet, is mid-gap.)
+        let hinted = try #require(controller.rect(for: NSRange(location: 8, length: 1)))
+        let glyph = (" " as NSString).size(withAttributes: [.font: EditorTheme.font]).width
+        #expect(rects[0].rect.minX >= hinted.minX + glyph - 0.5)
+        #expect(rects[0].rect.maxX <= after.maxX - glyph + 0.5 && rects[0].rect.width > 10)
 
         // Typing right after a hinted character doesn't take its gap.
         controller.textView.setSelectedRange(NSRange(location: 9, length: 0))

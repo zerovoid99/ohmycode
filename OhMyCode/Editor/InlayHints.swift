@@ -118,8 +118,12 @@ extension EditorController {
         storage.enumerateAttribute(.omcInlayHint, in: clipped) { value, attributeRange, _ in
             guard let mark = value as? InlayHintMark,
                   let rect = rect(for: NSRange(location: attributeRange.location, length: 1)) else { return }
-            // The character's segment includes the gap after it.
-            result.append((NSRect(x: rect.maxX - mark.width + 2, y: rect.minY + 1, width: mark.width - 4, height: max(rect.height - 2, 1)), mark))
+            // The gap (the kern) starts right after the character's glyph. (TextKit splits it
+            // between this character's segment and the next one's: the caret sits mid-gap.)
+            let character = storage.mutableString.substring(with: NSRange(location: attributeRange.location, length: 1)) as NSString
+            let font = storage.attribute(.font, at: attributeRange.location, effectiveRange: nil) as? NSFont ?? EditorTheme.font
+            let gapStart = rect.minX + character.size(withAttributes: [.font: font]).width
+            result.append((NSRect(x: gapStart + 2, y: rect.minY + 1, width: mark.width - 4, height: max(rect.height - 2, 1)), mark))
         }
         return result
     }
