@@ -57,6 +57,12 @@ outlined. Without one, the same whole word is highlighted. Selecting text on one
 same text elsewhere. F7 and ⇧F7 go to the next and previous place. Highlights are turned off in
 Settings → Editor or with *View: Toggle Symbol Highlights*.
 
+## Word wrap
+Long lines wrap at the editor's edge in Markdown and plain text, and scroll sideways in code.
+Settings → Editor → Word wrap changes that to always or never. ⌥Z (*View: Toggle Word Wrap*)
+switches it for the active file until it's closed. Line numbers, breakpoints and other gutter marks
+stay on a wrapped line's first row.
+
 ## Brackets and indent guides
 With the cursor beside a bracket (`(`, `[`, `{`), it and its match are outlined. Brackets inside
 strings and comments don't count. ⇧⌘\ goes to the matching bracket, or from inside a pair to its
