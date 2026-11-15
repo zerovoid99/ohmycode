@@ -12,6 +12,7 @@ struct WorkspaceView: View {
                     Image(systemName: "arrow.triangle.branch").help(changeCountLabel + " (⌃⇧G)")
                         .tag(Workspace.SidebarMode.sourceControl)
                     Image(systemName: "clock.arrow.circlepath").help("Timeline").tag(Workspace.SidebarMode.history)
+                    Image(systemName: "arrow.triangle.pull").help("Pull Requests").tag(Workspace.SidebarMode.pullRequests)
                     Image(systemName: "ladybug").help("Run and Debug (⇧⌘D)").tag(Workspace.SidebarMode.debug)
                     Image(systemName: "list.bullet.indent").help("Outline").tag(Workspace.SidebarMode.outline)
                     Image(systemName: "checkmark.diamond").help("Testing").tag(Workspace.SidebarMode.testing)
@@ -51,6 +52,8 @@ struct WorkspaceView: View {
                     OutlineView(workspace: workspace)
                 case .callHierarchy:
                     CallHierarchyView(workspace: workspace)
+                case .pullRequests:
+                    PullRequestsView(workspace: workspace)
                 }
             }
             .frame(maxHeight: .infinity, alignment: .top)

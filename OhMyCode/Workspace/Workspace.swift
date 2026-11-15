@@ -119,6 +119,7 @@ final class Workspace {
         case testing = "Testing"
         case outline = "Outline"
         case callHierarchy = "Call Hierarchy"
+        case pullRequests = "Pull Requests"
     }
 
     @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
@@ -164,7 +165,14 @@ final class Workspace {
     /// Replaces the rename dialog (tests): gets the current name, returns the new one or nil.
     @ObservationIgnored var renamePrompt: ((String) -> String?)?
     private(set) var gitStatus: GitStatus?
-    private(set) var isRunningGitCommand = false
+    var isRunningGitCommand = false
+    /// GitHub (see GitHub.swift): the open pull requests, why they couldn't be read, the one opened.
+    var pullRequests: [PullRequest]?
+    var pullRequestError: String?
+    var isLoadingPullRequests = false
+    var openPullRequest: PullRequestDetails?
+    /// The Create Pull Request form is showing.
+    var isCreatingPullRequest = false
     @ObservationIgnored private(set) var gitRepository: Git.Repository?
     @ObservationIgnored private var gitTask: Task<Void, Never>?
     /// The Timeline panel: the commits that changed a file.
