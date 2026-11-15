@@ -184,6 +184,19 @@ The fixes made when saving are one undoable step. The status bar shows the inden
 endings; hover them to see which `.editorconfig` set them. Editing an `.editorconfig` applies it to
 open files at once.
 
+## Folder settings
+A folder's `.omc/settings.json` overrides the app's settings for files in it.
+*Preferences: Open Folder Settings* writes one with every option commented out. It understands:
+
+- `formatOnSave`, `formatOnSaveScope` (`file`, `modifications`);
+- `autoSave` (`off`, `afterDelay`, `onFocusChange`), `autoSaveDelay`;
+- `wordWrap` (`off`, `on`, `prose`), `renderWhitespace` (`none`, `selection`, `boundary`, `all`);
+- `showsInlayHints`, `semanticHighlighting`, `showsCodeLens`.
+
+Comments and trailing commas are allowed. Changes apply when the file is saved, even from another
+editor. Names it doesn't know, and a file that isn't valid JSON, are reported. Indentation and line
+endings come from `.editorconfig`.
+
 ## Unsaved changes, auto save and hot exit
 Quitting never loses unsaved work, and doesn't ask about it. Each window keeps its open tabs and
 the text of its unsaved files in `~/Library/Application Support/OhMyCode/Sessions`, updated a
