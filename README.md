@@ -86,6 +86,11 @@ type in it; a thin accent line marks the active pane. Closing a pane gives its p
 neighbour. Double-click a tab, or right-click it, to rename it: the name stays until you clear it,
 even when the shell sets its own title. Right-click also has *Split Terminal* and *Kill Terminal*.
 
+⌘-click a file path in the terminal's output to open it in the editor at its line and column, as
+compilers and test runners print them (`Sources/App/main.swift:12:5`, Python's
+`File "x.py", line 3`). Relative paths are resolved from where the shell started. ⌘-click a URL to
+open it in the browser. The pointer turns into a hand over links while ⌘ is held.
+
 ## GitHub pull requests
 The Pull Requests sidebar lists the repository's open pull requests through the GitHub CLI
 (`brew install gh`, then `gh auth login`). Each one shows its author, branch, draft state and
