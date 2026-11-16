@@ -74,8 +74,10 @@ final class EditorController: NSObject {
 
     /// The document's content storage keeps its layout managers alive: detach ours, or a closed
     /// split would keep being laid out on every edit.
+    /// The overlay is removed too: a text view doesn't release its subviews when it goes.
     isolated deinit {
         if let textLayoutManager { document.textContentStorage.removeTextLayoutManager(textLayoutManager) }
+        diagnosticsOverlay?.removeFromSuperview()
     }
 
     func makeView() -> EditorContainerView {

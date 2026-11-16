@@ -7,7 +7,9 @@ import AppKit
 @MainActor
 final class DiagnosticsOverlayView: NSView {
     private weak var textView: NSTextView?
-    private let document: EditorDocument
+    /// Weak: AppKit can keep a text view's subviews alive after the text view goes (the editor
+    /// also removes this view when it closes), and that mustn't keep a closed file in memory.
+    private weak var document: EditorDocument?
     /// Lenses after their lines, and the one under the mouse.
     var codeLenses: (() -> [CodeLensMark])?
     var hoveredCodeLens: (() -> NSRect?)?
@@ -50,7 +52,7 @@ final class DiagnosticsOverlayView: NSView {
 
     /// Rects (in this view) of the text each diagnostic covers, with its color. Visible for tests.
     func segments() -> [(rect: CGRect, color: NSColor)] {
-        guard let textView, let layoutManager = textView.textLayoutManager,
+        guard let textView, let document, let layoutManager = textView.textLayoutManager,
               let contentManager = layoutManager.textContentManager else { return [] }
         let origin = textView.textContainerOrigin
         let visible = textView.visibleRect.insetBy(dx: 0, dy: -50)
