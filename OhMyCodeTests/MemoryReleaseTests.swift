@@ -20,8 +20,9 @@ struct MemoryReleaseTests {
         }
     }
 
-    private func settle() async throws {
-        for _ in 0..<5 { try await Task.sleep(for: .milliseconds(50)) }
+    /// Lets AppKit let go (a closed text view lingers for a moment), up to a few seconds.
+    private func settle(until released: () -> Bool = { false }) async throws {
+        for step in 0..<60 where step < 5 || !released() { try await Task.sleep(for: .milliseconds(50)) }
     }
 
     @Test func closedEditorReleasesItsDocument() async throws {
@@ -30,6 +31,8 @@ struct MemoryReleaseTests {
         defer { try? FileManager.default.removeItem(at: url) }
         weak var weakDocument: EditorDocument?
         weak var weakOverlay: NSView?
+        weak var weakLine: NSView?
+        var hadLine = false
         try await {
             let document = try EditorDocument(url: url)
             weakDocument = document
@@ -37,13 +40,18 @@ struct MemoryReleaseTests {
             await document.highlighter?.waitUntilIdle()
             autoreleasepool {
                 weakOverlay = controller?.diagnosticsOverlay
+                // One of TextKit's views of a line (in a view of its own in the text view).
+                weakLine = controller?.textView.subviews.flatMap(\.subviews).first
+                hadLine = weakLine != nil
                 window?.contentView = nil
                 window?.close()
                 (controller, window) = (nil, nil)
             }
         }()
-        try await settle()
+        try await settle { weakOverlay == nil && weakLine == nil && weakDocument == nil }
         #expect(weakOverlay == nil, "the overlay outlived its editor")
+        #expect(hadLine)
+        #expect(weakLine == nil, "a line's view outlived its editor")
         #expect(weakDocument == nil, "the document outlived its editor")
     }
 

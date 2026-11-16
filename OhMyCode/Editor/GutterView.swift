@@ -463,3 +463,13 @@ struct BlameColumn {
         return (entry.author, formatter.localizedString(for: entry.date, relativeTo: now))
     }
 }
+
+extension NSView {
+    /// Removes every view under this one, deepest first, so none is left in a superview.
+    func removeAllSubviews() {
+        for view in subviews {
+            view.removeAllSubviews()
+            view.removeFromSuperview()
+        }
+    }
+}
