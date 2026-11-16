@@ -129,28 +129,81 @@ final class StickyScrollView: NSView {
     }
 }
 
+
 /// A zoomed-out picture of the document beside the editor: each character a 1×2 pt block in
 /// its syntax color, with the visible region shown as a slider. Click or drag to scroll.
+///
+/// The picture is a pixel buffer kept from frame to frame and shown as a layer's contents. A
+/// frame paints only the lines that changed (edited, scrolled in, or recolored by a new
+/// highlight result) and copies the others' rows to where their lines are now. The slider is a
+/// layer of its own: moving it paints nothing.
 @MainActor
 final class MinimapView: NSView, SyntaxHighlighterClient {
     static let width: CGFloat = 90
     static let lineHeight: CGFloat = 2
     static let charWidth: CGFloat = 1
+    /// Characters of a line read for its row (90 pt holds 90 columns).
+    private static let maxUnits = 512
 
     private weak var editor: EditorController?
     private var highlights: [NamedRange] = []
     private var highlightedRange: NSRange?
 
+    /// What the picture is painted for: its size in pixels, and the colors it uses.
+    private struct Canvas: Equatable {
+        var width = 0, height = 0, charPixels = 1, linePixels = 1
+        var generation = 0
+        var appearance: NSAppearance.Name?
+    }
+    private var canvas = Canvas()
+    private var background: UInt32 = 0, plain: UInt32 = 0
+    /// The color of each character of `highlightedRange` (0: plain), resolved once per result.
+    private var colors: [UInt32] = []
+    private var colorsAreStale = true
+    private var captureColors: [String: UInt32] = [:]
+    /// The picture, `canvas.width` pixels a row, `linePixels` rows a line, and a spare to paint
+    /// the next frame into.
+    private var pixels: [UInt32] = [], spare: [UInt32] = []
+    /// For each line in the picture, a hash of the colors it was painted with (nil: blank).
+    private var lineColors: [UInt64?] = [], spareLineColors: [UInt64?] = []
+    private(set) var paintedFirst = 0
+    private var paintedLineCount = 0
+    private var image: CGImage?
+
+    private enum Pending: Equatable { case none, lines(ClosedRange<Int>), all }
+    /// Text changes since the picture was painted: one edit's lines (in the new text), or
+    /// anything (several edits, a theme).
+    private var pending = Pending.all
+    /// A highlight result arrived since the picture was painted.
+    private var colorsChanged = false
+    /// Lines painted in the last frame, not copied (tests).
+    private(set) var paintedLines = 0
+    /// The picture as last painted (tests).
+    var paintedImage: CGImage? { image }
+
+    private let contentLayer = CALayer()
+    private let sliderLayer = CALayer()
+    private var sliderColor: (key: Canvas, dragging: Bool, color: CGColor)?
+
     init(editor: EditorController) {
         self.editor = editor
         super.init(frame: .zero)
         clipsToBounds = true
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        let still: [String: any CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(),
+                                             "backgroundColor": NSNull(), "contentsScale": NSNull()]
+        contentLayer.actions = still
+        sliderLayer.actions = still
+        contentLayer.magnificationFilter = .nearest
+        contentLayer.contentsGravity = .resize
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var isFlipped: Bool { true }
+    override var wantsUpdateLayer: Bool { true }
 
     /// Lines the minimap has room for.
     private var capacity: Int { max(1, Int(bounds.height / Self.lineHeight)) }
@@ -182,12 +235,34 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
     func applyHighlights(_ highlights: [NamedRange], in range: NSRange) {
         self.highlights = highlights
         highlightedRange = range
+        colorsAreStale = true
+        colorsChanged = true
         needsDisplay = true
     }
 
-    /// After scrolling or editing: redraw, and ask for colors if the drawn lines moved past them.
+    // MARK: Updates
+
+    /// The document's text changed: `lines` (in the new text) were edited, and the lines after
+    /// them moved by however many lines were added or removed.
+    func linesEdited(_ lines: ClosedRange<Int>) {
+        pending = pending == .none ? .lines(lines) : .all
+        if !isHidden { needsDisplay = true }
+    }
+
+    /// Everything is painted again (theme, settings).
+    func invalidate() {
+        pending = .all
+        needsDisplay = true
+    }
+
+    /// After scrolling or editing: move the slider and repaint what changed (at the next
+    /// display), and ask for colors if the lines shown moved past them.
     func refresh(textChanged: Bool = false) {
         guard !isHidden, let editor else { return }
+        // A change that didn't say which lines (`linesEdited` comes first when it does).
+        if textChanged, pending == .none { pending = .all }
+        // The slider moves at the next display, after layout: where the top line is, asked
+        // before an edit is laid out, is estimated through every paragraph from the start.
         needsDisplay = true
         if textChanged { return } // the highlighter re-requests for all clients after edits
         if let highlightedRange, let wanted = highlightRange,
@@ -195,12 +270,42 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
         editor.document.highlighter?.requestHighlights(for: self)
     }
 
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        invalidate()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsDisplay = true
+    }
+
+    // MARK: Drawing
+
+    override func updateLayer() {
+        guard let layer else { return }
+        if contentLayer.superlayer == nil {
+            layer.addSublayer(contentLayer)
+            layer.addSublayer(sliderLayer)
+        }
+        layer.backgroundColor = EditorTheme.current.background.cgColor
+        contentLayer.frame = bounds
+        contentLayer.contents = paint()
+        updateSlider()
+    }
+
+    /// For `cacheDisplay` (and printing): the same picture, drawn.
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         let theme = EditorTheme.current
         context.setFillColor(theme.background.cgColor)
         context.fill(bounds)
-        if let image = renderImage(scale: window?.backingScaleFactor ?? 2) {
+        if let image = paint() {
             context.saveGState()
             // The image's rows run top-down; this view is flipped.
             context.translateBy(x: 0, y: bounds.height)
@@ -213,85 +318,199 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
         context.fill(sliderRect)
     }
 
-    /// The minimap as pixels, written directly into a buffer: thousands of tiny fills through
-    /// CoreGraphics would cost several milliseconds per frame on a large file.
-    func renderImage(scale: CGFloat) -> CGImage? {
-        guard let editor, let region = highlightRange else { return nil }
-        let width = Int(bounds.width * scale), height = Int(bounds.height * scale)
-        guard width > 0, height > 0 else { return nil }
+    private func updateSlider() {
+        guard !isHidden, window != nil, !bounds.isEmpty else { return }
+        let frame = sliderRect
+        if sliderLayer.frame != frame { sliderLayer.frame = frame }
+        if sliderColor == nil || sliderColor!.key != canvas || sliderColor!.dragging != isDragging {
+            var color = CGColor(gray: 0, alpha: 0)
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                color = EditorTheme.current.foreground.withAlphaComponent(isDragging ? 0.2 : 0.1).cgColor
+            }
+            sliderColor = (canvas, isDragging, color)
+            sliderLayer.backgroundColor = color
+        }
+    }
+
+    /// Brings the picture up to date and returns it: lines whose rows can be copied are, the
+    /// rest are painted. Writing pixels directly: thousands of tiny fills through CoreGraphics
+    /// would cost several milliseconds a frame.
+    private func paint() -> CGImage? {
+        guard let editor, !isHidden else { return nil }
+        let scale = window?.backingScaleFactor ?? 2
         let theme = EditorTheme.current
         let appearance = theme.appearance ?? effectiveAppearance
-        var background = 0 as UInt32, plain = 0 as UInt32
-        appearance.performAsCurrentDrawingAppearance {
-            background = Self.pixel(theme.background)
-            plain = Self.pixel(theme.foreground.withAlphaComponent(0.55), over: theme.background)
-        }
-
-        // Color per character of the drawn region: plain text, then highlights (later wins).
-        var colors = [UInt32](repeating: plain, count: region.length)
-        if let highlightedRange, NSIntersectionRange(highlightedRange, region).length > 0 {
-            var resolved: [String: UInt32?] = [:]
+        let next = Canvas(width: Int(bounds.width * scale), height: Int(bounds.height * scale),
+                          charPixels: max(1, Int((Self.charWidth * scale).rounded())),
+                          linePixels: max(1, Int((Self.lineHeight * scale).rounded())),
+                          generation: EditorTheme.generation, appearance: appearance.name)
+        guard next.width > 0, next.height > 0 else { return nil }
+        let index = editor.document.lineIndex
+        let first = firstLine, rows = capacity
+        var full = pending == .all || (pending == .none && index.lineCount != paintedLineCount)
+        if next != canvas {
+            canvas = next
+            full = true
+            captureColors.removeAll()
+            colorsAreStale = true
             appearance.performAsCurrentDrawingAppearance {
+                background = Self.pixel(theme.background)
+                plain = Self.pixel(theme.foreground.withAlphaComponent(0.55), over: theme.background)
+            }
+        }
+        if colorsAreStale {
+            resolveColors(appearance: appearance, over: theme.background)
+            colorsAreStale = false
+        }
+        if !full, pending == .none, !colorsChanged, first == paintedFirst, let image { paintedLines = 0; return image }
+
+        let size = next.width * next.height
+        if pixels.count != size || lineColors.count != rows {
+            pixels = [UInt32](repeating: background, count: size)
+            lineColors = [UInt64?](repeating: nil, count: rows)
+            full = true
+        }
+        if spare.count != size { spare = [UInt32](repeating: background, count: size) }
+        if spareLineColors.count != rows { spareLineColors = [UInt64?](repeating: nil, count: rows) }
+
+        let edited: ClosedRange<Int>? = if case .lines(let lines) = pending { lines } else { nil }
+        let delta = index.lineCount - paintedLineCount
+        let rowPixels = next.width * next.linePixels
+        let text = editor.document.textStorage.mutableString
+        let region = highlightedRange ?? NSRange(location: 0, length: 0)
+        var painted = 0
+        withUnsafeTemporaryAllocation(of: unichar.self, capacity: Self.maxUnits) { units in
+            spare.withUnsafeMutableBufferPointer { out in
+                pixels.withUnsafeBufferPointer { old in
+                    colors.withUnsafeBufferPointer { colors in
+                        for row in 0..<rows {
+                            let line = first + row
+                            let start = row * rowPixels
+                            guard line < index.lineCount, start + rowPixels <= out.count else {
+                                if start < out.count { out[start..<min(out.count, start + rowPixels)].update(repeating: background) }
+                                spareLineColors[row] = nil
+                                continue
+                            }
+                            let lineStart = index.lineStarts[line]
+                            let lineEnd = line + 1 < index.lineCount ? index.lineStarts[line + 1] - 1 : text.length
+                            let length = min(max(0, lineEnd - lineStart), Self.maxUnits)
+                            // Where this line was painted last frame, if its text is the same.
+                            var source: Int?
+                            if !full {
+                                let oldLine: Int? = if let edited {
+                                    edited.contains(line) ? nil : line > edited.upperBound ? line - delta : line
+                                } else { line }
+                                if let oldLine, oldLine >= paintedFirst, oldLine - paintedFirst < rows, oldLine < paintedLineCount {
+                                    source = oldLine - paintedFirst
+                                }
+                            }
+                            if let source, let hash = lineColors[source] {
+                                if !colorsChanged || Self.hash(colors, region, lineStart, length) == hash {
+                                    let from = source * rowPixels
+                                    out.baseAddress!.advanced(by: start).update(from: old.baseAddress!.advanced(by: from), count: rowPixels)
+                                    spareLineColors[row] = hash
+                                    continue
+                                }
+                            }
+                            spareLineColors[row] = paintLine(into: out, at: start, units: units, text: text,
+                                                             lineStart: lineStart, length: length, colors: colors, region: region)
+                            painted += 1
+                        }
+                    }
+                }
+            }
+        }
+        // Rows below the last line (the height isn't a whole number of lines).
+        let used = rows * rowPixels
+        if used < size, full { spare[used..<size].withUnsafeMutableBufferPointer { $0.update(repeating: background) } }
+        swap(&pixels, &spare)
+        swap(&lineColors, &spareLineColors)
+        paintedFirst = first
+        paintedLineCount = index.lineCount
+        pending = .none
+        colorsChanged = false
+        paintedLines = painted
+
+        let data = pixels.withUnsafeBytes { Data($0) }
+        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
+        image = CGImage(width: next.width, height: next.height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: next.width * 4,
+                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                        bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
+                        provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+        return image
+    }
+
+    /// Paints one line's row (cleared first) and returns the hash of the colors it used.
+    private func paintLine(into out: UnsafeMutableBufferPointer<UInt32>, at start: Int, units: UnsafeMutableBufferPointer<unichar>,
+                           text: NSMutableString, lineStart: Int, length: Int,
+                           colors: UnsafeBufferPointer<UInt32>, region: NSRange) -> UInt64 {
+        let width = canvas.width, charPixels = canvas.charPixels
+        let inkPixels = max(1, canvas.linePixels * 3 / 4)
+        let maxColumns = width / charPixels
+        out.baseAddress!.advanced(by: start).update(repeating: background, count: width * canvas.linePixels)
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        guard length > 0 else { return hash }
+        text.getCharacters(units.baseAddress!, range: NSRange(location: lineStart, length: length))
+        var column = 0
+        for i in 0..<length {
+            let offset = lineStart + i - region.location
+            let stored = offset >= 0 && offset < colors.count ? colors[offset] : 0
+            hash = (hash ^ UInt64(stored)) &* 0x100_0000_01b3
+            guard column < maxColumns else { continue }
+            let unit = units[i]
+            if unit == 0x20 { column += 1; continue }
+            if unit == 0x09 { column += 4; continue }
+            if unit == 0x0D { continue }
+            let color = stored == 0 ? plain : stored
+            let x0 = column * charPixels, x1 = min(width, x0 + charPixels)
+            for y in 0..<inkPixels {
+                let rowStart = start + y * width
+                for x in x0..<x1 { out[rowStart + x] = color }
+            }
+            column += 1
+        }
+        return hash
+    }
+
+    /// The hash `paintLine` would return for a line with `colors`.
+    private static func hash(_ colors: UnsafeBufferPointer<UInt32>, _ region: NSRange, _ lineStart: Int, _ length: Int) -> UInt64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for i in 0..<length {
+            let offset = lineStart + i - region.location
+            let stored = offset >= 0 && offset < colors.count ? colors[offset] : 0
+            hash = (hash ^ UInt64(stored)) &* 0x100_0000_01b3
+        }
+        return hash
+    }
+
+    /// Each character's color from the highlights (later wins; 0 where none applies).
+    private func resolveColors(appearance: NSAppearance, over background: NSColor) {
+        guard let highlightedRange else { colors = []; return }
+        if colors.count == highlightedRange.length {
+            colors.withUnsafeMutableBufferPointer { $0.update(repeating: 0) }
+        } else {
+            colors = [UInt32](repeating: 0, count: highlightedRange.length)
+        }
+        appearance.performAsCurrentDrawingAppearance {
+            colors.withUnsafeMutableBufferPointer { colors in
                 for highlight in highlights {
-                    let clipped = NSIntersectionRange(highlight.range, region)
+                    let clipped = NSIntersectionRange(highlight.range, highlightedRange)
                     guard clipped.length > 0 else { continue }
-                    let color: UInt32?
-                    if let cached = resolved[highlight.name] {
+                    let color: UInt32
+                    if let cached = captureColors[highlight.name] {
                         color = cached
                     } else {
                         color = EditorTheme.color(forCapture: highlight.name).map {
-                            Self.pixel($0.withAlphaComponent(0.85), over: theme.background)
-                        }
-                        resolved[highlight.name] = color
+                            Self.pixel($0.withAlphaComponent(0.85), over: background)
+                        } ?? 0
+                        captureColors[highlight.name] = color
                     }
-                    guard let color else { continue }
-                    let start = clipped.location - region.location
-                    for i in start..<(start + clipped.length) { colors[i] = color }
+                    guard color != 0 else { continue }
+                    let start = clipped.location - highlightedRange.location
+                    colors[start..<(start + clipped.length)].update(repeating: color)
                 }
             }
         }
-
-        var pixels = [UInt32](repeating: background, count: width * height)
-        let document = editor.document
-        let text = document.textStorage.mutableString
-        let index = document.lineIndex
-        let charPixels = max(1, Int((Self.charWidth * scale).rounded()))
-        let linePixels = max(1, Int((Self.lineHeight * scale).rounded()))
-        let inkPixels = max(1, linePixels * 3 / 4)
-        let maxColumns = width / charPixels
-        var buffer = [unichar](repeating: 0, count: 512)
-        let first = firstLine
-        pixels.withUnsafeMutableBufferPointer { out in
-            for line in first..<min(index.lineCount, first + capacity) {
-                let start = index.lineStarts[line]
-                let end = line + 1 < index.lineCount ? index.lineStarts[line + 1] - 1 : text.length
-                let length = min(end - start, buffer.count)
-                guard length > 0 else { continue }
-                text.getCharacters(&buffer, range: NSRange(location: start, length: length))
-                let top = (line - first) * linePixels
-                var column = 0
-                for i in 0..<length where column < maxColumns {
-                    let unit = buffer[i]
-                    if unit == 0x20 { column += 1; continue }
-                    if unit == 0x09 { column += 4; continue }
-                    if unit == 0x0D { continue }
-                    let offset = start + i - region.location
-                    let color = offset >= 0 && offset < colors.count ? colors[offset] : plain
-                    let x0 = column * charPixels
-                    for y in top..<min(height, top + inkPixels) {
-                        let row = y * width
-                        for x in x0..<min(width, x0 + charPixels) { out[row + x] = color }
-                    }
-                    column += 1
-                }
-            }
-        }
-        let data = pixels.withUnsafeBytes { Data($0) }
-        guard let provider = CGDataProvider(data: data as CFData) else { return nil }
-        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                       bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 
     /// An opaque BGRA pixel (little-endian xRGB), `color` blended over `background`.
@@ -314,6 +533,7 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
 
     override func mouseDown(with event: NSEvent) {
         isDragging = true
+        updateSlider()
         scroll(to: event)
     }
 
@@ -321,7 +541,7 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
 
     override func mouseUp(with event: NSEvent) {
         isDragging = false
-        needsDisplay = true
+        updateSlider()
     }
 
     /// Centers the editor on the line under the pointer.

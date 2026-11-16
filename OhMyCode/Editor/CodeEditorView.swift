@@ -321,7 +321,7 @@ final class EditorController: NSObject {
             if settings.showsMinimap { document.highlighter?.addClient(minimapView) }
             containerView?.needsLayout = true
         }
-        minimapView?.needsDisplay = true
+        minimapView?.invalidate()
         stickyView?.update()
     }
 
@@ -451,7 +451,11 @@ final class EditorController: NSObject {
     var visibleLineCount: Int {
         guard wrapsLines, let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager,
               let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, textView.visibleRect.maxY - textView.textContainerOrigin.y - 1)))
-        else { return max(1, Int(textView.visibleRect.height / max(1, lineHeight))) }
+        else {
+            // Clamped: before the first layout the text view can be any height.
+            let rows = textView.visibleRect.height / max(1, lineHeight)
+            return rows.isFinite ? max(1, Int(min(rows, CGFloat(document.lineIndex.lineCount)))) : 1
+        }
         // Wrapped lines are taller: count the lines from the top one to the bottom one.
         let offset = contentManager.offset(from: contentManager.documentRange.location, to: fragment.rangeInElement.location)
         return max(1, document.lineIndex.line(containing: offset) - topVisibleLine + 1)
@@ -625,6 +629,7 @@ final class EditorController: NSObject {
         } else {
             editedLines = (lines, moved)
         }
+        minimapView?.linesEdited(lines)
         textView?.needsLayout = true
     }
 

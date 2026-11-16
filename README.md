@@ -57,6 +57,9 @@ won't load the test bundle).
 
 Typing, scrolling and cursor moves are timed with their drawing: each step ends with layout and a
 Core Animation commit, where the text, gutter and overlay draw what the step left dirty. The
+minimap keeps its picture between frames and paints only the lines that changed (a keystroke's
+line, lines scrolled into it, lines a new highlight result recolored); its slider is a layer of
+its own. The
 `.nodraw` numbers leave drawing out, like the benchmarks before November 2026 (whose
 `displayIfNeeded` drew nothing). The window is never shown.
 

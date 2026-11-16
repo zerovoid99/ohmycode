@@ -180,6 +180,10 @@ struct PerformanceBenchmarks {
             let overlayDraw = clock.measure { for _ in 0..<20 { overlay.display() } }
             report("draw.overlay \(label)", ms(overlayDraw / 20))
         }
+        if let minimap = controller.minimapView {
+            let minimapDraw = clock.measure { for _ in 0..<20 { minimap.invalidate(); draw(window) } }
+            report("draw.minimap \(label)", ms(minimapDraw / 20))
+        }
 
         // Moving the cursor (selection change: symbol highlights, brackets, blame, lightbulb),
         // then its drawing (current line, gutter, overlay). Means, as before.
