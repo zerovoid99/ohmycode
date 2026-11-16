@@ -11,6 +11,8 @@ final class EditorGroup: Identifiable {
     private(set) var activeDocumentID: EditorDocument.ID?
     /// Scroll position and selection per document, kept while a tab is hidden.
     @ObservationIgnored var viewStates: [EditorDocument.ID: EditorViewState] = [:]
+    /// The editors of this group's tabs, kept while hidden so switching tabs is quick.
+    @ObservationIgnored let editorCache = EditorCache()
 
     func contains(_ id: EditorDocument.ID) -> Bool { documentIDs.contains(id) }
 
@@ -35,6 +37,7 @@ final class EditorGroup: Identifiable {
         guard let index = documentIDs.firstIndex(of: old) else { return }
         documentIDs[index] = new
         viewStates[new] = viewStates.removeValue(forKey: old)
+        editorCache.remove(old)
         if activeDocumentID == old { activeDocumentID = new }
     }
 
@@ -43,6 +46,7 @@ final class EditorGroup: Identifiable {
         guard let index = documentIDs.firstIndex(of: id) else { return }
         documentIDs.remove(at: index)
         viewStates[id] = nil
+        editorCache.remove(id)
         if activeDocumentID == id {
             activeDocumentID = documentIDs.isEmpty ? nil : documentIDs[min(index, documentIDs.count - 1)]
         }
@@ -51,6 +55,7 @@ final class EditorGroup: Identifiable {
     func removeAll() {
         documentIDs.removeAll()
         viewStates.removeAll()
+        editorCache.removeAll()
         activeDocumentID = nil
     }
 }

@@ -77,7 +77,7 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored weak var editor: EditorController? {
         didSet {
             if let editor { editorTable.add(editor) }
-            if let editor, let range = pendingReveal {
+            if let editor, !editor.isParked, let range = pendingReveal {
                 pendingReveal = nil
                 editor.reveal(range)
             }
@@ -318,7 +318,16 @@ final class EditorDocument: Identifiable {
     }
 
     /// The indentation the text itself uses.
+    /// Kept for the text it was judged from: the status bar asks each time the tab is shown.
     var guessedIndentation: (tabSize: Int, insertSpaces: Bool) {
+        if let cached = guessedIndentationCache, cached.version == editVersion { return cached.value }
+        let value = judgeIndentation()
+        guessedIndentationCache = (editVersion, value)
+        return value
+    }
+    @ObservationIgnored private var guessedIndentationCache: (version: Int, value: (tabSize: Int, insertSpaces: Bool))?
+
+    private func judgeIndentation() -> (tabSize: Int, insertSpaces: Bool) {
         let text = textStorage.mutableString
         var tabs = 0, spaces = 0, twoSpaceSteps = 0
         for line in 0..<min(lineIndex.lineCount, 5_000) {
@@ -400,7 +409,7 @@ final class EditorDocument: Identifiable {
     }
 
     func reveal(_ range: NSRange) {
-        if let editor { editor.reveal(range) } else { pendingReveal = range }
+        if let editor, !editor.isParked { editor.reveal(range) } else { pendingReveal = range }
     }
 
     func updateCursor(forSelectionAt location: Int) {

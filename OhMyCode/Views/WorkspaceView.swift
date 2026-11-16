@@ -82,12 +82,7 @@ struct WorkspaceView: View {
                 }
                 if !workspace.isZenMode {
                 Divider()
-                StatusBarView(document: workspace.activeDocument, gitStatus: workspace.gitStatus,
-                              problems: workspace.rootURL == nil ? nil : workspace.problems,
-                              showProblems: { workspace.toggleProblems() },
-                              tasks: workspace.taskRuns.filter { $0.state.isRunning },
-                              showTasks: { workspace.showTasks() },
-                              items: workspace.extensions.statusItems) { workspace.extensions.run($0) }
+                ActiveStatusBar(workspace: workspace)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
@@ -106,7 +101,7 @@ struct WorkspaceView: View {
         // Zen mode: no title bar either (full screen shows it again on hover at the top).
         .toolbar(workspace.isZenMode ? .hidden : .automatic, for: .windowToolbar)
         .navigationTitle(workspace.displayName)
-        .navigationSubtitle(workspace.activeDocument?.fileName ?? "")
+        .modifier(ActiveDocumentSubtitle(workspace: workspace))
     }
 
     private var changeCountLabel: String {
@@ -122,5 +117,31 @@ struct WorkspaceView: View {
                     .frame(minWidth: 180, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+}
+
+// The active document is read in these views' own bodies, not in `WorkspaceView`'s: switching
+// tabs then updates them, not the whole window (the sidebar and its picker included).
+
+/// The status bar, for the active document.
+private struct ActiveStatusBar: View {
+    let workspace: Workspace
+
+    var body: some View {
+        StatusBarView(document: workspace.activeDocument, gitStatus: workspace.gitStatus,
+                      problems: workspace.rootURL == nil ? nil : workspace.problems,
+                      showProblems: { workspace.toggleProblems() },
+                      tasks: workspace.taskRuns.filter { $0.state.isRunning },
+                      showTasks: { workspace.showTasks() },
+                      items: workspace.extensions.statusItems) { workspace.extensions.run($0) }
+    }
+}
+
+/// The window's subtitle: the active document's name.
+private struct ActiveDocumentSubtitle: ViewModifier {
+    let workspace: Workspace
+
+    func body(content: Content) -> some View {
+        content.navigationSubtitle(workspace.activeDocument?.fileName ?? "")
     }
 }

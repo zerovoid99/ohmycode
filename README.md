@@ -39,6 +39,10 @@ incrementally. Such files are colored at any size, but their outline and folding
 language server (folding also from indentation), not from a part of the file. A 5 MB file adds
 about 15 MB of memory instead of 270 MB.
 
+Each editor group keeps the editors of its 8 most recently shown tabs (the hidden ones within
+64 MB), so switching back to a tab shows its editor as it was left instead of building a new one.
+`TabSwitchBenchmarks` times that the same way as `PerformanceBenchmarks`.
+
 `PerformanceGuardTests` (in the normal test run) fail if typing in a big file gets slow again.
 The full benchmarks (opening, typing, scrolling and memory for 1, 5 and 20 MB files) print their
 timings:

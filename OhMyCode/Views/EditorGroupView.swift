@@ -14,7 +14,6 @@ struct EditorGroupView: View {
                            guard let workspace, let group else { return }
                            if workspace.activeGroupID != group.id { workspace.activeGroupID = group.id }
                        })
-            .id(document.id)
     }
 
     var body: some View {

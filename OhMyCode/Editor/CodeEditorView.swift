@@ -4,6 +4,9 @@ import SwiftUI
 
 /// SwiftUI wrapper around a TextKit 2 `NSTextView`. TextKit 2 lays out only the
 /// visible viewport, so large files stay responsive.
+///
+/// The editors of a group's tabs are kept (see `EditorCache`): switching tabs swaps which one
+/// is in the view, instead of taking one editor apart and building another.
 struct CodeEditorView: NSViewRepresentable {
     let document: EditorDocument
     /// The editor group (split pane) this editor is in.
@@ -11,19 +14,21 @@ struct CodeEditorView: NSViewRepresentable {
     /// Called when this editor gets keyboard focus.
     var onFocus: (() -> Void)?
 
-    func makeCoordinator() -> EditorController {
-        EditorController(document: document, group: group)
+    /// The group's editors (outside a group, a cache of this one view's).
+    func makeCoordinator() -> EditorCache {
+        group?.editorCache ?? EditorCache()
     }
 
-    func makeNSView(context: Context) -> EditorContainerView {
-        context.coordinator.onFocus = onFocus
-        return context.coordinator.makeView()
+    func makeNSView(context: Context) -> EditorHostView {
+        EditorHostView()
     }
 
-    func updateNSView(_ view: EditorContainerView, context: Context) {}
+    func updateNSView(_ view: EditorHostView, context: Context) {
+        context.coordinator.show(document, group: group, onFocus: onFocus, in: view)
+    }
 
-    static func dismantleNSView(_ view: EditorContainerView, coordinator: EditorController) {
-        coordinator.saveViewState()
+    static func dismantleNSView(_ view: EditorHostView, coordinator: EditorCache) {
+        coordinator.detach(from: view)
     }
 }
 
@@ -37,7 +42,9 @@ final class EditorController: NSObject {
     private(set) weak var group: EditorGroup?
     var onFocus: (() -> Void)?
     private var textLayoutManager: NSTextLayoutManager?
-    private weak var containerView: EditorContainerView?
+    private(set) weak var containerView: EditorContainerView?
+    /// Kept for a hidden tab (see `EditorCache`). Reveals wait until it shows.
+    var isParked = false
     /// Cursors besides the text view's own selection (see MultiCursor.swift).
     var extraSelections: [NSRange] = []
     /// The 💡 for the cursor line's fixes.
@@ -721,7 +728,16 @@ final class EditorController: NSObject {
     }
 
     func focus() {
+        guard !isParked else { return } // its tab takes the focus when it's shown
         textView.window?.makeFirstResponder(textView)
+    }
+
+    /// Closes what floats over the editor (its tab is being hidden).
+    func dismissPopups() {
+        completion.dismiss()
+        hover.dismiss()
+        blameHover.dismiss()
+        signatureHelp.dismiss()
     }
 
     func reveal(_ range: NSRange) {
