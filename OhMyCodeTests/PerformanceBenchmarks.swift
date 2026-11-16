@@ -188,4 +188,52 @@ struct PerformanceBenchmarks {
         withExtendedLifetime(window) {}
         try? FileManager.default.removeItem(at: url)
     }
+
+    /// Applying syntax colors: after each keystroke's parse, and after each scroll step. The
+    /// editor is taken off the highlighter so the colors are applied here, timed alone (their
+    /// drawing is in `openTypeScroll`'s typing and scrolling).
+    @Test func applyHighlights() async throws {
+        let url = try file(1)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let (document, controller, window, _, _) = try open(url)
+        let highlighter = try #require(document.highlighter)
+        await highlighter.waitUntilIdle()
+        highlighter.removeClient(controller)
+        let clock = ContinuousClock()
+        let middle = document.lineIndex.lineStarts[document.lineIndex.lineCount / 2] + 8
+        controller.textView.setSelectedRange(NSRange(location: middle, length: 0))
+        controller.reveal(NSRange(location: middle, length: 0))
+        draw(window)
+        func apply() async throws -> (Duration, Int, Int) {
+            guard let range = controller.highlightRange else { return (.zero, 0, 0) } // nothing laid out
+            let highlights = await highlighter.highlights(in: range)
+            return (clock.measure { controller.applyHighlights(highlights, in: range) }, highlights.count, range.length)
+        }
+        _ = try await apply()
+        var keys: [Duration] = [], captures = 0, length = 0
+        for index in 0..<60 {
+            controller.textView.insertText(index % 10 == 9 ? "\n" : "a", replacementRange: NSRange(location: NSNotFound, length: 0))
+            draw(window)
+            let (time, count, rangeLength) = try await apply()
+            keys.append(time)
+            (captures, length) = (count, rangeLength)
+        }
+        report("highlights.keystroke median (\(captures) captures, \(length) chars)", ms(median(keys)))
+        report("highlights.keystroke p95", ms(p95(keys)))
+
+        let scrollView = try #require(controller.textView.enclosingScrollView)
+        var scrolls: [Duration] = []
+        for _ in 0..<40 {
+            var origin = scrollView.contentView.bounds.origin
+            origin.y += scrollView.contentSize.height / 2 // half a screen: past the highlighted range's overscan, sometimes
+            scrollView.contentView.scroll(to: origin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            controller.textView.layoutSubtreeIfNeeded()
+            controller.textView.textLayoutManager?.textViewportLayoutController.layoutViewport()
+            scrolls.append(try await apply().0)
+        }
+        report("highlights.scrollStep median", ms(median(scrolls)))
+        report("highlights.scrollStep p95", ms(p95(scrolls)))
+        withExtendedLifetime(window) {}
+    }
 }

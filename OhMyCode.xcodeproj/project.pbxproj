@@ -33,6 +33,7 @@
 		1D3022887233E995E0CC9A98 /* TerminalKeyMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DA477C6C5DD7FADEA27948 /* TerminalKeyMap.swift */; };
 		1F6340BD53600AC51FF68193 /* VSCodeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B511C0F6AACECBD26C594F8 /* VSCodeTheme.swift */; };
 		1FC4A110AD35E58C34BC19B7 /* KeystrokeGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC27D83A2F182AE2B030834 /* KeystrokeGuardTests.swift */; };
+		20DB3766FB747522D755CE27 /* AppliedColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC5BD3E2613BA0D3D92B4D2F /* AppliedColors.swift */; };
 		2173832CE7C6545543DE5181 /* StashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC78B08D2E20847B26819B /* StashTests.swift */; };
 		21EDC22CA862562303AA0ABF /* LanguageServerConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7C57B7EB44D1B9076110A5 /* LanguageServerConnection.swift */; };
 		22A41F02FA5C10BB721D5A68 /* WindowedHighlightingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61128CB548B448BDD2438DA /* WindowedHighlightingTests.swift */; };
@@ -236,6 +237,7 @@
 		F7F9E6058DC5D1C948683BA1 /* OutlineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 719D7D0162382A74BF88E691 /* OutlineTests.swift */; };
 		F8468141431F9A6418630B20 /* AutoEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = A920B7257090F4575659642F /* AutoEdit.swift */; };
 		F91C6A39A5D20B2F37F385DF /* FileWatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCCA5F034FB1A1D75C15F673 /* FileWatcher.swift */; };
+		FE5F54BF41171EC816A2D20B /* AppliedColorsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 155FAF90197AF2C001C46171 /* AppliedColorsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -265,6 +267,7 @@
 		0E90646D54E679A22AC13D7A /* GhosttyVt */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GhosttyVt; path = Packages/GhosttyVt; sourceTree = SOURCE_ROOT; };
 		0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchOperationTests.swift; sourceTree = "<group>"; };
 		1025706C8AB204994FD662CA /* LocalHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHistory.swift; sourceTree = "<group>"; };
+		155FAF90197AF2C001C46171 /* AppliedColorsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppliedColorsTests.swift; sourceTree = "<group>"; };
 		1564029D78A9D5DCDEF90529 /* CommitSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommitSearchTests.swift; sourceTree = "<group>"; };
 		167B9ACEE73607B827E85139 /* PerformanceBenchmarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceBenchmarks.swift; sourceTree = "<group>"; };
 		16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorChromeTests.swift; sourceTree = "<group>"; };
@@ -428,6 +431,7 @@
 		C84CB7A0A0A8C167B6B1E59F /* Profiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Profiles.swift; sourceTree = "<group>"; };
 		C931C14FBD19669614AF4120 /* RangeFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RangeFormatting.swift; sourceTree = "<group>"; };
 		CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VSCodeThemeTests.swift; sourceTree = "<group>"; };
+		CC5BD3E2613BA0D3D92B4D2F /* AppliedColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppliedColors.swift; sourceTree = "<group>"; };
 		CCCA5F034FB1A1D75C15F673 /* FileWatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatcher.swift; sourceTree = "<group>"; };
 		CD07F5C150F868B00344F045 /* Workspace+Debug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+Debug.swift"; sourceTree = "<group>"; };
 		CD1EE59BB50DF03FDACEC29F /* CherryPickRevertTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CherryPickRevertTests.swift; sourceTree = "<group>"; };
@@ -613,6 +617,7 @@
 			isa = PBXGroup;
 			children = (
 				2B8F8EDE4D1869E66032FBAB /* AmendUndoTests.swift */,
+				155FAF90197AF2C001C46171 /* AppliedColorsTests.swift */,
 				0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */,
 				7828EF22F88C26490D76FA27 /* BlameCommitTests.swift */,
 				67EAC67DA0BCF2450AAD5F84 /* BlameDiffTests.swift */,
@@ -786,6 +791,7 @@
 		98E624085E20EADAD9A93D25 /* Editor */ = {
 			isa = PBXGroup;
 			children = (
+				CC5BD3E2613BA0D3D92B4D2F /* AppliedColors.swift */,
 				A920B7257090F4575659642F /* AutoEdit.swift */,
 				51EDB8422CD78390FEAC5620 /* BlameHover.swift */,
 				9BA27F72EE334EC2CEE7909C /* BracketsAndGuides.swift */,
@@ -1045,6 +1051,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7042CD02AA5B9520810A7177 /* AppSettings.swift in Sources */,
+				20DB3766FB747522D755CE27 /* AppliedColors.swift in Sources */,
 				F8468141431F9A6418630B20 /* AutoEdit.swift in Sources */,
 				5EF675E656B87F5D3AF0524C /* BlameHover.swift in Sources */,
 				5EDC7EEE1064B0DFD2722348 /* BottomPanel.swift in Sources */,
@@ -1190,6 +1197,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B48BA65FABF229546105A1F0 /* AmendUndoTests.swift in Sources */,
+				FE5F54BF41171EC816A2D20B /* AppliedColorsTests.swift in Sources */,
 				D3F4C2A897DA315C7F9495F4 /* AutoEditTests.swift in Sources */,
 				0F88E5B7B3FCD696BBD5E5AC /* BlameCommitTests.swift in Sources */,
 				8314EEB610146D25ED51C5DF /* BlameDiffTests.swift in Sources */,

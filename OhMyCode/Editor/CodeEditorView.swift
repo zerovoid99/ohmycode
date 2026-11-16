@@ -69,6 +69,9 @@ final class EditorController: NSObject {
     private var pendingTypedText: String?
     /// Range that currently has highlight colors applied; scrolling inside it is free.
     private(set) var highlightedRange: NSRange?
+    /// The syntax colors given to TextKit, and the document edit they're in step with.
+    private var appliedColors = AppliedColors()
+    private var appliedColorsVersion = -1
     private var textElementTrimTask: Task<Void, Never>?
 
     init(document: EditorDocument, group: EditorGroup? = nil) {
@@ -1030,24 +1033,69 @@ extension EditorController: SyntaxHighlighterClient {
         return NSRange(location: start, length: end - start)
     }
 
+    /// The document's text changed (`start..<oldEnd` replaced by `newLength` characters):
+    /// TextKit moved the colors after it, and the edited text has none it can be sure of.
+    func syntaxColorsEdited(start: Int, oldEnd: Int, newLength: Int) {
+        if appliedColorsVersion == document.editVersion - 1 {
+            appliedColors.edit(start: start, oldEnd: oldEnd, newLength: newLength)
+            appliedColorsVersion = document.editVersion
+        } else {
+            appliedColors.reset()
+        }
+    }
+
     /// Applied as TextKit 2 rendering attributes: they only affect drawing, so the text storage
-    /// isn't edited and no layout is invalidated.
+    /// isn't edited and no layout is invalidated. Only the characters whose color differs from
+    /// what was applied before are given to TextKit (see `AppliedColors`).
     func applyHighlights(_ highlights: [NamedRange], in range: NSRange) {
         let signpost = Signposts.begin("applyHighlights"); defer { Signposts.end("applyHighlights", signpost) }
         LaunchTrace.mark("highlight.first")
         guard let layoutManager = textView.textLayoutManager,
               let contentManager = layoutManager.textContentManager,
-              NSMaxRange(range) <= document.textStorage.length,
-              let fullTextRange = textRange(for: range, in: contentManager) else { return }
-        layoutManager.removeRenderingAttribute(.foregroundColor, for: fullTextRange)
-        for highlight in highlights {
-            let clipped = NSIntersectionRange(highlight.range, range)
-            guard clipped.length > 0,
-                  let color = EditorTheme.color(forCapture: highlight.name),
-                  let textRange = textRange(for: clipped, in: contentManager) else { continue }
-            layoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
+              NSMaxRange(range) <= document.textStorage.length else { return }
+        if appliedColorsVersion != document.editVersion || appliedColors.palette.count > 200 { appliedColors.reset() }
+        // Each character's color: later captures over earlier ones, the server's over both.
+        var colors = [AppliedColors.Index](repeating: AppliedColors.none, count: range.length)
+        var byCapture: [String: AppliedColors.Index] = [:]
+        colors.withUnsafeMutableBufferPointer { colors in
+            func paint(_ target: NSRange, _ index: AppliedColors.Index) {
+                let clipped = NSIntersectionRange(target, range)
+                guard clipped.length > 0 else { return }
+                let start = clipped.location - range.location
+                colors[start..<start + clipped.length].update(repeating: index)
+            }
+            for highlight in highlights {
+                let index: AppliedColors.Index
+                if let known = byCapture[highlight.name] {
+                    index = known
+                } else {
+                    index = EditorTheme.color(forCapture: highlight.name).flatMap { appliedColors.index(of: $0) } ?? AppliedColors.none
+                    byCapture[highlight.name] = index
+                }
+                if index != AppliedColors.none { paint(highlight.range, index) }
+            }
+            semanticColors(in: range) { target, color in
+                if let index = appliedColors.index(of: color) { paint(target, index) }
+            }
         }
-        applySemanticColors(in: range)
+        for span in appliedColors.update(to: colors, in: range) {
+            if span.remove, let textRange = textRange(for: span.range, in: contentManager) {
+                layoutManager.removeRenderingAttribute(.foregroundColor, for: textRange)
+            }
+            // Each run of one color in it.
+            var start = span.range.location
+            while start < NSMaxRange(span.range) {
+                let index = colors[start - range.location]
+                var end = start + 1
+                while end < NSMaxRange(span.range), colors[end - range.location] == index { end += 1 }
+                if let color = appliedColors.color(index),
+                   let textRange = textRange(for: NSRange(location: start, length: end - start), in: contentManager) {
+                    layoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
+                }
+                start = end
+            }
+        }
+        appliedColorsVersion = document.editVersion
         highlightedRange = range
         rememberNonCode(highlights)
         diagnosticsOverlay?.needsDisplay = true // brackets in strings stop matching

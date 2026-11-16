@@ -525,7 +525,10 @@ final class EditorDocument: Identifiable {
             exact = (pending.range.location, NSMaxRange(pending.range))
         }
         pendingReplacement = nil
-        for editor in editors { editor.snippetDocumentEdited(start: exact.start, oldEnd: exact.oldEnd, delta: delta) }
+        for editor in editors {
+            editor.snippetDocumentEdited(start: exact.start, oldEnd: exact.oldEnd, delta: delta)
+            editor.syntaxColorsEdited(start: start, oldEnd: oldEnd, newLength: newEnd - start)
+        }
         refreshSymbols(after: .milliseconds(400))
         refreshInlayHints(after: .milliseconds(500))
         refreshLinks(after: .milliseconds(500))

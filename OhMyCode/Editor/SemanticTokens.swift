@@ -141,22 +141,18 @@ extension EditorDocument {
 }
 
 extension EditorController {
-    /// The server's classification over the syntax tree's colors, in the highlighted range.
-    func applySemanticColors(in range: NSRange) {
-        guard document.projectSettings.semanticHighlighting ?? AppSettings.shared.semanticHighlighting, !document.semanticTokens.isEmpty,
-              let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager else { return }
-        let documentStart = contentManager.documentRange.location
+    /// The server's classification over the syntax tree's colors, in the highlighted range:
+    /// `paint(range, color)` sets the color of the characters `range` (inside `range`).
+    func semanticColors(in range: NSRange, paint: (NSRange, NSColor) -> Void) {
+        guard document.projectSettings.semanticHighlighting ?? AppSettings.shared.semanticHighlighting,
+              !document.semanticTokens.isEmpty else { return }
         let foreground = EditorTheme.current.foreground
         for token in document.semanticTokens(in: range) {
             guard let capture = SemanticTokens.capture(for: token.type) else { continue }
             let color = capture.isEmpty ? foreground : EditorTheme.color(forCapture: capture)
             let clipped = NSIntersectionRange(token.range, range)
-            guard let color, clipped.length > 0, NSMaxRange(clipped) <= document.textStorage.length,
-                  let start = contentManager.location(documentStart, offsetBy: clipped.location),
-                  let end = contentManager.location(start, offsetBy: clipped.length),
-                  let textRange = NSTextRange(location: start, end: end) else { continue }
-            layoutManager.removeRenderingAttribute(.foregroundColor, for: textRange)
-            layoutManager.addRenderingAttribute(.foregroundColor, value: color, for: textRange)
+            guard let color, clipped.length > 0 else { continue }
+            paint(clipped, color)
         }
     }
 
