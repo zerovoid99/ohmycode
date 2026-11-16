@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import SwiftTreeSitter
 import TreeSitterGo
 import TreeSitterJavaScript
@@ -9,28 +10,53 @@ import TreeSitterSwift
 import TreeSitterTSX
 import TreeSitterTypeScript
 
-struct Grammar {
+/// Immutable once compiled; tree-sitter lets threads share a query (each runs its own cursor).
+struct Grammar: @unchecked Sendable {
     let language: SwiftTreeSitter.Language
     let highlightsQuery: Query
 }
 
-/// Loads tree-sitter grammars and compiles their highlight queries once per language.
-@MainActor
+/// Loads tree-sitter grammars and compiles their highlight queries once per language, on
+/// whichever thread asks first: `warmUp` does it in the background at launch, since Swift's
+/// query takes ~100 ms to compile and would otherwise hold up opening the first Swift file.
 enum GrammarRegistry {
-    private static var cache: [SourceLanguage: Grammar?] = [:]
+    /// A language's grammar, compiled by whoever gets its lock first; the others wait for it.
+    private final class Slot: @unchecked Sendable {
+        let lock = NSLock()
+        var grammar: Grammar?? // nil until loaded
+    }
+
+    private static let slots = Mutex<[SourceLanguage: Slot]>([:])
 
     static func grammar(for language: SourceLanguage) -> Grammar? {
-        if let cached = cache[language] { return cached }
-        let grammar = load(language)
-        cache[language] = grammar
-        return grammar
+        let slot = slots.withLock { slots in
+            if let slot = slots[language] { return slot }
+            let slot = Slot()
+            slots[language] = slot
+            return slot
+        }
+        return slot.lock.withLock {
+            if let loaded = slot.grammar { return loaded }
+            let grammar = load(language)
+            slot.grammar = .some(grammar)
+            return grammar
+        }
+    }
+
+    /// Compiles the grammars in the background, the slowest first, before files ask for them.
+    static func warmUp() {
+        Thread.detachNewThread {
+            for language in [SourceLanguage.swift, .tsx, .typescript, .rust, .javascript, .python, .go, .json] {
+                _ = grammar(for: language)
+            }
+        }
     }
 
     private static let javaScript = QueryFile(bundle: "TreeSitterJavaScript_TreeSitterJavaScript", name: "highlights")
     private static let jsx = QueryFile(bundle: "TreeSitterJavaScript_TreeSitterJavaScript", name: "highlights-jsx")
 
     /// The tree-sitter language for parsing (no queries), from any thread.
-    nonisolated static func treeSitterLanguage(for language: SourceLanguage) -> SwiftTreeSitter.Language? {
+    static func treeSitterLanguage(for language: SourceLanguage) -> SwiftTreeSitter.Language? {
         switch language {
         case .swift: SwiftTreeSitter.Language(tree_sitter_swift())
         case .javascript: SwiftTreeSitter.Language(tree_sitter_javascript())

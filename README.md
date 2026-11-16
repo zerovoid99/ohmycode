@@ -27,6 +27,11 @@ made every keystroke update every paragraph after the cursor. Line positions aft
 shifted lazily, so typing in one place costs the same in a 20 MB file as in a small one. The
 hot-exit backup writes only files that changed, at most every two seconds.
 
+Opening a 20 MB file takes about 85 ms: the whole-file passes (line starts, the widest line,
+tabs, merge conflict markers) read the text in chunks. Edits rescan for conflicts only in a
+file that has a `<<<<<<<`, or when they type one. Highlight queries are compiled in the
+background at launch (Swift's takes about 100 ms).
+
 A syntax tree takes about 50 times the text's size in memory, so files over about 1 MB are parsed
 a window at a time: what's on screen and 128 KB either side, starting and ending at top-level
 lines. Scrolling out of it parses a new window in the background, and edits inside it reparse
@@ -41,6 +46,10 @@ timings:
 ```sh
 TEST_RUNNER_OMC_BENCH=1 xcodebuild -scheme OhMyCode test -only-testing:OhMyCodeTests/PerformanceBenchmarks
 ```
+
+That's a debug build, several times slower in places. For release numbers, add
+`-configuration Release ENABLE_TESTABILITY=YES ENABLE_HARDENED_RUNTIME=NO` (the hardened runtime
+won't load the test bundle).
 
 ## Third-party libraries
 - [libghostty-vt](https://github.com/ghostty-org/ghostty) 1.0.1 (MIT): terminal emulation for

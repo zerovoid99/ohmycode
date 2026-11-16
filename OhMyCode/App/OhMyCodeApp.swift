@@ -5,6 +5,7 @@ struct OhMyCodeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        GrammarRegistry.warmUp()
         DispatchQueue.main.async {
             AppSettings.shared.applyAppearance() // once NSApp exists
             // Profiles follow (and save) the settings from now on; tests use their own.

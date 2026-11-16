@@ -188,3 +188,19 @@ struct SyntaxHighlighterTests {
         #endif
     }
 }
+
+/// Grammars compile once, on whichever thread asks first (the launch warm-up, an opened file).
+struct GrammarRegistryTests {
+    @Test func threadsShareOneCompiledGrammar() async {
+        let languages: [SourceLanguage] = [.rust, .go, .rust, .go, .rust, .go, .markdown, .markdown]
+        let queries = await withTaskGroup(of: (SourceLanguage, ObjectIdentifier?).self) { group in
+            for language in languages {
+                group.addTask { (language, GrammarRegistry.grammar(for: language).map { ObjectIdentifier($0.highlightsQuery) }) }
+            }
+            return await group.reduce(into: [SourceLanguage: Set<ObjectIdentifier?>]()) { $0[$1.0, default: []].insert($1.1) }
+        }
+        #expect(queries[.rust]?.count == 1 && queries[.rust]?.first! != nil)
+        #expect(queries[.go]?.count == 1 && queries[.go]?.first! != nil)
+        #expect(queries[.markdown] == [nil]) // no grammar, asked for twice
+    }
+}
