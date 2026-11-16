@@ -643,6 +643,18 @@ final class EditorDocument: Identifiable {
         for editor in editors { editor.foldsDidChange(affected) }
     }
 
+    /// Moves the folds from `index` on, and the hidden ranges from `hiddenIndex` on, by `delta`
+    /// (an edit before them that touched none).
+    func shiftFolds(from index: Int, hiddenFrom hiddenIndex: Int, by delta: Int) {
+        folds.withUnsafeMutableBufferPointer { folds in
+            for index in index..<folds.count { folds[index].location += delta }
+        }
+        hiddenRanges.withUnsafeMutableBufferPointer { hidden in
+            for index in hiddenIndex..<hidden.count { hidden[index].location += delta }
+        }
+        foldingDelegate.setHidden(hiddenRanges)
+    }
+
     /// New tab stops: lines with tabs are made again (an attribute-only edit: no undo, not dirty,
     /// nothing sent to the language server) and laid out.
     fileprivate func tabIntervalChanged(_ interval: CGFloat) {

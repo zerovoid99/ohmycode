@@ -139,6 +139,7 @@
 		8F15DEE9ADBD6D20F2519CE7 /* ExtensionScaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A5EC602708D880A16A0DF15 /* ExtensionScaffold.swift */; };
 		90F7A5EDD6E5086CEDA331FD /* ZenMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0596C37706EFE1B86FC95844 /* ZenMode.swift */; };
 		9267627B8BA1FD9BF76D5390 /* GrammarRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56E3DC7C8474D02E52D8006C /* GrammarRegistry.swift */; };
+		92863DE4BDE79B0B2382D2F1 /* BigEditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3A4A06A0D4D56C58F191A34 /* BigEditTests.swift */; };
 		942585BEE4EEF986E5D90309 /* SearchModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66612AF9070152598AA4295F /* SearchModel.swift */; };
 		97FF6B5EE2650B9504A36866 /* ExtensionRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AA039A5FEC0049694AC90B8 /* ExtensionRuntime.swift */; };
 		995F8CE75A54484EF2A4A79B /* FileIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9946041B33945585756E431F /* FileIndex.swift */; };
@@ -449,6 +450,7 @@
 		E0390997AD44520B677F5EB9 /* MarkdownRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownRenderer.swift; sourceTree = "<group>"; };
 		E1E7CB6CB93BDCD61F6CE46E /* StickyScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickyScrollView.swift; sourceTree = "<group>"; };
 		E2206FF6013AF555A1FBEA43 /* EditorTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorTheme.swift; sourceTree = "<group>"; };
+		E3A4A06A0D4D56C58F191A34 /* BigEditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BigEditTests.swift; sourceTree = "<group>"; };
 		E43F3388BA148B4E8F22F589 /* SearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchTests.swift; sourceTree = "<group>"; };
 		E51C35CA661DE3585B84B90A /* WorkspaceSymbolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSymbolTests.swift; sourceTree = "<group>"; };
 		E520F6D2E010896834BCCC39 /* Breakpoints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Breakpoints.swift; sourceTree = "<group>"; };
@@ -619,6 +621,7 @@
 				2B8F8EDE4D1869E66032FBAB /* AmendUndoTests.swift */,
 				155FAF90197AF2C001C46171 /* AppliedColorsTests.swift */,
 				0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */,
+				E3A4A06A0D4D56C58F191A34 /* BigEditTests.swift */,
 				7828EF22F88C26490D76FA27 /* BlameCommitTests.swift */,
 				67EAC67DA0BCF2450AAD5F84 /* BlameDiffTests.swift */,
 				E738C52C8BA5E39775326DC6 /* BracketGuideTests.swift */,
@@ -1199,6 +1202,7 @@
 				B48BA65FABF229546105A1F0 /* AmendUndoTests.swift in Sources */,
 				FE5F54BF41171EC816A2D20B /* AppliedColorsTests.swift in Sources */,
 				D3F4C2A897DA315C7F9495F4 /* AutoEditTests.swift in Sources */,
+				92863DE4BDE79B0B2382D2F1 /* BigEditTests.swift in Sources */,
 				0F88E5B7B3FCD696BBD5E5AC /* BlameCommitTests.swift in Sources */,
 				8314EEB610146D25ED51C5DF /* BlameDiffTests.swift in Sources */,
 				A94A499556E5989B2A57138E /* BracketGuideTests.swift in Sources */,

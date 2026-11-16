@@ -53,6 +53,11 @@ struct PerformanceBenchmarks {
 
     private func report(_ name: String, _ value: String) { print("BENCH \(name): \(value)") }
 
+    /// CPU time the calling thread has used.
+    static func mainThreadTime() -> Duration {
+        .nanoseconds(Int64(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)))
+    }
+
     private static func residentMB() -> Double {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
@@ -234,6 +239,59 @@ struct PerformanceBenchmarks {
         }
         report("highlights.scrollStep median", ms(median(scrolls)))
         report("highlights.scrollStep p95", ms(p95(scrolls)))
+        withExtendedLifetime(window) {}
+    }
+
+    /// Typing with folds: none, a few, and everything folded (Fold All).
+    @Test(arguments: [0, 24, -1])
+    func typingWithFolds(folds: Int) async throws {
+        let url = try file(0.9)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let (document, controller, window, _, _) = try open(url)
+        document.attach(controller)
+        await document.highlighter?.waitUntilIdle()
+        await document.waitForFoldRegions()
+        let lines = document.lineIndex.lineCount
+        if folds < 0 {
+            document.foldAll()
+        } else {
+            for index in 0..<folds {
+                var header = (index + 1) * lines / (folds + 1)
+                while !document.isFoldable(line: header) { header += 1 }
+                document.foldLines(atHeader: header)
+            }
+        }
+        // A line in the middle that's shown.
+        var line = lines / 2
+        while document.isHidden(document.lineIndex.lineStarts[line]) || document.isFolded(line: line) { line += 1 }
+        controller.reveal(NSRange(location: document.lineIndex.lineStarts[line] + 1, length: 0))
+        draw(window)
+        var typing: [(change: Duration, draw: Duration)] = []
+        for _ in 0..<40 {
+            typing.append(step(window) {
+                controller.textView.insertText("a", replacementRange: NSRange(location: NSNotFound, length: 0))
+            })
+        }
+        let label = "(\(document.folds.count) folds)"
+        report("folds.typing median \(label)", ms(median(typing.map { $0.change + $0.draw })))
+        report("folds.typing.nodraw median \(label)", ms(median(typing.map(\.change))))
+        let clock = ContinuousClock()
+        let placeholders = clock.measure { for _ in 0..<20 { _ = controller.foldPlaceholderRects() } }
+        report("folds.placeholderRects (\(controller.foldPlaceholderRects().count) in view)", ms(placeholders / 20))
+        let overlay = clock.measure { for _ in 0..<20 { controller.diagnosticsOverlay?.display() } }
+        report("folds.overlayDraw", ms(overlay / 20))
+        // With what follows a keystroke once typing pauses (parse, fold regions, symbols…): the
+        // main thread's time over it.
+        var settled: [Duration] = []
+        for _ in 0..<6 {
+            let start = Self.mainThreadTime()
+            controller.textView.insertText("a", replacementRange: NSRange(location: NSNotFound, length: 0))
+            draw(window)
+            try await Task.sleep(for: .milliseconds(1_000))
+            draw(window)
+            settled.append(Self.mainThreadTime() - start)
+        }
+        report("folds.typingWithFollowUp median main-thread CPU \(label)", ms(median(settled)))
         withExtendedLifetime(window) {}
     }
 }

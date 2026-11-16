@@ -255,6 +255,7 @@ final class EditorController: NSObject {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = false
         textView.isGrammarCheckingEnabled = false
+        textView.isAutomaticTextCompletionEnabled = false // the Touch Bar's word suggestions (code has its own)
         textView.smartInsertDeleteEnabled = false
         textView.drawsBackground = true
         textView.textContainerInset = NSSize(width: 4, height: 6)
@@ -360,7 +361,8 @@ final class EditorController: NSObject {
             guard header >= 0, !document.isHidden(document.lineIndex.lineStarts[header]) else { continue }
             let lineEnd = fold.location - 1 // the header's newline
             guard lineEnd > document.lineIndex.lineStarts[header] || lineEnd == document.lineIndex.lineStarts[header],
-                  let last = rect(for: NSRange(location: max(document.lineIndex.lineStarts[header], lineEnd - 1), length: 1))
+                  let last = laidOutRect(ofCharacterAt: max(document.lineIndex.lineStarts[header], lineEnd - 1))
+                    ?? rect(for: NSRange(location: max(document.lineIndex.lineStarts[header], lineEnd - 1), length: 1))
             else { continue }
             let rect = NSRect(x: last.maxX + 6, y: last.minY + 1, width: 22, height: max(1, last.height - 2))
             if rect.intersects(visible) { result.append((rect, header)) }
@@ -623,6 +625,28 @@ final class EditorController: NSObject {
         }
         let origin = textView.textContainerOrigin
         return result?.offsetBy(dx: origin.x, dy: origin.y)
+    }
+
+    /// Where the character at `offset` is, read from its line as laid out (nil if it isn't):
+    /// what `rect(for:)` gives for one character, without its layout pass. That pass looks
+    /// for the line after it too, and after a fold's header that's through every hidden line
+    /// (the "⋯" of 17 folds in view took 1.6 ms a redraw).
+    func laidOutRect(ofCharacterAt offset: Int) -> NSRect? {
+        guard let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager,
+              offset < document.textStorage.length else { return nil }
+        let documentStart = contentManager.documentRange.location
+        guard let location = contentManager.location(documentStart, offsetBy: offset),
+              let fragment = layoutManager.textLayoutFragment(for: location),
+              let elementStart = fragment.textElement?.elementRange?.location else { return nil }
+        let index = offset - contentManager.offset(from: documentStart, to: elementStart)
+        guard let line = fragment.textLineFragments.first(where: { NSLocationInRange(index, $0.characterRange) }) else { return nil }
+        let start = line.locationForCharacter(at: index).x
+        let end = line.locationForCharacter(at: index + 1).x
+        let frame = fragment.layoutFragmentFrame
+        let bounds = line.typographicBounds
+        let origin = textView.textContainerOrigin
+        return NSRect(x: frame.minX + bounds.minX + min(start, end) + origin.x, y: frame.minY + bounds.minY + origin.y,
+                      width: abs(end - start), height: bounds.height)
     }
 
     /// The character whose glyph is under `point` (text view coordinates), if any.
@@ -909,6 +933,30 @@ final class CodeTextView: NSTextView, @preconcurrency NSTextFinderClient {
     func didReplaceCharacters() {
         finderReplaced = false
     }
+
+    /// The text the text checker asks for after every layout pass: all the viewport's
+    /// characters, folded ones too (with everything folded, a fifth of what a keystroke cost),
+    /// though with nothing checked as one types there's nothing to do with it. The text view
+    /// answers it as an `NSTextCheckingClient`, a conformance Swift doesn't see: this takes
+    /// its place by selector and hands it on when something is being checked.
+    @objc(annotatedSubstringForProposedRange:actualRange:)
+    func annotatedSubstringForChecking(proposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
+        if isContinuousSpellCheckingEnabled || isGrammarCheckingEnabled || isAutomaticSpellingCorrectionEnabled
+            || isAutomaticTextReplacementEnabled || isAutomaticQuoteSubstitutionEnabled || isAutomaticDashSubstitutionEnabled
+            || isAutomaticLinkDetectionEnabled || isAutomaticDataDetectionEnabled || isAutomaticTextCompletionEnabled,
+            let implementation = Self.textViewAnnotatedSubstring {
+            return implementation(self, #selector(annotatedSubstringForChecking(proposedRange:actualRange:)), range, actualRange)
+        }
+        actualRange?.pointee = NSRange(location: NSNotFound, length: 0)
+        return nil
+    }
+
+    private typealias AnnotatedSubstring = @convention(c) (NSTextView, Selector, NSRange, NSRangePointer?) -> NSAttributedString?
+    private static let textViewAnnotatedSubstring: AnnotatedSubstring? = {
+        let selector = #selector(annotatedSubstringForChecking(proposedRange:actualRange:))
+        guard let method = class_getInstanceMethod(NSTextView.self, selector) else { return nil }
+        return unsafeBitCast(method_getImplementation(method), to: AnnotatedSubstring.self)
+    }()
 
     var onLayout: (() -> Void)?
     var onCommandClick: (() -> Void)?

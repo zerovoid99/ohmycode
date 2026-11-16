@@ -163,6 +163,16 @@ extension EditorDocument {
     /// touching a fold's hidden lines unfolds it.
     func adjustFolds(editStart start: Int, oldEnd: Int, delta: Int) {
         guard !folds.isEmpty else { return }
+        // Usually the edit touches no fold: the ones after it move, in place (with everything
+        // folded, sorting and joining 8,000 folds again took a quarter of a keystroke).
+        // It touches a fold exactly when it touches what they hide together (they cover it).
+        let hiddenAfter = FoldRanges.firstIndex(in: hiddenRanges, endingAfter: start)
+        if hiddenAfter == hiddenRanges.count || hiddenRanges[hiddenAfter].location > oldEnd {
+            if delta != 0 {
+                shiftFolds(from: FoldRanges.firstIndex(in: folds, startingAtOrAfter: oldEnd + 1), hiddenFrom: hiddenAfter, by: delta)
+            }
+            return
+        }
         var changed = false
         var result: [NSRange] = []
         for fold in folds {
@@ -214,11 +224,22 @@ final class FoldingDelegate: NSObject, NSTextContentStorageDelegate, @unchecked 
 
     func textContentManager(_ textContentManager: NSTextContentManager, shouldEnumerate textElement: NSTextElement,
                             options: NSTextContentManager.EnumerationOptions = []) -> Bool {
-        let ranges = lock.withLock { hidden }
+        let (ranges, start) = lock.withLock { (hidden, documentStart) }
         guard !ranges.isEmpty, let range = textElement.elementRange else { return true }
-        let offset = textContentManager.offset(from: textContentManager.documentRange.location, to: range.location)
-        return !FoldRanges.contains(ranges, offset)
+        // Asked for every paragraph TextKit walks past, hidden ones included (most of them, with
+        // everything folded): `documentRange` takes a lock each time. Where the text starts
+        // doesn't change (offset 0); it's only asked for once.
+        let documentStart: NSTextLocation
+        if let start {
+            documentStart = start
+        } else {
+            documentStart = textContentManager.documentRange.location
+            lock.withLock { self.documentStart = documentStart }
+        }
+        return !FoldRanges.contains(ranges, textContentManager.offset(from: documentStart, to: range.location))
     }
+
+    private var documentStart: NSTextLocation?
 }
 
 /// What a document's folds hide, as ranges that don't overlap, in order: "is this hidden?" is
@@ -240,12 +261,18 @@ enum FoldRanges {
 
     /// Whether one of `merged` has `offset` (binary search).
     static func contains(_ merged: [NSRange], _ offset: Int) -> Bool {
+        let index = firstIndex(in: merged, endingAfter: offset)
+        return index < merged.count && merged[index].location <= offset
+    }
+
+    /// Index of the first of `merged` that ends after `offset`.
+    static func firstIndex(in merged: [NSRange], endingAfter offset: Int) -> Int {
         var low = 0, high = merged.count
         while low < high {
             let middle = (low + high) / 2
             if NSMaxRange(merged[middle]) <= offset { low = middle + 1 } else { high = middle }
         }
-        return low < merged.count && merged[low].location <= offset
+        return low
     }
 
     /// Index of the first of `folds` (sorted by location) starting at or after `location`.
