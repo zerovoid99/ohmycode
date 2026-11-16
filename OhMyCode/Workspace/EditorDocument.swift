@@ -399,6 +399,16 @@ final class EditorDocument: Identifiable {
         let line = lineIndex.line(containing: location)
         cursorLine = line + 1
         cursorColumn = location - lineIndex.lineStarts[line] + 1
+        updateSymbolAtCursor()
+    }
+
+    /// The innermost symbol the cursor is in (the outline marks it). Observed on its own: what
+    /// reads it is made again when the cursor enters another symbol, not on every cursor move.
+    private(set) var symbolIDAtCursor: String?
+
+    fileprivate func updateSymbolAtCursor() {
+        let id = symbolPathAtCursor.last?.id
+        if id != symbolIDAtCursor { symbolIDAtCursor = id }
     }
 
     /// Makes several replacements (sorted, not overlapping, in the current text's coordinates),
@@ -731,6 +741,7 @@ extension EditorDocument {
             // A later edit's refresh has the newer list.
             guard !Task.isCancelled, version == self.editVersion else { return }
             if found != self.symbols { self.symbols = found }
+            self.updateSymbolAtCursor()
         }
     }
 

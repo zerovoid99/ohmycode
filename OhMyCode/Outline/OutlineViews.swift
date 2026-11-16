@@ -45,15 +45,23 @@ struct OutlineView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    let current = document.symbolPathAtCursor.last?.id
+                    // One flat list of rows: with a `ForEach` per symbol's children inside the
+                    // rows, the list took 0.8 s to find what changed among 1,200 symbols, each
+                    // time one row did. And the rows read the cursor's symbol themselves (as
+                    // does what scrolls to it), so moving the cursor doesn't make the list again.
                     ScrollViewReader { proxy in
                         List {
-                            ForEach(symbols) { symbol in rows(symbol, depth: 0, document: document, current: current) }
+                            ForEach(rows(symbols)) { row in
+                                let symbol = row.symbol
+                                SymbolRow(symbol: symbol, depth: row.depth, isCollapsed: isCollapsed(symbol), document: document,
+                                          toggle: { if collapsed.contains(symbol.id) { collapsed.remove(symbol.id) } else { collapsed.insert(symbol.id) } })
+                                    .id(symbol.id)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture { workspace.reveal(symbol, in: document) }
+                            }
                         }
                         .listStyle(.sidebar)
-                        .onChange(of: current) { _, id in
-                            if let id { withAnimation { proxy.scrollTo(id) } }
-                        }
+                        .background(CurrentSymbolFollower(document: document, proxy: proxy))
                     }
                 }
             } else {
@@ -76,18 +84,39 @@ struct OutlineView: View {
         return sortsByName ? kept.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } : kept
     }
 
-    private func rows(_ symbol: DocumentSymbol, depth: Int, document: EditorDocument, current: String?) -> AnyView {
-        let isCollapsed = collapsed.contains(symbol.id) && filter.isEmpty
-        return AnyView(Group {
-            SymbolRow(symbol: symbol, depth: depth, isCollapsed: isCollapsed, isCurrent: symbol.id == current,
-                      toggle: { if collapsed.contains(symbol.id) { collapsed.remove(symbol.id) } else { collapsed.insert(symbol.id) } })
-                .id(symbol.id)
-                .contentShape(Rectangle())
-                .onTapGesture { workspace.reveal(symbol, in: document) }
-            if !isCollapsed {
-                ForEach(symbol.children) { child in rows(child, depth: depth + 1, document: document, current: current) }
+    private func isCollapsed(_ symbol: DocumentSymbol) -> Bool {
+        collapsed.contains(symbol.id) && filter.isEmpty
+    }
+
+    /// The symbols as rows, depth first, without what's inside collapsed ones.
+    private func rows(_ symbols: [DocumentSymbol]) -> [OutlineRow] {
+        var rows: [OutlineRow] = []
+        func add(_ symbols: [DocumentSymbol], depth: Int) {
+            for symbol in symbols {
+                rows.append(OutlineRow(symbol: symbol, depth: depth))
+                if !isCollapsed(symbol) { add(symbol.children, depth: depth + 1) }
             }
-        })
+        }
+        add(symbols, depth: 0)
+        return rows
+    }
+}
+
+private struct OutlineRow: Identifiable {
+    let symbol: DocumentSymbol
+    let depth: Int
+    var id: String { symbol.id }
+}
+
+/// Scrolls the outline to the cursor's symbol when the cursor enters another one.
+private struct CurrentSymbolFollower: View {
+    let document: EditorDocument
+    let proxy: ScrollViewProxy
+
+    var body: some View {
+        Color.clear.onChange(of: document.symbolIDAtCursor) { _, id in
+            if let id { withAnimation { proxy.scrollTo(id) } }
+        }
     }
 }
 
@@ -95,10 +124,11 @@ private struct SymbolRow: View {
     let symbol: DocumentSymbol
     let depth: Int
     let isCollapsed: Bool
-    let isCurrent: Bool
+    let document: EditorDocument
     let toggle: () -> Void
 
     var body: some View {
+        let isCurrent = document.symbolIDAtCursor == symbol.id
         HStack(spacing: 5) {
             if symbol.children.isEmpty {
                 Color.clear.frame(width: 10)

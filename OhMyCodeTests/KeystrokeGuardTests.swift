@@ -226,4 +226,47 @@ struct KeystrokeGuardTests {
         #expect(redraw < .seconds(2), "5 redraws with \(document.folds.count) folds took \(redraw)")
         withExtendedLifetime(window) {}
     }
+
+    // MARK: Outline
+
+    /// The outline was made again on every cursor move, and with a `ForEach` per symbol's
+    /// children SwiftUI took 0.8 s to find what changed among 1,200 symbols whenever one row
+    /// did: on each move to another symbol, and after each edit (the symbols' ranges move).
+    @Test func theOutlineFollowsTheCursorCheaply() async throws {
+        let (workspace, document, controller, window) = try LanguageClientTests.makeWorkspace(text: PerformanceBenchmarks.code(bytes: 100_000))
+        document.attach(controller)
+        await document.highlighter?.waitUntilIdle()
+        document.refreshSymbols()
+        #expect(try await LanguageClientTests.eventually { document.symbols.count > 200 })
+        let lines = document.lineIndex.lineCount
+
+        // The cursor's symbol is kept as it moves: a struct's method, then the struct after it.
+        controller.textView.setSelectedRange(NSRange(location: document.lineIndex.lineStarts[15 * 4 + 7] + 8, length: 0))
+        let first = try #require(document.symbolIDAtCursor)
+        #expect(first == document.symbolPathAtCursor.last?.id && document.symbolPathAtCursor.count == 2)
+        controller.textView.setSelectedRange(NSRange(location: document.lineIndex.lineStarts[15 * 4 + 7] + 12, length: 0))
+        #expect(document.symbolIDAtCursor == first)
+        controller.textView.setSelectedRange(NSRange(location: document.lineIndex.lineStarts[15 * 5 + 1] + 3, length: 0))
+        #expect(document.symbolIDAtCursor != first && document.symbolIDAtCursor == document.symbolPathAtCursor.last?.id)
+
+        let outline = NSHostingView(rootView: OutlineView(workspace: workspace))
+        let outlineWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        outlineWindow.contentView = outline
+        outlineWindow.layoutIfNeeded()
+        let moves = clock.measure {
+            for index in 0..<10 {
+                controller.textView.setSelectedRange(NSRange(location: document.lineIndex.lineStarts[lines / 2 + index * 3] + 2, length: 0))
+                outline.layoutSubtreeIfNeeded()
+            }
+        }
+        #expect(moves < .seconds(1), "10 moves to other symbols took \(moves) with the outline shown")
+        controller.textView.insertText("a", replacementRange: NSRange(location: NSNotFound, length: 0))
+        document.refreshSymbols()
+        await document.waitForSymbols()
+        let refresh = clock.measure { outline.layoutSubtreeIfNeeded() }
+        #expect(refresh < .milliseconds(400), "the outline took \(refresh) to show an edit's symbols")
+        withExtendedLifetime(window) {}
+        withExtendedLifetime(outlineWindow) {}
+        withExtendedLifetime(workspace) {}
+    }
 }
