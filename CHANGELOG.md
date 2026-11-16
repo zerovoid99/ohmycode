@@ -5,6 +5,8 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-17
+
 ### Added
 - Updates from the GitHub releases. Oh My Code checks at launch and once a day, shows what's
   new, and downloads and installs the update when you choose to, then relaunches. Turn the
@@ -42,6 +44,7 @@ tree-sitter highlighting, language servers, git, an integrated terminal and exte
 - The gutter and overlays redraw only the rows and marks that change, and line numbers are drawn
   from cached glyphs.
 
-[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/zerovoid99/ohmycode/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/zerovoid99/ohmycode/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/zerovoid99/ohmycode/releases/tag/v0.1.0
