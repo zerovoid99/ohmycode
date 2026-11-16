@@ -40,6 +40,10 @@ packages:
   TreeSitterGo:
     url: https://github.com/tree-sitter/tree-sitter-go
     exactVersion: 0.23.4
+  # Updates from GitHub releases (see `AppUpdater`, scripts/release.sh).
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
 targets:
   OhMyCode:
     type: application
@@ -71,6 +75,12 @@ targets:
             CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.source-code, public.script, public.shell-script, public.text, public.plain-text, public.json, public.xml, public.yaml, net.daringfireball.markdown]
+        # Sparkle: the appcast of the latest GitHub release, signed with this key's private half
+        # (in the release maker's keychain, account "ohmycode"). Checked at launch and daily.
+        SUFeedURL: https://github.com/zerovoid99/ohmycode/releases/latest/download/appcast.xml
+        SUPublicEDKey: tqZm2sCnQ1764jVbYkup8gdfdcXwWg1ADqhr7K8dAfc=
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
     dependencies:
       - package: SwiftTreeSitter
       - package: TreeSitterSwift
@@ -82,6 +92,7 @@ targets:
       - package: TreeSitterRust
       - package: TreeSitterGo
       - package: GhosttyVt
+      - package: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.zerovoid99.ohmycode

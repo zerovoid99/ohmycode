@@ -32,6 +32,11 @@ struct WorkspaceCommands: Commands {
             }
         }
 
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") { AppUpdater.shared.checkForUpdates() }
+                .disabled(!AppUpdater.shared.canCheckForUpdates)
+        }
+
         CommandGroup(after: .appSettings) {
             Button("Install “omc” Command…") { workspace?.installCommandLineTool() }
                 .disabled(workspace == nil)

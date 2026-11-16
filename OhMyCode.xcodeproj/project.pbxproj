@@ -13,6 +13,7 @@
 		023ACAFE62E90FC0786D187B /* Folding.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD481A433E345CB1885E699A /* Folding.swift */; };
 		02E885A074454CEE4C6CDBA0 /* KeyChord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8ACE079A3D04529E9DC8892 /* KeyChord.swift */; };
 		034D9CC0BA3A8D8AF6D44394 /* LanguageFeatureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A2EB4BF7034731316A9A0A0 /* LanguageFeatureTests.swift */; };
+		03A30E57FB1D9E10BB6B04A7 /* AppUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BFA93E6567A797B63C29EAB /* AppUpdater.swift */; };
 		044DA0A3099C7DFA46352B52 /* SourceLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8902C7C1FC02562C44039229 /* SourceLanguage.swift */; };
 		0519AD12725AC5562E607ECA /* TreeSitterSwift in Frameworks */ = {isa = PBXBuildFile; productRef = F2757B429A33A779C4A3B433 /* TreeSitterSwift */; };
 		05DCB408E950A32E96F3286D /* InteractiveRebaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73427E6EBCAD9D4E1BB0530F /* InteractiveRebaseTests.swift */; };
@@ -51,6 +52,7 @@
 		2C430C3BF87EF2E04AF134AB /* EditorCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A3013D7CEB7C7570C4796F /* EditorCache.swift */; };
 		2D32CCCD867699BF9F0C1BED /* ExtensionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8072C59AD343113A6A23EE /* ExtensionHost.swift */; };
 		2E028BA8A6DD44C06C727335 /* TreeSitterPython in Frameworks */ = {isa = PBXBuildFile; productRef = B7578A1892DE4A8AD836F880 /* TreeSitterPython */; };
+		2E38ED0353BACFC3385C917E /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 1483ECC5A9D0932AFCC311ED /* Sparkle */; };
 		2FB2B1492CB1576BA473613E /* TabSwitchBenchmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001ED9A2163D664EBA6EF797 /* TabSwitchBenchmarks.swift */; };
 		3043BD420289D09EDB6B05E8 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D8010605A8A9875A268782 /* TimelineView.swift */; };
 		31D1D6E6497A1357514A302C /* MergeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 609F4481E1A42EE7F8690963 /* MergeEditor.swift */; };
@@ -393,6 +395,7 @@
 		89E05CCBA092BE19B392339B /* FileOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileOperationTests.swift; sourceTree = "<group>"; };
 		8A27CC784765B3447A7FD539 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
 		8A491A30DB37957E1F83960E /* Problems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Problems.swift; sourceTree = "<group>"; };
+		8BFA93E6567A797B63C29EAB /* AppUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdater.swift; sourceTree = "<group>"; };
 		8CAB70FD1B4EA2E10A2EB130 /* TaskDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDefinition.swift; sourceTree = "<group>"; };
 		8DAEC2C15EA27BFE7D293E0E /* InteractiveRebaseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InteractiveRebaseView.swift; sourceTree = "<group>"; };
 		8E74C25EA407E63F876BE929 /* RemoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTests.swift; sourceTree = "<group>"; };
@@ -512,6 +515,7 @@
 				BFA05A2DD5E8FFD90C170C74 /* TreeSitterRust in Frameworks */,
 				E2972D4DDC0AF619518EA175 /* TreeSitterGo in Frameworks */,
 				C11A915502F00B69F6404D82 /* GhosttyVt in Frameworks */,
+				2E38ED0353BACFC3385C917E /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -544,6 +548,7 @@
 		32D68F98018ECF3507813DFE /* App */ = {
 			isa = PBXGroup;
 			children = (
+				8BFA93E6567A797B63C29EAB /* AppUpdater.swift */,
 				17DFBBDD2F75ADEEC78039AF /* CommandLineTool.swift */,
 				5A21FEA4F453581EC75135DC /* LaunchTrace.swift */,
 				ECE0378D95499508CFB1DBD0 /* OhMyCodeApp.swift */,
@@ -997,6 +1002,7 @@
 				D5A7A48DD9EF096A24313AE4 /* TreeSitterRust */,
 				249C0FB551E41D055CAFFC10 /* TreeSitterGo */,
 				BF9B24B704EAD6FBB80164E7 /* GhosttyVt */,
+				1483ECC5A9D0932AFCC311ED /* Sparkle */,
 			);
 			productName = OhMyCode;
 			productReference = 6FB8339443B219FB68634B94 /* OhMyCode.app */;
@@ -1030,6 +1036,7 @@
 			mainGroup = FB980F88BABEF891A007B8A8;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				95A9BE750BBCFF880AA71721 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				9861A3D1CCF7795C779CB7DF /* XCRemoteSwiftPackageReference "SwiftTreeSitter" */,
 				D29DAEFF95BB2FEBB0E34655 /* XCRemoteSwiftPackageReference "tree-sitter-go" */,
 				D7B90733F513EFF46584FA55 /* XCRemoteSwiftPackageReference "tree-sitter-json" */,
@@ -1078,6 +1085,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7042CD02AA5B9520810A7177 /* AppSettings.swift in Sources */,
+				03A30E57FB1D9E10BB6B04A7 /* AppUpdater.swift in Sources */,
 				20DB3766FB747522D755CE27 /* AppliedColors.swift in Sources */,
 				F8468141431F9A6418630B20 /* AutoEdit.swift in Sources */,
 				5EF675E656B87F5D3AF0524C /* BlameHover.swift in Sources */,
@@ -1580,6 +1588,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		95A9BE750BBCFF880AA71721 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.1;
+			};
+		};
 		9861A3D1CCF7795C779CB7DF /* XCRemoteSwiftPackageReference "SwiftTreeSitter" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ChimeHQ/SwiftTreeSitter";
@@ -1647,6 +1663,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		1483ECC5A9D0932AFCC311ED /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 95A9BE750BBCFF880AA71721 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
 		249C0FB551E41D055CAFFC10 /* TreeSitterGo */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D29DAEFF95BB2FEBB0E34655 /* XCRemoteSwiftPackageReference "tree-sitter-go" */;

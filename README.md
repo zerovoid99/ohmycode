@@ -84,6 +84,40 @@ Instruments' Points of Interest show intervals for opening a document, `textDidE
   checksum in `Packages/GhosttyVt/Package.swift`.
 - [SwiftTreeSitter](https://github.com/ChimeHQ/SwiftTreeSitter) and tree-sitter grammars
   (MIT): syntax highlighting.
+- [Sparkle](https://sparkle-project.org) 2.10.1 (MIT): updates from the GitHub releases.
+
+## Updates and releases
+Installed copies update themselves from the GitHub releases (Sparkle, `AppUpdater`). They check
+at launch and once a day (Settings ▸ Updates turns that off; Oh My Code ▸ Check for Updates…
+checks now), show the new version's changelog, and download and install it only when asked. A
+release's DMG is signed with an EdDSA key whose public half is `SUPublicEDKey` in
+`project.yml`; an update whose signature doesn't match isn't installed. Debug builds don't
+update themselves.
+
+To release, with what's new under `## [Unreleased]` in `CHANGELOG.md`:
+
+```sh
+scripts/release.sh 0.1.2
+```
+
+It sets the version and the next build number, turns [Unreleased] into [0.1.2], commits and
+pushes that, builds the app (Release, ad-hoc signed), makes the DMG, signs it, and creates the
+GitHub release v0.1.2 with the DMG and an `appcast.xml` (the version, its notes from the
+changelog, the DMG's signature). Installed copies read the latest release's `appcast.xml`.
+
+The private key is in the login keychain of the Mac that makes releases (account `ohmycode`,
+made once with Sparkle's `generate_keys --account ohmycode`). Without it no update can be
+published that installed copies accept, so back it up: `generate_keys --account ohmycode -x
+<file>` exports it, `-f <file>` imports it on another Mac. The script downloads Sparkle's tools
+to `~/Library/Caches/ohmycode-release` on first use.
+
+Trying an update without publishing anything: `scripts/release.sh --local 9.9.9 <folder>` builds
+version 9.9.9 with its DMG and appcast in `<folder>`. Serve the folder over HTTP (Sparkle doesn't
+read `file:` feeds), point the appcast's URL at it, and run a Release build with
+`OMC_UPDATE_FEED=http://127.0.0.1:<port>/appcast.xml`.
+
+The app is ad-hoc signed, so it carries the `com.apple.security.cs.disable-library-validation`
+entitlement: without a Team ID, the hardened runtime won't load the embedded Sparkle framework.
 
 ## Opening folders and files
 Open a folder with ⌘O, File → Open Recent (⌃R), the welcome screen's recent list, by dropping it on a

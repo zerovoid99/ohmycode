@@ -18,6 +18,7 @@ struct SettingsView: View {
             Tab("Keyboard Shortcuts", systemImage: "keyboard", value: KeyboardShortcutsWindow.tab) {
                 KeyboardShortcutsView().frame(width: 760, height: 520)
             }
+            Tab("Updates", systemImage: "arrow.down.circle", value: "updates") { UpdatesSettingsView().frame(width: 520) }
         }
     }
 
@@ -244,5 +245,41 @@ private struct CodePreview: View {
         parts.reduce(Text("")) { text, part in
             text + Text(part.0).foregroundColor(Color(nsColor: part.1.flatMap { theme.syntax[$0] } ?? theme.foreground))
         }
+    }
+}
+
+/// Updates from the GitHub releases (`AppUpdater`).
+private struct UpdatesSettingsView: View {
+    @Bindable private var updater = AppUpdater.shared
+
+    var body: some View {
+        Form {
+            LabeledContent("Version", value: Self.version)
+            if updater.isAvailable {
+                Toggle("Check for updates automatically", isOn: $updater.automaticallyChecks)
+                Text("At launch and once a day. Nothing is downloaded until you choose to install it.")
+                    .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Last checked") {
+                    if let date = updater.lastCheck {
+                        Text(date, format: .relative(presentation: .named))
+                    } else {
+                        Text("Never")
+                    }
+                }
+                Button("Check Now") { updater.checkForUpdates() }
+                    .disabled(!updater.canCheckForUpdates)
+            } else {
+                Text("This build doesn't update itself (debug builds and tests).")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private static var version: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let short = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "\(short) (\(build))"
     }
 }

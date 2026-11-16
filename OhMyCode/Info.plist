@@ -64,5 +64,13 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/zerovoid99/ohmycode/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>tqZm2sCnQ1764jVbYkup8gdfdcXwWg1ADqhr7K8dAfc=</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
 </dict>
 </plist>

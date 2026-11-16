@@ -13,6 +13,7 @@ struct OhMyCodeApp: App {
             if !AppSettings.isRunningTests {
                 ProfileManager.shared.attach(.init(settings: .shared, keybindings: .shared, snippets: .shared, extensions: .shared))
             }
+            AppUpdater.start()
         }
     }
 

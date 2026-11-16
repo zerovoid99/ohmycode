@@ -5,6 +5,13 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- Updates from the GitHub releases. Oh My Code checks at launch and once a day, shows what's
+  new, and downloads and installs the update when you choose to, then relaunches. Turn the
+  checks off in Settings ▸ Updates, or check now with Oh My Code ▸ Check for Updates…. Each
+  update is signed, and one whose signature doesn't match isn't installed. Copies older than
+  this version don't have it: install this one by hand once.
+
 ### Fixed
 - Syntax colors that arrive after the text is drawn now show. A file just opened (or a window
   opened in the background) stayed uncolored until its lines were edited or scrolled, because
