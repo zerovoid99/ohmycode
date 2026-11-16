@@ -86,6 +86,8 @@ final class TestController {
     // MARK: Discovery
 
     private var root: URL? { workspace?.rootURL }
+    /// Reading test files changed on disk.
+    @ObservationIgnored private var diskTask: Task<Void, Never>?
 
     private func relativePath(_ url: URL) -> String? {
         guard let root else { return nil }
@@ -140,15 +142,43 @@ final class TestController {
         }
     }
 
-    /// Files on disk changed.
+    /// Files on disk changed (paths from the folder): the test files among them are read again
+    /// off the main thread, all of them before the list changes, once. A checkout can change
+    /// thousands, and one at a time each was read on the main thread and the list sorted again.
     func filesChanged(_ paths: [String]) {
-        guard !files.isEmpty || !frameworks.isEmpty else { return }
-        for path in paths {
-            guard let relative = relativePath(URL(filePath: path)),
-                  workspace?.document(matching: URL(filePath: path)) == nil else { continue }
-            update(path: relative, text: nil)
+        guard !files.isEmpty || !frameworks.isEmpty, let workspace, let root else { return }
+        let frameworks = frameworks, xcode = xcode
+        var changed = paths.compactMap { path in
+            TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode).map { (path: path, framework: $0) }
+        }
+        guard !changed.isEmpty else { return }
+        // Open files' tests follow the editor's text, not the disk's.
+        let open = Set(workspace.documents.compactMap { relativePath($0.url) })
+        changed.removeAll { open.contains($0.path) }
+        guard !changed.isEmpty else { return }
+        let previous = diskTask
+        diskTask = Task { [weak self, changed] in
+            await previous?.value // in the order the changes came
+            let found = await Task.detached(priority: .utility) {
+                changed.compactMap { file -> TestItem? in
+                    guard let text = try? String(contentsOf: root.appending(path: file.path), encoding: .utf8) else { return nil }
+                    return TestDiscovery.discover(text, path: file.path, root: root, framework: file.framework, xcode: xcode)
+                }
+            }.value
+            guard let self, self.root == root else { return }
+            let replaced = Set(changed.map { "file:" + $0.path })
+            var updated = self.files.filter { !replaced.contains($0.id) }
+            updated.append(contentsOf: found)
+            updated.sort { $0.id < $1.id }
+            if updated != self.files {
+                self.files = updated
+                self.redrawGutters()
+            }
         }
     }
+
+    /// Waits for test files changed on disk to be read (tests).
+    func waitForFileChanges() async { await diskTask?.value }
 
     private func storageEdited(_ storage: NSTextStorage?) {
         guard let storage, let document = workspace?.documents.first(where: { $0.textStorage === storage }),

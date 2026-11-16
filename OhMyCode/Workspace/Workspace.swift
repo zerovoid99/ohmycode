@@ -249,7 +249,20 @@ final class Workspace {
     /// Bumped to move keyboard focus into the terminal.
     private(set) var terminalFocusRequest = 0
     @ObservationIgnored private var indexTask: Task<Void, Never>?
+    /// Background work started so far (tests check a file event sets off no more than it needs).
+    struct BackgroundWork: Equatable { var indexBuilds = 0, gitRefreshes = 0, diffBaseLoads = 0 }
+    @ObservationIgnored private(set) var backgroundWork = BackgroundWork()
+    /// Waits for the pending index rebuild and git refresh (tests).
+    func waitForBackgroundWork() async {
+        await indexTask?.value
+        await gitTask?.value
+    }
     @ObservationIgnored private var watcher: FileWatcher?
+    @ObservationIgnored private var pendingEvents: PendingEvents?
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    /// A git refresh that was asked to reload open documents is owed that, even if a later
+    /// refresh (which wasn't) replaced it before it ran.
+    @ObservationIgnored private var gitRefreshReloadsDocuments = false
     /// Root as FSEvents reports paths (symlinks resolved).
     @ObservationIgnored private var canonicalRootPath = ""
 
@@ -356,6 +369,7 @@ final class Workspace {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
             }
+            self.backgroundWork.indexBuilds += 1
             let index = await Task.detached(priority: .userInitiated) {
                 FileIndexer.build(root: rootURL)
             }.value
@@ -372,57 +386,131 @@ final class Workspace {
         let prefix = canonicalRootPath + "/"
         var directoriesToReload = Set<String>()
         var changedPaths = Set<String>()
+        /// The same, from the folder.
+        var changedRelativePaths = Set<String>()
         var needsIndexRebuild = false
         var needsGitRefresh = false
+        var gitStateChanged = false
+        var rescanned = false
         var editorConfigChanged = false
         var projectSettingsChanged = false
 
         for event in events {
             if event.requiresRescan || event.path == canonicalRootPath {
                 editorConfigChanged = true
-                rootNode.reloadLoadedSubtree()
+                if !rescanned { rootNode.reloadLoadedSubtree() } // once, however many events say so
+                rescanned = true
                 needsIndexRebuild = true
-                changedPaths.formUnion(documents.map { FileWatcher.canonicalPath($0.url) })
                 continue
             }
             guard event.path.hasPrefix(prefix) else { continue }
             let relative = String(event.path.dropFirst(prefix.count))
-            let components = relative.split(separator: "/").map(String.init)
             // Git rewrites .git/index, locks etc. constantly; none of it changes the file list,
             // but it does change status (commits, staging, checkouts).
-            if components.first == ".git" {
-                needsGitRefresh = true
+            needsGitRefresh = true
+            if relative == ".git" || relative.hasPrefix(".git/") {
+                gitStateChanged = true
                 continue
             }
-            needsGitRefresh = true
 
             changedPaths.insert(event.path)
-            if components.last == ".editorconfig" { editorConfigChanged = true }
+            changedRelativePaths.insert(relative)
+            let slash = relative.lastIndex(of: "/")
+            let name = slash.map { relative[relative.index(after: $0)...] } ?? relative[...]
+            if name == ".editorconfig" { editorConfigChanged = true }
             if relative == ProjectSettings.file { projectSettingsChanged = true }
             if event.isStructural {
-                directoriesToReload.insert(components.dropLast().joined(separator: "/"))
+                directoriesToReload.insert(slash.map { String(relative[..<$0]) } ?? "")
                 needsIndexRebuild = true
+            }
+        }
+        if rescanned {
+            // Anything may have changed: every open file is looked at.
+            for document in documents {
+                changedPaths.insert(document.canonicalPath)
+                if let relative = relativePath(of: document.url) { changedRelativePaths.insert(relative) }
             }
         }
 
         if editorConfigChanged { documents.forEach { $0.reloadEditorConfig() } }
         if projectSettingsChanged { loadProjectSettings() }
-        for directory in directoriesToReload {
-            let components = directory.isEmpty ? [] : directory.split(separator: "/").map(String.init)
-            rootNode.loadedNode(atRelativePath: components)?.reloadChildren()
+        if !rescanned {
+            for directory in directoriesToReload {
+                let components = directory.isEmpty ? [] : directory.split(separator: "/").map(String.init)
+                rootNode.loadedNode(atRelativePath: components)?.reloadChildren()
+            }
         }
-        if needsIndexRebuild {
-            rebuildFileIndex(after: .milliseconds(300))
+        if needsIndexRebuild || needsGitRefresh {
+            followUpFileEvents(PendingEvents(rebuildsIndex: needsIndexRebuild, refreshesGit: needsGitRefresh,
+                                             gitStateChanged: gitStateChanged,
+                                             paths: rescanned ? nil : changedRelativePaths))
         }
-        if needsGitRefresh {
-            refreshGit(after: .milliseconds(300))
+        if !changedPaths.isEmpty {
+            for document in documents where changedPaths.contains(document.canonicalPath) {
+                document.reloadFromDiskIfChanged()
+            }
         }
-        for document in documents where changedPaths.contains(FileWatcher.canonicalPath(document.url)) {
-            document.reloadFromDiskIfChanged()
+        if !changedRelativePaths.isEmpty {
+            let changed = Array(changedRelativePaths)
+            testing.filesChanged(changed)
+            Task { [symbolIndex] in await symbolIndex.invalidate(changed) }
         }
-        testing.filesChanged(Array(changedPaths))
-        let changed = changedPaths.compactMap { relativePath(of: URL(filePath: $0)) }
-        if !changed.isEmpty { Task { [symbolIndex] in await symbolIndex.invalidate(changed) } }
+    }
+
+    /// What file events call for, once they pause.
+    struct PendingEvents {
+        var rebuildsIndex = false
+        var refreshesGit = false
+        /// Something inside .git changed (a commit, staging, a checkout): what open files are
+        /// compared with and blamed against may have, too.
+        var gitStateChanged = false
+        /// What changed, from the folder, to ask git whether any of it counts; nil when it's
+        /// unknown or too much to ask about.
+        var paths: Set<String>? = []
+
+        mutating func merge(_ other: PendingEvents) {
+            rebuildsIndex = rebuildsIndex || other.rebuildsIndex
+            refreshesGit = refreshesGit || other.refreshesGit
+            gitStateChanged = gitStateChanged || other.gitStateChanged
+            if let mine = paths, let theirs = other.paths, mine.count + theirs.count <= Workspace.maxPathsAskedAbout {
+                paths = mine.union(theirs)
+            } else {
+                paths = nil
+            }
+        }
+    }
+
+    /// More changed paths than this aren't worth asking git about one by one.
+    nonisolated static let maxPathsAskedAbout = 256
+
+    /// Rebuilds the quick-open index and re-reads git status after file events, debounced, unless
+    /// everything that changed is ignored (a build's output, node_modules): neither lists
+    /// such files, and a build writes them for minutes on end.
+    private func followUpFileEvents(_ events: PendingEvents) {
+        guard let rootURL else { return }
+        if pendingEvents == nil { pendingEvents = events } else { pendingEvents?.merge(events) }
+        eventTask?.cancel()
+        eventTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, self.rootURL == rootURL, let pending = self.pendingEvents else { return }
+            // From here on this batch is acted on, even if more events arrive meanwhile.
+            self.pendingEvents = nil
+            if !pending.gitStateChanged, let paths = pending.paths, !paths.isEmpty {
+                let repository = self.gitRepository
+                let ignored = await Task.detached(priority: .utility) {
+                    FileIndexer.areIgnored(Array(paths), in: repository)
+                }.value
+                guard !ignored, self.rootURL == rootURL else { return }
+            }
+            if pending.rebuildsIndex { self.rebuildFileIndex() }
+            if pending.refreshesGit { self.refreshGit(reloadingDocuments: pending.gitStateChanged) }
+        }
+    }
+
+    /// Waits for what pending file events set off (tests).
+    func waitForFileEvents() async {
+        await eventTask?.value
+        await waitForBackgroundWork()
     }
 
     // MARK: Language servers
@@ -533,27 +621,39 @@ final class Workspace {
 
     // MARK: Git
 
-    /// Re-reads `git status` (debounced by `delay`), then refreshes open documents' diff bases,
-    /// since staging or committing changes what their gutter markers compare against.
-    func refreshGit(after delay: Duration = .zero) {
+    /// Re-reads `git status` (debounced by `delay`), then refreshes open documents' diff bases
+    /// and blame, since staging or committing changes what their gutter markers compare against.
+    /// `reloadingDocuments: false` (a file changed, nothing in .git did) leaves the documents
+    /// alone unless the status came out different: a git command or two per open file, on
+    /// every file event, is a lot of work for nothing.
+    func refreshGit(after delay: Duration = .zero, reloadingDocuments: Bool = true) {
         guard let rootURL else { return }
         gitTask?.cancel()
+        if reloadingDocuments { gitRefreshReloadsDocuments = true }
         let knownRepository = gitRepository
         gitTask = Task {
             if delay > .zero {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
             }
+            self.backgroundWork.gitRefreshes += 1
             let result = await Task.detached(priority: .utility) { () -> (Git.Repository, GitStatus, [GitStash], [GitSubmodule])? in
                 guard let repository = knownRepository ?? Git.repository(at: rootURL),
                       let status = Git.status(of: repository) else { return nil }
                 return (repository, status, Git.stashes(in: repository) ?? [], Git.submodules(in: repository) ?? [])
             }.value
             guard !Task.isCancelled, self.rootURL == rootURL else { return }
+            // HEAD or what's staged changed, as far as status shows; or it can't be known from
+            // file events, the .git directory being outside the folder (a worktree, a subfolder).
+            let changed = (self.gitRepository == nil) != (result == nil)
+                || self.gitStatus?.baseSignature != result?.1.baseSignature
+                || result.map { !self.watchesGitDirectory(of: $0.0) } ?? false
             self.gitRepository = result?.0
             if self.gitStatus != result?.1 { self.gitStatus = result?.1 }
             if self.stashes != result?.2 ?? [] { self.stashes = result?.2 ?? [] }
             if self.submodules != result?.3 ?? [] { self.submodules = result?.3 ?? [] }
+            guard self.gitRefreshReloadsDocuments || changed else { return }
+            self.gitRefreshReloadsDocuments = false
             for document in self.documents { self.loadDiffBase(for: document) }
             for session in self.diffSessions where session.mode == .staged { self.loadStaged(session) }
             // A commit may have added to the file's history.
@@ -562,6 +662,13 @@ final class Workspace {
                 if self.historyScope == .repository { self.loadRepoHistory() }
             }
         }
+    }
+
+    /// The repository's .git directory is in the folder, so the file watcher reports commits,
+    /// staging and checkouts.
+    private func watchesGitDirectory(of repository: Git.Repository) -> Bool {
+        guard let directory = repository.gitDirectory else { return false }
+        return FileWatcher.canonicalPath(directory) == canonicalRootPath + "/.git"
     }
 
     func stage(_ paths: [String]) { runGit { try Git.stage(paths, in: $0) } }
@@ -835,6 +942,7 @@ final class Workspace {
             document.setDiffBase(nil)
             return
         }
+        backgroundWork.diffBaseLoads += 1
         Task {
             let base = await Task.detached(priority: .utility) {
                 Git.indexContent(ofRelativePath: path, in: repository)

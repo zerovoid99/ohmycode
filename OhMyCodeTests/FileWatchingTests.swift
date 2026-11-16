@@ -1,4 +1,5 @@
 import AppKit
+import CoreServices
 import Foundation
 import Testing
 @testable import Oh_My_Code
@@ -97,6 +98,105 @@ struct FileWatchingTests {
         #expect(document.undoManager.canUndo)
         #expect(!document.hasExternalChanges)
         #expect(document.textStorage.string == "xone\n")
+    }
+
+    @Test func reloadKeepsNodesAndPutsNewOnesInOrder() throws {
+        let root = try makeFolder(["a10.txt": "", "a2.txt": "", "B.txt": "", "sub/x.txt": "", "zeta/y.txt": ""])
+        let node = FileNode(url: root, isDirectory: true)
+        #expect(names(node) == ["sub", "zeta", "a2.txt", "a10.txt", "B.txt"])
+        let kept = try #require(node.children?.first { $0.name == "a10.txt" })
+        let sub = try #require(node.children?.first { $0.name == "sub" })
+        _ = sub.children
+
+        // Nothing changed: the same list, not a new one.
+        let before = try #require(node.children)
+        node.reloadChildren()
+        #expect(try #require(node.children).elementsEqual(before) { $0 === $1 })
+
+        try FileManager.default.removeItem(at: root.appending(path: "a2.txt"))
+        for name in ["a1.txt", "a3.txt", "c.txt"] { try "".write(to: root.appending(path: name), atomically: true, encoding: .utf8) }
+        try FileManager.default.createDirectory(at: root.appending(path: "alpha"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appending(path: "tools"), withIntermediateDirectories: true)
+        node.reloadChildren()
+        // As a fresh listing orders them, with the nodes that were there kept (loaded folders too).
+        #expect(names(node) == names(FileNode(url: root, isDirectory: true)))
+        #expect(names(node) == ["alpha", "sub", "tools", "zeta", "a1.txt", "a3.txt", "a10.txt", "B.txt", "c.txt"])
+        #expect(node.children?.first { $0.name == "a10.txt" } === kept)
+        #expect(node.children?.first { $0.name == "sub" } === sub && sub.isLoaded)
+        #expect(node.children?.allSatisfy { $0.url == root.appending(path: $0.name, directoryHint: $0.isDirectory ? .isDirectory : .notDirectory) } == true)
+    }
+
+    private func git(_ arguments: [String], in directory: URL) throws {
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path, "-c", "user.name=OMC", "-c", "user.email=omc@example.invalid",
+                             "-c", "commit.gpgsign=false"] + arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+    }
+
+    /// A build writing ignored files sets nothing off; an edit re-reads git status but leaves
+    /// open files' diff bases and blame alone; a commit reloads them.
+    @Test func fileEventsSetOffOnlyWhatTheyNeed() async throws {
+        let root = try makeFolder(["a.txt": "a\n", "b.txt": "b\n", "c.txt": "c\n", ".gitignore": "build/\n"])
+        try git(["init", "-q", "-b", "main"], in: root)
+        try git(["add", "."], in: root)
+        try git(["commit", "-q", "-m", "init"], in: root)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        for name in ["a.txt", "b.txt", "c.txt"] { workspace.open(fileAt: root.appending(path: name)) }
+        #expect(try await eventually { workspace.gitStatus != nil && workspace.fileIndex != nil })
+        // Let the events of the setup above pass.
+        try await Task.sleep(for: .milliseconds(800))
+        await workspace.waitForFileEvents()
+
+        let canonical = FileWatcher.canonicalPath(root)
+        let created = FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemIsFile)
+        var before = workspace.backgroundWork
+        workspace.handleFileEvents((0..<50).map { FileWatcher.Event(path: canonical + "/build/out\($0).o", flags: created) })
+        await workspace.waitForFileEvents()
+        #expect(workspace.backgroundWork == before)
+
+        // A file that counts, among the ignored ones.
+        workspace.handleFileEvents([FileWatcher.Event(path: canonical + "/build/out.o", flags: created),
+                                    FileWatcher.Event(path: canonical + "/new.txt", flags: created)])
+        await workspace.waitForFileEvents()
+        #expect(workspace.backgroundWork.indexBuilds == before.indexBuilds + 1)
+        #expect(workspace.backgroundWork.gitRefreshes == before.gitRefreshes + 1)
+        #expect(workspace.backgroundWork.diffBaseLoads == before.diffBaseLoads)
+
+        // Something in .git changed: the open files are compared and blamed again.
+        before = workspace.backgroundWork
+        workspace.handleFileEvents([FileWatcher.Event(path: canonical + "/.git/index", flags: created)])
+        await workspace.waitForFileEvents()
+        #expect(workspace.backgroundWork.diffBaseLoads == before.diffBaseLoads + 3)
+        #expect(workspace.backgroundWork.indexBuilds == before.indexBuilds)
+    }
+
+    @Test func changedTestFilesAreReadTogether() async throws {
+        let test = { (name: String) in "import Testing\n\n@Test func \(name)() {}\n" }
+        let root = try makeFolder(["Package.swift": "", "Tests/LibTests/ATests.swift": test("first")])
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        #expect(try await eventually { workspace.testing.allTests.count == 1 })
+
+        try test("second").write(to: root.appending(path: "Tests/LibTests/BTests.swift"), atomically: true, encoding: .utf8)
+        try (test("first") + "@Test func third() {}\n").write(to: root.appending(path: "Tests/LibTests/ATests.swift"), atomically: true, encoding: .utf8)
+        let canonical = FileWatcher.canonicalPath(root)
+        let modified = FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified | kFSEventStreamEventFlagItemIsFile)
+        workspace.handleFileEvents(["ATests.swift", "BTests.swift", "Gone.swift"].map {
+            FileWatcher.Event(path: canonical + "/Tests/LibTests/" + $0, flags: modified)
+        })
+        await workspace.testing.waitForFileChanges()
+        #expect(workspace.testing.files.map(\.label) == ["ATests.swift", "BTests.swift"])
+        #expect(workspace.testing.allTests.count == 3)
+
+        try FileManager.default.removeItem(at: root.appending(path: "Tests/LibTests/ATests.swift"))
+        workspace.handleFileEvents([FileWatcher.Event(path: canonical + "/Tests/LibTests/ATests.swift", flags: modified)])
+        await workspace.testing.waitForFileChanges()
+        #expect(workspace.testing.files.map(\.label) == ["BTests.swift"])
     }
 }
 

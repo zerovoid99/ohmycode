@@ -94,6 +94,8 @@ struct GitStatus: Sendable, Equatable {
     var operation: GitOperation?
     /// HEAD points at a commit (false in a repository with no commits yet).
     var hasCommits = false
+    /// HEAD's commit.
+    var head: String?
     private(set) var files: [String: GitFileStatus] = [:]
     /// Untracked folders git reports as a whole ("dir/"), without listing their contents.
     private(set) var untrackedDirectories: [String] = []
@@ -106,6 +108,20 @@ struct GitStatus: Sendable, Equatable {
     var unstagedChanges: [GitChange] { changes.filter(\.hasUnstagedChanges) }
 
     var changedFileCount: Int { files.count + untrackedDirectories.count }
+
+    /// Changes when HEAD or what is staged does (as far as status tells): what open files are
+    /// compared with and blamed against. Editing or saving a file leaves it as it is.
+    var baseSignature: Int {
+        var hasher = Hasher()
+        hasher.combine(head)
+        hasher.combine(branch)
+        hasher.combine(operation)
+        for change in changes where change.index != "." && change.index != "?" {
+            hasher.combine(change.path)
+            hasher.combine(change.index)
+        }
+        return hasher.finalize()
+    }
 
     func status(forRelativePath path: String, isDirectory: Bool) -> GitFileStatus? {
         if let status = isDirectory ? directories[path] : files[path] { return status }
@@ -155,6 +171,7 @@ struct GitStatus: Sendable, Equatable {
                 let header = record.dropFirst(2)
                 if header.hasPrefix("branch.oid ") {
                     status.hasCommits = header != "branch.oid (initial)"
+                    status.head = status.hasCommits ? String(header.dropFirst("branch.oid ".count)) : nil
                 } else if header.hasPrefix("branch.head ") {
                     let name = String(header.dropFirst("branch.head ".count))
                     status.branch = name == "(detached)" ? nil : name

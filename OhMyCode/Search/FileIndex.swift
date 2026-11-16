@@ -32,39 +32,75 @@ enum FileIndexer {
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         guard let result = try? ProcessIO.run(process, output: output, error: nil), result.status == 0 else { return nil }
-        let data = result.output
+        var data = result.output
+        if data.last != 0 { data.append(0) } // every path a C string, in place
 
-        let fileManager = FileManager.default
-        var seen = Set<String>()
-        return data.split(separator: 0).compactMap { bytes in
-            let path = String(decoding: bytes, as: UTF8.self)
-            // --cached also lists tracked files deleted from disk; dedupe merge-conflict entries.
-            guard seen.insert(path).inserted,
-                  fileManager.fileExists(atPath: root.appending(path: path).path) else { return nil }
-            return path
+        // --cached also lists tracked files deleted from disk: each is checked, relative to the
+        // folder's descriptor (no URL or absolute path per file: there may be 200,000).
+        let folder = open(root.path, O_RDONLY | O_DIRECTORY)
+        guard folder >= 0 else { return nil }
+        defer { close(folder) }
+        return data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) -> [String] in
+            guard let base = bytes.baseAddress else { return [] }
+            var paths: [String] = []
+            var start = 0
+            while start < bytes.count {
+                let name = (base + start).assumingMemoryBound(to: CChar.self)
+                let length = strlen(name)
+                defer { start += length + 1 }
+                guard length > 0, faccessat(folder, name, F_OK, 0) == 0 else { continue }
+                let path = String(decoding: UnsafeRawBufferPointer(rebasing: bytes[start..<(start + length)]), as: UTF8.self)
+                // A file in a merge conflict is listed once per stage, one after the other.
+                if paths.last != path { paths.append(path) }
+            }
+            return paths
         }
     }
 
+    /// Walks the tree with readdir (which says what is a folder): no URL or resource lookup
+    /// per file. Symbolic links aren't followed (a linked folder is listed like a file).
     private static func walk(root: URL) -> [String] {
-        let keys: [URLResourceKey] = [.isDirectoryKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: root, includingPropertiesForKeys: keys, options: []
-        ) else { return [] }
-
-        let rootPath = root.standardizedFileURL.path
-        let prefixLength = rootPath.hasSuffix("/") ? rootPath.count : rootPath.count + 1
         var result: [String] = []
-        for case let url as URL in enumerator {
-            let name = url.lastPathComponent
-            let isDirectory = (try? url.resourceValues(forKeys: Set(keys)).isDirectory) ?? false
-            if isDirectory {
-                if ignoredDirectories.contains(name) { enumerator.skipDescendants() }
-                continue
+        // Folders still to read: their path, and the same from the root ("" or "sub/dir/").
+        var pending = [(path: root.standardizedFileURL.path, prefix: "")]
+        while let (path, prefix) = pending.popLast() {
+            guard let directory = opendir(path) else { continue }
+            defer { closedir(directory) }
+            while let entry = readdir(directory) {
+                let name = withUnsafeBytes(of: &entry.pointee.d_name) { raw in
+                    String(decoding: raw.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
+                }
+                if name == "." || name == ".." { continue }
+                var type = entry.pointee.d_type
+                if type == DT_UNKNOWN { // a file system that doesn't say
+                    var info = stat()
+                    if lstat(path + "/" + name, &info) == 0, info.st_mode & S_IFMT == S_IFDIR { type = UInt8(DT_DIR) }
+                }
+                if type == DT_DIR {
+                    if !ignoredDirectories.contains(name) { pending.append((path + "/" + name, prefix + name + "/")) }
+                    continue
+                }
+                if name == ".DS_Store" { continue }
+                result.append(prefix + name)
+                if result.count >= maxFiles { return result }
             }
-            if name == ".DS_Store" { continue }
-            result.append(String(url.standardizedFileURL.path.dropFirst(prefixLength)))
-            if result.count >= maxFiles { break }
         }
         return result
+    }
+
+    /// Whether none of `paths` (from the folder) can be in the index or in git's status: git
+    /// ignores them all (tracked files are never ignored), or, without a repository, each is
+    /// inside a folder the walk skips.
+    static func areIgnored(_ paths: [String], in repository: Git.Repository?) -> Bool {
+        guard !paths.isEmpty else { return false }
+        guard let repository else {
+            return paths.allSatisfy { path in
+                path.split(separator: "/").dropLast().contains { ignoredDirectories.contains(String($0)) }
+            }
+        }
+        let input = Data(paths.joined(separator: "\0").utf8)
+        // Prints the ignored ones (exit status 1: none); anything odd counts as not ignored.
+        guard let output = Git.run(["check-ignore", "-z", "--stdin"], in: repository.root, input: input) else { return false }
+        return output.split(separator: 0).count == paths.count
     }
 }
