@@ -275,16 +275,23 @@ final class EditorDocument: Identifiable {
         lineIndex.range(for: lspRange, length: textStorage.length)
     }
 
+    /// Whether a UTF-16 unit is part of an identifier (letters, digits, `_`; nil: past the text).
+    static func isWordUnit(_ unit: unichar?) -> Bool {
+        guard let unit else { return false }
+        if unit < 0x80 {
+            return (unit >= 0x61 && unit <= 0x7A) || (unit >= 0x41 && unit <= 0x5A) || (unit >= 0x30 && unit <= 0x39) || unit == 0x5F
+        }
+        // Surrogates aren't scalars.
+        guard let scalar = Unicode.Scalar(unit) else { return false }
+        return CharacterSet.alphanumerics.contains(scalar)
+    }
+
     /// The identifier around `index` (or ending right at it).
     func wordRange(at index: Int) -> NSRange? {
         let text = textStorage.mutableString
         func isWord(_ at: Int) -> Bool {
             guard at >= 0, at < text.length else { return false }
-            let unit = text.character(at: at)
-            if unit == 0x5F { return true } // _
-            if CFStringIsSurrogateHighCharacter(unit) || CFStringIsSurrogateLowCharacter(unit) { return false }
-            guard let scalar = Unicode.Scalar(unit) else { return false }
-            return CharacterSet.alphanumerics.contains(scalar)
+            return Self.isWordUnit(text.character(at: at))
         }
         var start = index
         if !isWord(start) && isWord(start - 1) { start -= 1 }

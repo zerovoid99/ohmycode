@@ -197,6 +197,80 @@ struct SearchScaleTests {
         return (document, controller, window, url)
     }
 
+    /// A minified file: thousands of matches on one line. Each used to decode the whole line.
+    @Test func longLinesAreSearchedOnceNotOncePerMatch() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-search-line-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let unit = "var é=point(1),b=other(2);function f(){return a+b};"
+        let text = "  // header\n" + String(repeating: unit, count: 40_000) + "\nlet point = 1\n" // 2 MB on line 1
+        try text.write(to: root.appending(path: "bundle.min.js"), atomically: true, encoding: .utf8)
+
+        func search(_ options: SearchOptions) async throws -> [SearchMatch] {
+            let found = Found()
+            try await TextSearch.search(options, root: root, files: ["bundle.min.js"], overrides: [:]) { await found.add($0) }
+            return await found.matches
+        }
+        let clock = ContinuousClock()
+        var literal: [SearchMatch] = []
+        let elapsed = try await clock.measure { literal = try await search(SearchOptions(query: "point", caseSensitive: true)) }
+        #expect(literal.count == TextSearch.maxMatchesPerFile)
+        #expect(elapsed < .seconds(1), "took \(elapsed)") // 1.7 s for 5 MB in a release build before
+        // Columns are UTF-16 ("é" is two bytes, one unit); previews are a window around the match.
+        let width = (unit as NSString).length
+        #expect(literal[0].line == 1 && literal[0].column == 6)
+        #expect(literal[500].line == 1 && literal[500].column == 6 + 500 * width)
+        #expect(literal[500].preview.hasPrefix("…") && (literal[500].preview as NSString).length <= TextSearch.previewLimit + 1)
+        #expect((literal[500].preview as NSString).substring(with: literal[500].previewRange) == "point")
+        // The same rows as the regex search, which reads lines its own way.
+        let regex = try await search(SearchOptions(query: "p[o]int", caseSensitive: true, regex: true))
+        #expect(literal == regex)
+    }
+
+    @Test func occurrencesAreFoundAcrossChunksLikeRangeOf() throws {
+        // Longer than a chunk (64K units), with matches on the seams and overlapping ones.
+        var text = String(repeating: "ab_aba abab é aba\n", count: 12_000)
+        text += "aba"
+        let string = text as NSString
+        for needle in ["aba", "a", "é a", "aba\naba", "zzz"] {
+            var expected: [NSRange] = []
+            var from = 0
+            while from < string.length {
+                let found = string.range(of: needle, options: .literal, range: NSRange(location: from, length: string.length - from))
+                guard found.location != NSNotFound else { break }
+                expected.append(found)
+                from = found.location + 1
+            }
+            var actual: [NSRange] = []
+            var neighborsRight = true
+            string.forEachOccurrence(of: needle as NSString) { range, before, after in
+                neighborsRight = neighborsRight
+                    && before == (range.location > 0 ? string.character(at: range.location - 1) : nil)
+                    && after == (NSMaxRange(range) < string.length ? string.character(at: NSMaxRange(range)) : nil)
+                actual.append(range)
+                return true
+            }
+            #expect(actual == expected && neighborsRight, "needle \(needle)")
+            // From the middle on, and stopping early.
+            var later: [NSRange] = []
+            string.forEachOccurrence(of: needle as NSString, from: 100_000) { range, _, _ in
+                later.append(range)
+                return later.count < 3
+            }
+            #expect(later == Array(expected.filter { $0.location >= 100_000 }.prefix(3)), "needle \(needle)")
+        }
+        let (document, controller, window, url) = try open(text)
+        defer { try? FileManager.default.removeItem(at: url) }
+        // Whole words only: "aba" alone, not in "ab_aba" or "abab".
+        #expect(document.ranges(of: "aba", wholeWord: true, limit: 100_000).count == 12_000 + 1)
+        #expect(document.ranges(of: "aba", wholeWord: true, limit: 7).count == 7)
+        #expect(document.ranges(of: "aba", wholeWord: false, limit: 100_000).count == 3 * 12_000 + 1)
+        controller.textView.setSelectedRange(NSRange(location: 3, length: 3))
+        controller.selectAllOccurrences()
+        #expect(controller.allSelections.count == 3 * 12_000 + 1) // "abab" holds one, not two overlapping
+        withExtendedLifetime(window) {}
+    }
+
     /// Replace All's edits go to the text storage as one (each one alone cost 0.3 ms of TextKit
     /// bookkeeping: 100,000 took half a minute); the document still sees each edit, so its line
     /// index, parser and language server follow them one by one.
@@ -275,4 +349,9 @@ struct SearchScaleTests {
         #expect(document.textStorage.mutableString.hasPrefix("##///"))
         withExtendedLifetime(window) {}
     }
+}
+
+private actor Found {
+    var matches: [SearchMatch] = []
+    func add(_ results: [SearchFileResult]) { matches += results.flatMap(\.matches) }
 }

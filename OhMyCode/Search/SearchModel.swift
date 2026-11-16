@@ -64,15 +64,17 @@ final class SearchModel {
                     overrides[path] = document.textStorage.mutableString as String
                 }
             }
-            var collected: [SearchFileResult] = []
+            // Batches are sorted in as they arrive, off the main thread, and shown at most ten
+            // times a second: the list is laid out again for every new `results` (20,000 files
+            // in 64 batches: 3.7 s of the main thread).
+            let collected = SortedResults()
             results = []
             do {
                 try await TextSearch.search(options, root: root, files: files, overrides: overrides) { batch in
+                    guard let snapshot = collected.add(batch) else { return }
                     await MainActor.run {
                         guard !Task.isCancelled else { return }
-                        collected.append(contentsOf: batch)
-                        collected.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-                        self.results = collected
+                        self.results = snapshot
                     }
                 }
             } catch is CancellationError {
@@ -81,6 +83,7 @@ final class SearchModel {
                 errorMessage = error.localizedDescription
             }
             guard !Task.isCancelled else { return }
+            if results.count != collected.all.count { results = collected.all }
             isSearching = false
         }
     }
@@ -185,5 +188,35 @@ final class SearchModel {
     /// Waits for the current search (tests).
     func waitUntilDone() async {
         await task?.value
+    }
+}
+
+/// A search's results so far, sorted by path. Used from one place at a time: the search's
+/// batches arrive one after another, and the model reads it when the search is over.
+private final class SortedResults: @unchecked Sendable {
+    static let interval: Duration = .milliseconds(100)
+    private(set) var all: [SearchFileResult] = []
+    private var shown: ContinuousClock.Instant?
+
+    /// Merges a batch in; returns everything when it's time to show it (the first batch at
+    /// once, then every `interval`).
+    func add(_ batch: [SearchFileResult]) -> [SearchFileResult]? {
+        func precedes(_ a: SearchFileResult, _ b: SearchFileResult) -> Bool {
+            a.path.localizedStandardCompare(b.path) == .orderedAscending
+        }
+        let new = batch.sorted(by: precedes)
+        var merged: [SearchFileResult] = []
+        merged.reserveCapacity(all.count + new.count)
+        var i = 0, j = 0
+        while i < all.count, j < new.count {
+            if precedes(new[j], all[i]) { merged.append(new[j]); j += 1 } else { merged.append(all[i]); i += 1 }
+        }
+        merged.append(contentsOf: all[i...])
+        merged.append(contentsOf: new[j...])
+        all = merged
+        let now = ContinuousClock.now
+        if let shown, now - shown < Self.interval { return nil }
+        shown = now
+        return all
     }
 }

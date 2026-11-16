@@ -252,6 +252,9 @@ private struct Matcher: Sendable {
         var lineStart = 0
         var scanned = 0 // newlines are counted up to here
         var position = 0
+        // The line of the last match: its end, and the UTF-16 column of `counted`. Found once a
+        // line, not once a match (a minified file is one line with thousands of matches).
+        var measuredLine = -1, lineEnd = 0, counted = 0, column = 0
         while position <= count - needle.count, results.count < TextSearch.maxMatchesPerFile {
             guard let found = memmem(haystack + position, count - position, needle, needle.count) else { break }
             let offset = haystack.distance(to: found.assumingMemoryBound(to: UInt8.self))
@@ -261,12 +264,29 @@ private struct Matcher: Sendable {
                 if base[scanned] == 0x0A { lineNumber += 1; lineStart = scanned + 1 }
                 scanned += 1
             }
-            var lineEnd = offset
-            while lineEnd < count && base[lineEnd] != 0x0A { lineEnd += 1 }
+            if measuredLine != lineNumber {
+                measuredLine = lineNumber
+                lineEnd = memchr(base + offset, 0x0A, count - offset).map { base.distance(to: UnsafePointer($0.assumingMemoryBound(to: UInt8.self))) } ?? count
+                counted = lineStart
+                column = 0
+            }
+            column += Self.utf16Count(base, from: counted, to: offset)
+            counted = offset
             results.append(makeMatch(base, line: lineNumber, lineStart: lineStart, lineEnd: lineEnd,
-                                     matchStart: offset, matchEnd: offset + needle.count))
+                                     matchStart: offset, matchEnd: offset + needle.count, column: column))
         }
         return results
+    }
+
+    /// UTF-16 units of the UTF-8 in `bytes[from..<to]`: one for each character's first byte,
+    /// two when it's outside the BMP (a four-byte sequence).
+    private static func utf16Count(_ bytes: UnsafePointer<UInt8>, from: Int, to: Int) -> Int {
+        var units = 0
+        for index in from..<to {
+            let byte = bytes[index]
+            if byte & 0xC0 != 0x80 { units += byte >= 0xF0 ? 2 : 1 }
+        }
+        return units
     }
 
     private func isWordBoundary(_ bytes: UnsafePointer<UInt8>, count: Int, start: Int, end: Int) -> Bool {
@@ -296,23 +316,31 @@ private struct Matcher: Sendable {
         return results
     }
 
+    /// Bytes of a long line kept before and after a match for its preview: more than the
+    /// preview shows on either side (40 and `previewLimit` UTF-16 units) in any encoding.
+    private static let previewBytesBefore = 256, previewBytesAfter = 1024
+
     private func makeMatch(_ bytes: UnsafePointer<UInt8>, line: Int, lineStart: Int, lineEnd: Int,
-                           matchStart: Int, matchEnd: Int) -> SearchMatch {
+                           matchStart: Int, matchEnd: Int, column: Int) -> SearchMatch {
         func string(_ from: Int, _ to: Int) -> String {
             String(decoding: UnsafeBufferPointer(start: bytes + from, count: to - from), as: UTF8.self)
         }
-        let before = string(lineStart, matchStart)
-        let matched = string(matchStart, matchEnd)
-        var lineText = string(lineStart, lineEnd)
-        if lineText.hasSuffix("\r") { lineText.removeLast() }
-        let column = before.utf16.count
-        let length = matched.utf16.count
-        let (preview, previewRange) = Self.preview(lineText, column: column, length: length)
+        let length = string(matchStart, matchEnd).utf16.count
+        // Only the part of the line the preview can show is decoded (whole characters).
+        var from = max(lineStart, matchStart - Self.previewBytesBefore)
+        while from > lineStart, from < matchStart, bytes[from] & 0xC0 == 0x80 { from += 1 }
+        var to = min(lineEnd, matchEnd + Self.previewBytesAfter)
+        while to < lineEnd, to > matchEnd, bytes[to] & 0xC0 == 0x80 { to -= 1 }
+        var lineText = string(from, to)
+        if to == lineEnd, lineText.hasSuffix("\r") { lineText.removeLast() }
+        let localColumn = from == lineStart ? column : Self.utf16Count(bytes, from: from, to: matchStart)
+        let (preview, previewRange) = Self.preview(lineText, column: localColumn, length: length, cutBefore: from > lineStart)
         return SearchMatch(line: line, column: column, length: length, preview: preview, previewRange: previewRange)
     }
 
     /// Trims long lines to a window around the match, and leading indentation.
-    static func preview(_ line: String, column: Int, length: Int) -> (String, NSRange) {
+    /// `cutBefore`: `line` is the end of a longer line (its start isn't the line's indentation).
+    static func preview(_ line: String, column: Int, length: Int, cutBefore: Bool = false) -> (String, NSRange) {
         let text = line as NSString
         var start = 0
         while start < column, start < text.length,
@@ -321,7 +349,7 @@ private struct Matcher: Sendable {
         let end = min(text.length, max(column + length, start + TextSearch.previewLimit))
         var preview = text.substring(with: NSRange(location: start, length: end - start))
         var location = column - start
-        if start > 0 && start != Self.indentation(of: text) {
+        if cutBefore || (start > 0 && start != Self.indentation(of: text)) {
             preview = "…" + preview
             location += 1
         }

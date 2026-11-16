@@ -32,4 +32,40 @@ extension NSString {
         }
         return found
     }
+
+    /// Every place `needle` appears from `start` on (compared unit by unit, overlapping places
+    /// too), with the units before and after it (nil at the text's ends) for whole-word checks;
+    /// `body` returns false to stop. Reads in chunks, like `forEachChunk`.
+    func forEachOccurrence(of needle: NSString, from start: Int = 0, _ body: (NSRange, unichar?, unichar?) -> Bool) {
+        let count = needle.length, length = length
+        guard count > 0, start >= 0, start + count <= length else { return }
+        let pattern = [unichar](unsafeUninitializedCapacity: count) { buffer, initialized in
+            needle.getCharacters(buffer.baseAddress!, range: NSRange(location: 0, length: count))
+            initialized = count
+        }
+        let first = pattern[0]
+        let step = 64 * 1024
+        withUnsafeTemporaryAllocation(of: unichar.self, capacity: step + count + 1) { buffer in
+            let units = buffer.baseAddress!
+            var position = start
+            while position + count <= length {
+                // The places a match can start in this round, and the text they need: a unit
+                // before the first, and the needle's length and a unit more after the last.
+                let candidates = min(step, length - count - position + 1)
+                let readStart = max(position - 1, 0)
+                let readCount = min(position + candidates + count, length) - readStart
+                getCharacters(units, range: NSRange(location: readStart, length: readCount))
+                let lead = position - readStart
+                for index in lead..<lead + candidates where units[index] == first {
+                    var matches = true
+                    for offset in 1..<count where units[index + offset] != pattern[offset] { matches = false; break }
+                    guard matches else { continue }
+                    let before = index > 0 ? units[index - 1] : nil
+                    let after = index + count < readCount ? units[index + count] : nil
+                    guard body(NSRange(location: readStart + index, length: count), before, after) else { return }
+                }
+                position += candidates
+            }
+        }
+    }
 }

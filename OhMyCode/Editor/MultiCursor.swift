@@ -42,16 +42,16 @@ extension EditorController {
         let taken = allSelections
         var from = taken.map(NSMaxRange).max() ?? NSMaxRange(main)
         for _ in 0..<2 { // after the last selection, then from the top
-            var search = NSRange(location: from, length: text.length - from)
-            while search.length > 0 {
-                let found = text.range(of: needle, options: [.literal], range: search)
-                guard found.location != NSNotFound else { break }
-                if !taken.contains(where: { NSIntersectionRange($0, found).length > 0 || $0 == found }) {
-                    setSelections(main: main, extras: extraSelections + [found])
-                    textView.scrollRangeToVisible(found)
-                    return
-                }
-                search = NSRange(location: NSMaxRange(found), length: text.length - NSMaxRange(found))
+            var next: NSRange?
+            text.forEachOccurrence(of: needle as NSString, from: from) { found, _, _ in
+                if taken.contains(where: { NSIntersectionRange($0, found).length > 0 || $0 == found }) { return true }
+                next = found
+                return false
+            }
+            if let next {
+                setSelections(main: main, extras: extraSelections + [next])
+                textView.scrollRangeToVisible(next)
+                return
             }
             from = 0
         }
@@ -66,12 +66,12 @@ extension EditorController {
         let text = document.textStorage.mutableString
         let needle = text.substring(with: main)
         var extras: [NSRange] = []
-        var search = NSRange(location: 0, length: text.length)
-        while search.length > 0 {
-            let found = text.range(of: needle, options: [.literal], range: search)
-            guard found.location != NSNotFound else { break }
+        var end = 0 // of the last place taken: they don't overlap
+        text.forEachOccurrence(of: needle as NSString) { found, _, _ in
+            guard found.location >= end else { return true }
+            end = NSMaxRange(found)
             if found != main { extras.append(found) }
-            search = NSRange(location: NSMaxRange(found), length: text.length - NSMaxRange(found))
+            return true
         }
         setSelections(main: main, extras: extras)
     }

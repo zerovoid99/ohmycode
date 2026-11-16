@@ -112,27 +112,17 @@ final class OccurrenceHighlighter {
 extension EditorDocument {
     /// Where `string` appears (as a whole word if asked), up to `limit` places.
     func ranges(of string: String, wholeWord: Bool, limit: Int) -> [NSRange] {
-        let text = textStorage.mutableString
-        let needle = string as NSString
-        guard needle.length > 0 else { return [] }
         var result: [NSRange] = []
-        var searchRange = NSRange(location: 0, length: text.length)
-        while searchRange.length > 0 {
-            let found = text.range(of: string, options: .literal, range: searchRange)
-            guard found.location != NSNotFound else { break }
-            if !wholeWord || (!isWordCharacter(at: found.location - 1) && !isWordCharacter(at: NSMaxRange(found))) {
+        guard limit > 0 else { return result }
+        // In chunks, the units around each place checked as they're read: `range(of:)` from
+        // each place on, and two `wordRange(at:)`, took 1.9 s for a one-letter name in 20 MB.
+        textStorage.mutableString.forEachOccurrence(of: string as NSString) { found, before, after in
+            if !wholeWord || (!Self.isWordUnit(before) && !Self.isWordUnit(after)) {
                 result.append(found)
-                if result.count >= limit { break }
             }
-            let next = found.location + 1
-            searchRange = NSRange(location: next, length: text.length - next)
+            return result.count < limit
         }
         return result
-    }
-
-    private func isWordCharacter(at index: Int) -> Bool {
-        guard index >= 0, index < textStorage.length else { return false }
-        return wordRange(at: index).map { NSLocationInRange(index, $0) } ?? false
     }
 }
 

@@ -22,24 +22,56 @@ actor WorkspaceSymbolIndex {
     static let maxFileSize = 1_000_000
 
     private var files: [String: (date: Date, symbols: [WorkspaceSymbolResult])] = [:]
-    private var parsers: [SourceLanguage: Parser] = [:]
     private(set) var isComplete = false
+    private var updating: Task<Void, Never>?
 
     /// Reads files that are new or changed since last time (`paths` relative to `root`);
-    /// forgets those no longer listed.
-    func update(root: URL, paths: [String]) {
+    /// forgets those no longer listed. Changed files are parsed on all cores.
+    func update(root: URL, paths: [String]) async {
+        // One at a time: the actor is free while files are parsed, and a second search then
+        // would parse the same files again.
+        while let updating { await updating.value }
+        let task = Task { await self.read(root: root, paths: paths) }
+        updating = task
+        await task.value
+        updating = nil
+    }
+
+    private func read(root: URL, paths: [String]) async {
         let listed = Set(paths.prefix(Self.maxFiles))
         for path in files.keys where !listed.contains(path) { files[path] = nil }
+        var stale: [(path: String, language: SourceLanguage, date: Date)] = []
         for path in paths.prefix(Self.maxFiles) {
             let language = SourceLanguage(fileExtension: (path as NSString).pathExtension)
             guard language == .markdown || GrammarRegistry.treeSitterLanguage(for: language) != nil else { continue }
-            let url = root.appending(path: path)
-            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-                  let date = attributes[.modificationDate] as? Date,
-                  (attributes[.size] as? Int ?? 0) <= Self.maxFileSize else { continue }
+            // stat, not `attributesOfItem`: this runs for every file at every search (88 µs
+            // against 2 a file).
+            var info = stat()
+            guard stat(root.appending(path: path).path, &info) == 0, info.st_size <= Self.maxFileSize else { continue }
+            let date = Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9)
             if files[path]?.date == date { continue }
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            files[path] = (date, symbols(in: text as NSString, language: language, url: url))
+            stale.append((path, language, date))
+        }
+        if !stale.isEmpty {
+            let workers = max(1, min(ProcessInfo.processInfo.activeProcessorCount, stale.count / 8))
+            let size = (stale.count + workers - 1) / workers
+            let pending = stale
+            await withTaskGroup(of: [(String, Date, [WorkspaceSymbolResult])].self) { group in
+                for start in stride(from: 0, to: pending.count, by: size) {
+                    let slice = Array(pending[start..<min(start + size, pending.count)])
+                    group.addTask {
+                        var parsers: [SourceLanguage: Parser] = [:]
+                        return slice.compactMap { entry in
+                            let url = root.appending(path: entry.path)
+                            guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+                            return (entry.path, entry.date, Self.symbols(in: text as NSString, language: entry.language, url: url, parsers: &parsers))
+                        }
+                    }
+                }
+                for await parsed in group {
+                    for (path, date, symbols) in parsed { files[path] = (date, symbols) }
+                }
+            }
         }
         isComplete = true
     }
@@ -61,12 +93,14 @@ actor WorkspaceSymbolIndex {
         files.filter { !excluded.contains($0.key) }.values.flatMap(\.symbols)
     }
 
-    private func symbols(in text: NSString, language: SourceLanguage, url: URL) -> [WorkspaceSymbolResult] {
+    private static func symbols(in text: NSString, language: SourceLanguage, url: URL,
+                                parsers: inout [SourceLanguage: Parser]) -> [WorkspaceSymbolResult] {
         let tree: [DocumentSymbol]
         if language == .markdown {
             tree = DocumentSymbol.markdown(text)
         } else {
-            guard let parser = parser(for: language), let parsed = parser.parse(text as String), let root = parsed.rootNode else { return [] }
+            guard let parser = parser(for: language, in: &parsers), let parsed = parser.parse(text as String),
+                  let root = parsed.rootNode else { return [] }
             var found: [DocumentSymbol] = []
             Outline.walk(root, language: language, text: text, into: &found)
             tree = found
@@ -74,7 +108,7 @@ actor WorkspaceSymbolIndex {
         return Self.results(tree, text: text, url: url)
     }
 
-    private func parser(for language: SourceLanguage) -> Parser? {
+    private static func parser(for language: SourceLanguage, in parsers: inout [SourceLanguage: Parser]) -> Parser? {
         if let parser = parsers[language] { return parser }
         guard let treeSitterLanguage = GrammarRegistry.treeSitterLanguage(for: language) else { return nil }
         let parser = Parser()
@@ -127,17 +161,42 @@ extension Workspace {
         }
         results += await symbolIndex.all(excluding: openPaths)
 
-        let prepared = FuzzyMatcher.prepareQuery(text)
-        var seen = Set<String>()
-        var scored: [(result: WorkspaceSymbolResult, score: Int)] = []
-        for result in results {
+        // Hundreds of thousands of names: matched and sorted off the main thread.
+        let all = results
+        return await Task.detached(priority: .userInitiated) { Self.best(all, matching: text, limit: limit) }.value
+    }
+
+    /// The symbols named like `query`, best first, each place once.
+    nonisolated static func best(_ results: [WorkspaceSymbolResult], matching query: String, limit: Int) -> [WorkspaceSymbolResult] {
+        let prepared = FuzzyMatcher.prepareQuery(query)
+        var seen = Set<Place>()
+        // A file's canonical path is a system call (realpath): once per file, not per symbol.
+        var canonical: [URL: String] = [:]
+        // Sorted by index: comparing names' lengths (counted a character at a time) for each
+        // of a few hundred thousand matches took most of a search.
+        var scored: [(index: Int, score: Int, length: Int)] = []
+        for (index, result) in results.enumerated() {
             guard let match = FuzzyMatcher.match(prepared, FuzzyCandidate(result.name)) else { continue }
+            let path: String
+            if let known = canonical[result.url] {
+                path = known
+            } else {
+                path = FileWatcher.canonicalPath(result.url)
+                canonical[result.url] = path
+            }
             // The same symbol from a server and a syntax tree: once.
-            guard seen.insert("\(FileWatcher.canonicalPath(result.url)):\(result.line):\(result.name)").inserted else { continue }
-            scored.append((result, match.score))
+            guard seen.insert(Place(path: path, line: result.line, name: result.name)).inserted else { continue }
+            scored.append((index, match.score, result.name.count))
         }
-        scored.sort { $0.score != $1.score ? $0.score > $1.score : $0.result.name.count < $1.result.name.count }
-        return scored.prefix(limit).map(\.result)
+        // Equal ones in the order they came (servers' first), whatever the sort does with them.
+        scored.sort { ($1.score, $0.length, $0.index) < ($0.score, $1.length, $1.index) }
+        return scored.prefix(limit).map { results[$0.index] }
+    }
+
+    private struct Place: Hashable {
+        let path: String
+        let line: Int
+        let name: String
     }
 
     /// Ready servers that search the workspace.
