@@ -66,6 +66,8 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored let textContentStorage = NSTextContentStorage()
     /// Hidden (folded) line ranges, in characters; see Folding.swift.
     @ObservationIgnored private(set) var folds: [NSRange] = []
+    /// What the folds hide: `folds` joined where they nest (see `FoldRanges`).
+    @ObservationIgnored private(set) var hiddenRanges: [NSRange] = []
     @ObservationIgnored private let foldingDelegate = FoldingDelegate()
     /// Every editor showing this document (weak).
     @ObservationIgnored private let editorTable = NSHashTable<EditorController>.weakObjects()
@@ -611,9 +613,10 @@ final class EditorDocument: Identifiable {
 
     /// Replaces the folds and re-lays out every editor showing the document.
     func setFolds(_ newFolds: [NSRange], relayout: Bool = true) {
-        let affected = (folds + newFolds)
+        let affected = relayout ? folds + newFolds : []
         folds = newFolds.sorted { $0.location < $1.location }
-        foldingDelegate.setHidden(folds)
+        hiddenRanges = FoldRanges.merged(folds)
+        foldingDelegate.setHidden(hiddenRanges)
         guard relayout else { return }
         for editor in editors { editor.foldsDidChange(affected) }
     }

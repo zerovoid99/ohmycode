@@ -85,6 +85,35 @@ struct KeystrokeGuardTests {
         withExtendedLifetime(window) {}
     }
 
+    // MARK: Diagnostics
+
+    /// The overlay asked TextKit where every diagnostic in the file is, on every redraw: 30 ms
+    /// with 1,000 of them, and each one laid out a line somewhere.
+    @Test func onlyDiagnosticsInViewAreMeasured() throws {
+        let (document, controller, window, url) = try open(bytes: 900_000)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let lines = document.lineIndex.lineCount
+        document.setDiagnostics((0..<lines / 4).map { index in
+            Diagnostic(range: LSPRange(start: LSPPosition(line: index * 4, character: 0), end: LSPPosition(line: index * 4, character: 3)),
+                       severity: .warning, message: "warning \(index)", source: "test")
+        } + [Diagnostic(range: LSPRange(start: LSPPosition(line: 0, character: 0), end: LSPPosition(line: lines - 1, character: 0)),
+                        severity: .hint, message: "the whole file", source: "test")])
+        controller.reveal(NSRange(location: document.lineIndex.lineStarts[lines / 2], length: 0))
+        controller.textView.layoutSubtreeIfNeeded()
+        let overlay = try #require(controller.diagnosticsOverlay)
+        let visible = controller.textView.visibleRect
+        let segments = overlay.segments()
+        // The ones on the lines in view (one every four lines), and the long one's lines there.
+        let warnings = segments.filter { $0.color == DiagnosticsOverlayView.color(for: .warning) }
+        let visibleLines = Int(visible.height / controller.lineHeight)
+        #expect(warnings.count >= visibleLines / 4 - 1 && warnings.count <= visibleLines / 4 + 26, "\(warnings.count) of \(visibleLines) lines")
+        #expect(segments.contains { $0.color == DiagnosticsOverlayView.color(for: .hint) })
+        #expect(segments.allSatisfy { $0.rect.intersects(visible.insetBy(dx: 0, dy: -50)) })
+        let draws = clock.measure { for _ in 0..<10 { overlay.display() } }
+        #expect(draws < .milliseconds(400), "10 redraws with \(lines / 4) diagnostics took \(draws)")
+        withExtendedLifetime(window) {}
+    }
+
     // MARK: Semantic tokens
 
     /// Edits move the tokens after them in place: the same result as going through them all.
@@ -149,11 +178,52 @@ struct KeystrokeGuardTests {
         #expect(document.lineIndex == LineIndex(string: document.textStorage.mutableString))
         #expect(controller.extraSelections.count == 599)
 
+        let redraw = clock.measure { for _ in 0..<5 { controller.diagnosticsOverlay?.display() } }
+        #expect(redraw < .milliseconds(500), "5 redraws with 600 cursors took \(redraw)")
         let undone = clock.measure { for _ in 0..<3 { document.undoManager.undo() } }
         #expect(undone < .seconds(2), "undoing them took \(undone)")
         #expect(document.textStorage.string == original)
         #expect(document.lineIndex == LineIndex(string: document.textStorage.mutableString))
         expected = ""
+        withExtendedLifetime(window) {}
+    }
+
+    // MARK: Folds
+
+    @Test func hiddenRangesAreTheFoldsJoined() {
+        let folds = [NSRange(location: 10, length: 50), NSRange(location: 20, length: 10), NSRange(location: 35, length: 30),
+                     NSRange(location: 80, length: 5), NSRange(location: 85, length: 5), NSRange(location: 100, length: 1)]
+        let merged = FoldRanges.merged(folds)
+        #expect(merged == [NSRange(location: 10, length: 55), NSRange(location: 80, length: 10), NSRange(location: 100, length: 1)])
+        for offset in 0..<110 {
+            #expect(FoldRanges.contains(merged, offset) == folds.contains { NSLocationInRange(offset, $0) }, "\(offset)")
+        }
+        #expect(!FoldRanges.contains([], 3))
+        #expect(FoldRanges.firstIndex(in: folds, startingAtOrAfter: 0) == 0 && FoldRanges.firstIndex(in: folds, startingAtOrAfter: 21) == 2
+                && FoldRanges.firstIndex(in: folds, startingAtOrAfter: 85) == 4 && FoldRanges.firstIndex(in: folds, startingAtOrAfter: 101) == 6)
+    }
+
+    /// Each redraw asked TextKit where every fold in the file is (laying a line out at each),
+    /// and every paragraph laid out was looked for in every fold: with everything folded in a
+    /// 0.9 MB file a redraw took 4.6 s.
+    @Test func manyFoldsStayCheapToDraw() async throws {
+        let (document, controller, window, url) = try open(bytes: 900_000)
+        defer { try? FileManager.default.removeItem(at: url) }
+        await document.highlighter?.waitUntilIdle()
+        await document.waitForFoldRegions()
+        document.foldAll()
+        controller.textView.layoutSubtreeIfNeeded()
+        #expect(document.folds.count > 5_000)
+        // What's hidden is what the folds say.
+        for line in stride(from: 0, to: document.lineIndex.lineCount, by: 97) {
+            let offset = document.lineIndex.lineStarts[line]
+            #expect(document.isHidden(offset) == document.folds.contains { NSLocationInRange(offset, $0) }, "line \(line)")
+        }
+        let placeholders = controller.foldPlaceholderRects()
+        #expect(!placeholders.isEmpty && placeholders.count < 200)
+        #expect(placeholders.allSatisfy { $0.rect.intersects(controller.textView.visibleRect) && document.isFolded(line: $0.header) })
+        let redraw = clock.measure { for _ in 0..<5 { controller.diagnosticsOverlay?.display() } }
+        #expect(redraw < .seconds(2), "5 redraws with \(document.folds.count) folds took \(redraw)")
         withExtendedLifetime(window) {}
     }
 }

@@ -80,14 +80,15 @@ extension EditorDocument {
     func fold(atHeader header: Int) -> NSRange? {
         guard header + 1 < lineIndex.lineCount else { return nil }
         let start = lineIndex.lineStarts[header + 1]
-        return folds.first { $0.location == start }
+        let index = FoldRanges.firstIndex(in: folds, startingAtOrAfter: start)
+        return index < folds.count && folds[index].location == start ? folds[index] : nil
     }
 
     func isFolded(line header: Int) -> Bool { fold(atHeader: header) != nil }
 
     /// Whether `offset` is in a hidden line.
     func isHidden(_ offset: Int) -> Bool {
-        folds.contains { NSLocationInRange(offset, $0) }
+        FoldRanges.contains(hiddenRanges, offset)
     }
 
     @discardableResult
@@ -132,6 +133,9 @@ extension EditorDocument {
 
     /// Unfolds whatever hides any part of `range` (the cursor moved there, a search result…).
     func unfold(containing range: NSRange) {
+        // Asked on every cursor move: nothing hidden there is the usual answer, and a quick one.
+        let end = max(NSMaxRange(range), range.location + 1)
+        guard let first = hiddenRanges.first(where: { NSMaxRange($0) > range.location }), first.location < end else { return }
         let remaining = folds.filter { fold in
             !(NSLocationInRange(range.location, fold) || NSIntersectionRange(fold, range).length > 0
               || (range.length > 0 && NSLocationInRange(NSMaxRange(range) - 1, fold)))
@@ -141,10 +145,11 @@ extension EditorDocument {
 
     func foldAll() {
         var all = folds
+        var seen = Set(folds.map { [$0.location, $0.length] })
         for line in 0..<lineIndex.lineCount where isFoldable(line: line) {
             if let lines = foldRange(atLine: line) {
                 let range = characterRange(ofLines: lines)
-                if !all.contains(range) { all.append(range) }
+                if seen.insert([range.location, range.length]).inserted { all.append(range) }
             }
         }
         setFolds(all)
@@ -212,6 +217,44 @@ final class FoldingDelegate: NSObject, NSTextContentStorageDelegate, @unchecked 
         let ranges = lock.withLock { hidden }
         guard !ranges.isEmpty, let range = textElement.elementRange else { return true }
         let offset = textContentManager.offset(from: textContentManager.documentRange.location, to: range.location)
-        return !ranges.contains { NSLocationInRange(offset, $0) }
+        return !FoldRanges.contains(ranges, offset)
+    }
+}
+
+/// What a document's folds hide, as ranges that don't overlap, in order: "is this hidden?" is
+/// asked for every paragraph TextKit lays out and for every fold drawn, and looking through
+/// every fold each time made a file with everything folded take seconds to redraw.
+enum FoldRanges {
+    /// `folds` (sorted by location; they nest) joined where they overlap.
+    static func merged(_ folds: [NSRange]) -> [NSRange] {
+        var result: [NSRange] = []
+        for fold in folds where fold.length > 0 {
+            if let last = result.last, fold.location <= NSMaxRange(last) {
+                result[result.count - 1].length = max(NSMaxRange(last), NSMaxRange(fold)) - last.location
+            } else {
+                result.append(fold)
+            }
+        }
+        return result
+    }
+
+    /// Whether one of `merged` has `offset` (binary search).
+    static func contains(_ merged: [NSRange], _ offset: Int) -> Bool {
+        var low = 0, high = merged.count
+        while low < high {
+            let middle = (low + high) / 2
+            if NSMaxRange(merged[middle]) <= offset { low = middle + 1 } else { high = middle }
+        }
+        return low < merged.count && merged[low].location <= offset
+    }
+
+    /// Index of the first of `folds` (sorted by location) starting at or after `location`.
+    static func firstIndex(in folds: [NSRange], startingAtOrAfter location: Int) -> Int {
+        var low = 0, high = folds.count
+        while low < high {
+            let middle = (low + high) / 2
+            if folds[middle].location < location { low = middle + 1 } else { high = middle }
+        }
+        return low
     }
 }

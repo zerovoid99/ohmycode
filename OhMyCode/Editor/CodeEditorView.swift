@@ -56,6 +56,9 @@ final class EditorController: NSObject {
     /// Strings and comments in the highlighted text (brackets there don't match), for `nonCodeVersion`.
     var nonCodeRanges: [NSRange] = []
     var nonCodeVersion = -1
+    /// The cursor's bracket pair as last looked for, with the cursor and text it was for: the
+    /// overlay asks on every redraw, and a bracket without a match is a long walk.
+    var bracketCache: (location: Int, version: Int, pair: (Int, Int)?)?
     /// The code lens under the mouse (underlined), by its rect.
     var hoveredCodeLens: NSRect?
     /// The link under the mouse while ⌘ is held (underlined).
@@ -339,7 +342,16 @@ final class EditorController: NSObject {
     func foldPlaceholderRects() -> [(rect: NSRect, header: Int)] {
         let visible = textView.visibleRect
         var result: [(NSRect, Int)] = []
-        for fold in document.folds {
+        // Only the folds whose header is laid out: asking TextKit where every fold in the file
+        // is lays out a line at each one, on every redraw (40 ms with 230 folds), and leaves it
+        // with that many more text elements to move on every edit.
+        guard !document.folds.isEmpty, let viewport = visibleCharacterRange() else { return [] }
+        let folds = document.folds
+        // A fold starts right after its header's newline.
+        var index = FoldRanges.firstIndex(in: folds, startingAtOrAfter: viewport.location)
+        while index < folds.count, folds[index].location - 1 <= NSMaxRange(viewport) {
+            let fold = folds[index]
+            index += 1
             let header = document.lineIndex.line(containing: fold.location) - 1
             guard header >= 0, !document.isHidden(document.lineIndex.lineStarts[header]) else { continue }
             let lineEnd = fold.location - 1 // the header's newline

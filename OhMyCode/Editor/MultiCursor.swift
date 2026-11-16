@@ -210,11 +210,14 @@ extension EditorController {
     /// Extra cursors as caret bars and selection rects, in text view coordinates.
     func extraCursorShapes() -> (carets: [NSRect], selections: [NSRect]) {
         var carets: [NSRect] = [], selections: [NSRect] = []
-        for selection in extraSelections {
-            if selection.length > 0, let rect = rect(for: selection) { selections.append(rect) }
-            if let caret = caretRect(at: NSMaxRange(selection) == selection.location ? selection.location : NSMaxRange(selection)) {
-                carets.append(caret)
-            }
+        // Only the ones in the laid-out viewport: a rect anywhere else has TextKit lay out a
+        // line there, on every redraw (200 ms with 1,000 cursors through a file).
+        guard !extraSelections.isEmpty, let viewport = visibleCharacterRange() else { return (carets, selections) }
+        for selection in extraSelections where selection.location <= NSMaxRange(viewport) && NSMaxRange(selection) >= viewport.location {
+            let shown = NSIntersectionRange(selection, viewport)
+            if shown.length > 0, let rect = rect(for: shown) { selections.append(rect) }
+            let end = NSMaxRange(selection)
+            if end >= viewport.location, end <= NSMaxRange(viewport), let caret = caretRect(at: end) { carets.append(caret) }
         }
         return (carets, selections)
     }

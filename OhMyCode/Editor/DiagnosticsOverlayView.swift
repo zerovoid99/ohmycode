@@ -58,12 +58,29 @@ final class DiagnosticsOverlayView: NSView {
         let visible = textView.visibleRect.insetBy(dx: 0, dy: -50)
         let length = document.textStorage.length
         var result: [(CGRect, NSColor)] = []
+        // Only the diagnostics in the laid-out viewport: asking TextKit for the segments of
+        // every diagnostic in the file, on each redraw (each keystroke and cursor move), took
+        // 30 ms with 1,000 diagnostics. Compared by line first, which costs next to nothing.
+        var viewport = NSRange(location: 0, length: length)
+        if let viewportRange = layoutManager.textViewportLayoutController.viewportRange {
+            let documentStart = contentManager.documentRange.location
+            let start = contentManager.offset(from: documentStart, to: viewportRange.location)
+            let end = contentManager.offset(from: documentStart, to: viewportRange.endLocation)
+            viewport = NSRange(location: start, length: max(0, end - start))
+        }
+        let index = document.lineIndex
+        let firstLine = index.line(containing: viewport.location), lastLine = index.line(containing: NSMaxRange(viewport))
+        let lastDocumentLine = index.lineCount - 1
 
         for diagnostic in document.diagnostics {
+            // Lines past the end are drawn at the end of the text.
+            guard min(diagnostic.range.start.line, lastDocumentLine) <= lastLine,
+                  min(diagnostic.range.end.line, lastDocumentLine) >= firstLine else { continue }
             var range = document.range(for: diagnostic.range)
             if range.length == 0 { // point diagnostics: underline the character there
                 range = NSRange(location: min(range.location, max(0, length - 1)), length: length > 0 ? 1 : 0)
             }
+            range = NSIntersectionRange(range, viewport) // one over many lines: the part in view
             guard range.length > 0,
                   let start = contentManager.location(contentManager.documentRange.location, offsetBy: range.location),
                   let end = contentManager.location(start, offsetBy: range.length),

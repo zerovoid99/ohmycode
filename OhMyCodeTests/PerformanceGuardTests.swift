@@ -104,6 +104,30 @@ struct PerformanceGuardTests {
         withExtendedLifetime(window) {}
     }
 
+    /// With everything folded, the "⋯" marks and the gutter's chevrons are found for the lines
+    /// in view (each used to walk all the folds, and the marks to lay out every header).
+    @Test func foldMarksAreFoundOnlyInView() throws {
+        let (document, controller, window) = try openEditor(bytes: 400_000)
+        document.foldAll()
+        #expect(document.folds.count > 2_000)
+        window.contentView?.displayIfNeeded()
+        let clock = ContinuousClock()
+        var marks: [(rect: NSRect, header: Int)] = []
+        let duration = clock.measure { marks = controller.foldPlaceholderRects() }
+        #expect(!marks.isEmpty && marks.count < 100)
+        #expect(marks.allSatisfy { $0.rect.intersects(controller.textView.visibleRect) && document.isFolded(line: $0.header) })
+        #expect(duration < .milliseconds(150), "finding the fold marks took \(duration)")
+        // Hidden lines, nested folds included, as the plain walk over the folds says.
+        for offset in stride(from: 0, to: min(document.textStorage.length, 20_000), by: 37) {
+            #expect(document.isHidden(offset) == document.folds.contains { NSLocationInRange(offset, $0) })
+        }
+        for line in 0..<200 {
+            let start = line + 1 < document.lineIndex.lineCount ? document.lineIndex.lineStarts[line + 1] : -1
+            #expect(document.isFolded(line: line) == document.folds.contains { $0.location == start })
+        }
+        withExtendedLifetime(window) {}
+    }
+
     /// The widest line, measured in one pass on open: tabs to the next stop, wide characters two
     /// columns, a surrogate pair one, the last line without its newline too.
     @Test func longestLineCountsColumns() throws {

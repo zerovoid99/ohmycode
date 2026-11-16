@@ -23,13 +23,30 @@ final class InlayHintMark: NSObject {
 enum InlayHintStyle {
     static var font: NSFont {
         let base = EditorTheme.font
-        return NSFont.monospacedSystemFont(ofSize: max(9, base.pointSize - 1), weight: .regular)
+        if let cachedFont, cachedFont.base === base { return cachedFont.font }
+        let font = NSFont.monospacedSystemFont(ofSize: max(9, base.pointSize - 1), weight: .regular)
+        cachedFont = (base, font)
+        return font
     }
 
-    /// The gap a hint needs: its text and a little room on each side.
+    private static var cachedFont: (base: NSFont, font: NSFont)?
+
+    /// The gap a hint needs: its text and a little room on each side. Remembered per text
+    /// (a file's hints are mostly the same few: ": Int", "name:") until the font changes.
     static func width(of text: String) -> CGFloat {
-        ceil((text as NSString).size(withAttributes: [.font: font]).width) + 6
+        let font = font
+        if font !== widthsFont {
+            widthsFont = font
+            widths.removeAll()
+        }
+        if let width = widths[text] { return width }
+        let width = ceil((text as NSString).size(withAttributes: [.font: font]).width) + 6
+        widths[text] = width
+        return width
     }
+
+    private static var widths: [String: CGFloat] = [:]
+    private static var widthsFont: NSFont?
 }
 
 extension EditorDocument {
@@ -90,11 +107,25 @@ extension EditorDocument {
             }
             marks.append((index, InlayHintMark(text: hint.text, kind: hint.kind, width: InlayHintStyle.width(of: hint.text))))
         }
-        var hasMarks = false
-        textStorage.enumerateAttribute(.omcInlayHint, in: whole) { value, _, stop in
-            if value != nil { hasMarks = true; stop.pointee = true }
+        marks.sort { $0.index < $1.index }
+        // What's shown now. Only the differences are written: the text's attributes changing
+        // makes TextKit lay it out again, and after a pause in typing nearly every hint is
+        // where the last answer (and the edits since) left it.
+        var stale: [NSRange] = []
+        var kept = Set<Int>()
+        var next = 0
+        textStorage.enumerateAttribute(.omcInlayHint, in: whole) { value, range, _ in
+            guard let shown = value as? InlayHintMark else { return }
+            while next < marks.count, marks[next].index < range.location { next += 1 }
+            if range.length == 1, next < marks.count, marks[next].index == range.location,
+               marks[next].mark.text == shown.text, marks[next].mark.kind == shown.kind, marks[next].mark.width == shown.width {
+                kept.insert(range.location)
+            } else {
+                stale.append(range)
+            }
         }
-        guard hasMarks || !marks.isEmpty else { return }
+        let added = marks.filter { !kept.contains($0.index) }
+        guard !stale.isEmpty || !added.isEmpty else { return }
         // The most room hints take on one line: the text view is that much wider without wrap.
         var perLine: [Int: CGFloat] = [:]
         for (index, mark) in marks { perLine[lineIndex.line(containing: index), default: 0] += mark.width }
@@ -104,9 +135,11 @@ extension EditorDocument {
         // Layout attributes only: the document's edit observer ignores them (no LSP change,
         // not dirty, nothing to undo).
         textStorage.beginEditing()
-        textStorage.removeAttribute(.omcInlayHint, range: whole)
-        textStorage.removeAttribute(.kern, range: whole)
-        for (index, mark) in marks.sorted(by: { $0.index < $1.index }) {
+        for range in stale {
+            textStorage.removeAttribute(.omcInlayHint, range: range)
+            textStorage.removeAttribute(.kern, range: range)
+        }
+        for (index, mark) in added {
             textStorage.addAttributes([.omcInlayHint: mark, .kern: mark.width], range: NSRange(location: index, length: 1))
         }
         textStorage.endEditing()

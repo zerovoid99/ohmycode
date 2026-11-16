@@ -17,6 +17,7 @@ extension EditorController {
             return name.hasPrefix("string") || name.hasPrefix("comment") || name.hasPrefix("character")
         }.map(\.range).sorted { $0.location < $1.location }
         nonCodeVersion = document.editVersion
+        bracketCache = nil
     }
 
     /// Whether a character is in a string or a comment (as far as the last highlights tell).
@@ -79,10 +80,15 @@ extension EditorController {
         guard AppSettings.shared.highlightsMatchingBrackets else { return nil }
         let selection = textView.selectedRange()
         guard selection.length == 0 else { return nil }
-        for index in [selection.location - 1, selection.location] {
-            if let match = matchingBracket(at: index) { return (index, match) }
+        if let bracketCache, bracketCache.location == selection.location, bracketCache.version == document.editVersion {
+            return bracketCache.pair
         }
-        return nil
+        var pair: (Int, Int)?
+        for index in [selection.location - 1, selection.location] {
+            if let match = matchingBracket(at: index) { pair = (index, match); break }
+        }
+        bracketCache = (selection.location, document.editVersion, pair)
+        return pair
     }
 
     /// Rects of the cursor's bracket and its match.
