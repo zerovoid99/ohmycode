@@ -64,7 +64,7 @@ final class OccurrenceHighlighter {
         task?.cancel()
         guard !highlights.isEmpty else { return }
         highlights = []
-        editor?.diagnosticsOverlay?.needsDisplay = true
+        editor?.diagnosticsOverlay?.marksDidChange()
     }
 
     private func compute(for selection: NSRange) async {
@@ -175,7 +175,7 @@ final class OccurrenceHighlighter {
         self.version = version
         let changed = found.map(\.0) != ranges || found.map(\.1) != highlights.map(\.kind)
         highlights = found.map { (range: $0.0, kind: $0.1) }
-        if changed { editor.diagnosticsOverlay?.needsDisplay = true }
+        if changed { editor.diagnosticsOverlay?.marksDidChange() }
     }
 
     /// The next (or previous) highlight after the cursor, wrapping around.

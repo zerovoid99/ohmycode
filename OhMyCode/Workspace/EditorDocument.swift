@@ -414,7 +414,11 @@ final class EditorDocument: Identifiable {
 
     func updateCursor(forSelectionAt location: Int) {
         let line = lineIndex.line(containing: location)
-        cursorLine = line + 1
+        if cursorLine != line + 1 {
+            cursorLine = line + 1
+            // Every editor's gutter shows it.
+            for editor in editors { editor.gutterView?.currentLineDidChange() }
+        }
         cursorColumn = location - lineIndex.lineStarts[line] + 1
         updateSymbolAtCursor()
     }
@@ -514,9 +518,8 @@ final class EditorDocument: Identifiable {
         // them move with the edit.
         if blame != nil {
             // In place (no `if let`: a second reference would make this copy every line's blame).
+            // Redrawn with the edited lines (`linesEdited`); the cursor's blame with its marks.
             BlameLine.shift(&blame!, replacing: old, with: count)
-            editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true }
-            redrawGutters()
         }
         scheduleBlame(after: .milliseconds(800))
         // The edited lines, in the new text: they hold any `<<<<<<<` the edit made.
@@ -534,7 +537,12 @@ final class EditorDocument: Identifiable {
             exact = (pending.range.location, NSMaxRange(pending.range))
         }
         pendingReplacement = nil
+        // The lines the replacement itself covers (the storage's range can run on to the next
+        // line's start): what's redrawn, with every line below when lines were added or removed.
+        let exactEnd = exact.oldEnd + delta
+        let replacedLines = lineIndex.line(containing: exact.start)...lineIndex.line(containing: max(exact.start, exactEnd - 1))
         for editor in editors {
+            editor.linesEdited(replacedLines, moved: old.count != count)
             editor.snippetDocumentEdited(start: exact.start, oldEnd: exact.oldEnd, delta: delta)
             editor.syntaxColorsEdited(start: start, oldEnd: oldEnd, newLength: newEnd - start)
         }
@@ -599,8 +607,11 @@ final class EditorDocument: Identifiable {
             guard !Task.isCancelled else { return }
             if diffHunks != hunks { diffHunks = hunks }
             diffTextVersion += 1
+            let old = diffMarkers
             diffMarkers = LineDiff.markers(for: hunks)
-            redrawGutters()
+            // Only the lines whose change bar changed.
+            let changed = Set(old.keys).union(diffMarkers.keys).filter { old[$0] != diffMarkers[$0] }
+            for editor in editors { editor.gutterView?.invalidateLines(changed) }
         }
     }
 

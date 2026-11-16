@@ -123,6 +123,7 @@ final class GutterView: NSView {
         self.document = document
         super.init(frame: .zero)
         clipsToBounds = true
+        currentLine = document.cursorLine - 1
         updateWidth()
     }
 
@@ -131,6 +132,15 @@ final class GutterView: NSView {
 
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { true }
+
+    /// Tests: what was invalidated, and the rects each draw was asked for (nil: not recorded).
+    var invalidations: [NSRect]?
+    var draws: [[NSRect]]?
+
+    override func setNeedsDisplay(_ invalidRect: NSRect) {
+        invalidations?.append(invalidRect.intersection(bounds))
+        super.setNeedsDisplay(invalidRect)
+    }
 
     /// Font size or colors changed.
     func themeDidChange() {
@@ -171,95 +181,165 @@ final class GutterView: NSView {
         menuForLine?(line(at: convert(event.locationInWindow, from: nil))?.0)
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        let signpost = Signposts.begin("Gutter Draw"); defer { Signposts.end("Gutter Draw", signpost) }
-        LaunchTrace.mark("editor.firstDraw")
-        // Since macOS 14 views don't clip to bounds by default and `dirtyRect` may extend past
-        // them: filling it unclipped painted over the whole editor and hid all text.
-        let theme = EditorTheme.current
-        theme.background.setFill()
-        dirtyRect.intersection(bounds).fill()
+    // MARK: Rows and what to redraw
 
-        guard let textView,
-              let layoutManager = textView.textLayoutManager,
-              let contentManager = layoutManager.textContentManager else { return }
+    /// A line's row: its first line fragment (a wrapped line's other rows hold no marks).
+    struct Row: Hashable {
+        let line: Int
+        let y: CGFloat
+        let height: CGFloat
+    }
 
+    /// The rows as last drawn, or as last invalidated to be drawn (where each line is).
+    private var drawnRows: [Row] = []
+    /// The current line (zero-based), as drawn or invalidated to be drawn. A copy: `draw` reading
+    /// the document's (observed) `cursorLine` had AppKit redraw the whole gutter when it changed.
+    private var currentLine = -1
+    /// Tests: draws the numbers with `NSString`, as before `LineNumberGlyphs` (to compare).
+    nonisolated(unsafe) static var drawsNumbersAsStrings = false
+    /// The digits' glyphs in the gutter's font (see `LineNumberGlyphs`).
+    private var numbers: LineNumberGlyphs?
+    /// A row's marks (the change bar's "deleted above" triangle) reach this far past it.
+    static let rowOverhang: CGFloat = 4
+
+    private func rect(of row: Row) -> NSRect {
+        NSRect(x: 0, y: row.y - Self.rowOverhang, width: bounds.width, height: row.height + 2 * Self.rowOverhang)
+    }
+
+    /// The rows of the lines in view, from what the text view's viewport pass already laid out
+    /// (drawing never triggers text layout; the text view reports each layout pass).
+    func visibleRows() -> [Row] {
+        guard let textView, let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager,
+              let viewportRange = layoutManager.textViewportLayoutController.viewportRange else { return [] }
         let visibleRect = textView.visibleRect
         let containerOrigin = textView.textContainerOrigin
         let documentStart = contentManager.documentRange.location
-        let currentLine = document.cursorLine - 1
-        let gutterFont = EditorTheme.gutterFont
-
-        let normalAttributes: [NSAttributedString.Key: Any] = [
-            .font: gutterFont, .foregroundColor: theme.lineNumber,
-        ]
-        let currentAttributes: [NSAttributedString.Key: Any] = [
-            .font: gutterFont, .foregroundColor: theme.currentLineNumber,
-        ]
-
-        // Read only what the text view's viewport pass already laid out, so drawing never
-        // triggers text layout. The text view calls back after each layout pass, keeping
-        // the gutter in sync.
-        let viewport = layoutManager.textViewportLayoutController
-        guard let viewportRange = viewport.viewportRange else { return }
-        let blame = blameWidth > 0 ? BlameColumn(document: document, width: blameWidth) : nil
-        if blame != nil {
-            theme.lineNumber.withAlphaComponent(0.06).setFill()
-            NSRect(x: 0, y: dirtyRect.minY, width: blameWidth, height: dirtyRect.height).fill(using: .sourceOver)
-        }
-        var firstDrawnLine: Int?
-        let breakpoints = document.breakpointMarks?() ?? [:]
-        let testMarks = testWidth > 0 ? document.testMarks?() ?? [:] : [:]
-        let executionLine = document.executionLine
-
+        let index = document.lineIndex
+        let length = document.textStorage.length
+        // Where the text container's top is in this view (both are flipped, neither scaled).
+        let shift = convert(NSPoint(x: 0, y: containerOrigin.y), from: textView).y
+        var rows: [Row] = []
         layoutManager.enumerateTextLayoutFragments(from: viewportRange.location, options: []) { fragment in
             if fragment.rangeInElement.location.compare(viewportRange.endLocation) == .orderedDescending { return false }
             guard fragment.state == .layoutAvailable else { return true }
             let fragmentFrame = fragment.layoutFragmentFrame
             if fragmentFrame.minY + containerOrigin.y > visibleRect.maxY { return false }
             if fragmentFrame.maxY + containerOrigin.y < visibleRect.minY { return true }
-
             let offset = contentManager.offset(from: documentStart, to: fragment.rangeInElement.location)
-            let firstLine = self.document.lineIndex.line(containing: offset)
-
+            let firstLine = index.line(containing: offset)
             // A fragment is one line: wrapped, it has a line fragment per row (marks go on the
             // first); the last one also carries the empty "extra" line after a trailing newline.
             for lineFragment in fragment.textLineFragments {
                 let start = offset + lineFragment.characterRange.location
-                let line = start >= self.document.textStorage.length && lineFragment.characterRange.length == 0
-                    ? self.document.lineIndex.lineCount - 1 : self.document.lineIndex.line(containing: start)
-                guard line >= firstLine, start == self.document.lineIndex.lineStarts[line] else { continue }
+                let line = start >= length && lineFragment.characterRange.length == 0
+                    ? index.lineCount - 1 : index.line(containing: start)
+                guard line >= firstLine, start == index.lineStarts[line] else { continue }
                 let bounds = lineFragment.typographicBounds
-                let yInTextView = fragmentFrame.minY + containerOrigin.y + bounds.minY
-                let y = self.convert(NSPoint(x: 0, y: yInTextView), from: textView).y
+                rows.append(Row(line: line, y: fragmentFrame.minY + bounds.minY + shift, height: bounds.height))
+            }
+            return true
+        }
+        return rows
+    }
 
-                if let blame {
-                    blame.draw(line: line, isFirstShown: firstDrawnLine == nil, y: y, height: bounds.height,
-                               isCurrent: line == currentLine)
-                }
-                if firstDrawnLine == nil { firstDrawnLine = line }
-                if let marker = self.document.diffMarkers[line] {
-                    self.drawDiffMarker(marker, x: self.leadingWidth, y: y, height: bounds.height)
-                }
+    /// After a layout pass or a scroll: redraws the rows that moved, appeared or went (all of
+    /// them after a scroll; none after typing in a line, which the editor reports itself).
+    func layoutDidChange() {
+        let rows = visibleRows()
+        if rows != drawnRows {
+            let old = Set(drawnRows), new = Set(rows)
+            for row in drawnRows where !new.contains(row) { setNeedsDisplay(rect(of: row)) }
+            for row in rows where !old.contains(row) { setNeedsDisplay(rect(of: row)) }
+            drawnRows = rows
+        }
+        // Not the current line: reading the document's (observed) `cursorLine` during the text
+        // view's layout pass had AppKit lay it out again whenever the line changed.
+    }
 
-                if let state = testMarks[line] {
-                    self.drawTestMark(state, y: y, height: bounds.height)
-                }
-                if let mark = breakpoints[line] {
-                    self.drawBreakpoint(mark, y: y, height: bounds.height)
-                }
-                if line == executionLine {
-                    self.drawExecutionArrow(y: y, height: bounds.height)
-                }
+    /// The cursor's line may have changed (the document tells each of its editors): redraws the
+    /// old and new current line's numbers.
+    func currentLineDidChange() {
+        let line = document.cursorLine - 1
+        guard line != currentLine else { return }
+        invalidateLines([currentLine, line])
+        currentLine = line
+    }
+
+    /// Redraws the rows of these lines (those in view).
+    func invalidateLines(_ lines: some Sequence<Int>) {
+        let lines = Set(lines)
+        guard !lines.isEmpty else { return }
+        for row in drawnRows where lines.contains(row.line) { setNeedsDisplay(rect(of: row)) }
+    }
+
+    /// Redraws the rows of `lines`, and with `toEnd` every row after them (lines below moved).
+    func invalidateLines(_ lines: ClosedRange<Int>, toEnd: Bool) {
+        guard let first = drawnRows.first(where: { $0.line >= lines.lowerBound }) else { return }
+        let last = toEnd ? drawnRows.last : drawnRows.last(where: { $0.line <= lines.upperBound })
+        guard let last, last.y >= first.y else { return }
+        let top = rect(of: first).minY, bottom = toEnd ? bounds.maxY : rect(of: last).maxY
+        setNeedsDisplay(NSRect(x: 0, y: top, width: bounds.width, height: bottom - top))
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let signpost = Signposts.begin("Gutter Draw"); defer { Signposts.end("Gutter Draw", signpost) }
+        LaunchTrace.mark("editor.firstDraw")
+        if draws != nil { draws?.append(rectsBeingDrawn()) }
+        // Since macOS 14 views don't clip to bounds by default and `dirtyRect` may extend past
+        // them: filling it unclipped painted over the whole editor and hid all text.
+        let theme = EditorTheme.current
+        theme.background.setFill()
+        dirtyRect.intersection(bounds).fill()
+
+        let rows = visibleRows()
+        // Drawn whole: this is what's shown now (what's invalidated next is measured from it).
+        if dirtyRect.contains(visibleRect) { drawnRows = rows }
+        let gutterFont = EditorTheme.gutterFont
+        let normalAttributes: [NSAttributedString.Key: Any] = [
+            .font: gutterFont, .foregroundColor: theme.lineNumber,
+        ]
+        let currentAttributes: [NSAttributedString.Key: Any] = [
+            .font: gutterFont, .foregroundColor: theme.currentLineNumber,
+        ]
+        let blame = blameWidth > 0 ? BlameColumn(document: document, width: blameWidth) : nil
+        if blame != nil {
+            theme.lineNumber.withAlphaComponent(0.06).setFill()
+            NSRect(x: 0, y: dirtyRect.minY, width: blameWidth, height: dirtyRect.height).fill(using: .sourceOver)
+        }
+        let breakpoints = document.breakpointMarks?() ?? [:]
+        let testMarks = testWidth > 0 ? document.testMarks?() ?? [:] : [:]
+        let executionLine = document.executionLine
+        let numberRight = width - Self.foldColumnWidth - 6
+        if numbers?.font != gutterFont { numbers = LineNumberGlyphs(font: gutterFont) }
+        let context = NSGraphicsContext.current?.cgContext
+
+        // Only the rows in the dirty rect (with what reaches into it from the rows around).
+        for (index, row) in rows.enumerated() where needsToDraw(rect(of: row)) {
+            let line = row.line, y = row.y, height = row.height
+            blame?.draw(line: line, isFirstShown: index == 0, y: y, height: height, isCurrent: line == currentLine)
+            if let marker = document.diffMarkers[line] {
+                drawDiffMarker(marker, x: leadingWidth, y: y, height: height)
+            }
+            if let state = testMarks[line] {
+                drawTestMark(state, y: y, height: height)
+            }
+            if let mark = breakpoints[line] {
+                drawBreakpoint(mark, y: y, height: height)
+            }
+            if line == executionLine {
+                drawExecutionArrow(y: y, height: height)
+            }
+            if let numbers, let context, !Self.drawsNumbersAsStrings {
+                numbers.draw(line + 1, right: numberRight, y: y, height: height,
+                             color: line == currentLine ? theme.currentLineNumber : theme.lineNumber, in: context)
+            } else {
                 let label = String(line + 1) as NSString
                 let attributes = line == currentLine ? currentAttributes : normalAttributes
                 let size = label.size(withAttributes: attributes)
-                label.draw(at: NSPoint(x: self.width - Self.foldColumnWidth - size.width - 6,
-                                       y: y + (bounds.height - size.height) / 2),
-                           withAttributes: attributes)
-                self.drawFoldChevron(line: line, y: y, height: bounds.height, color: theme.lineNumber)
+                label.draw(at: NSPoint(x: numberRight - size.width, y: y + (height - size.height) / 2), withAttributes: attributes)
             }
-            return true
+            drawFoldChevron(line: line, y: y, height: height, color: theme.lineNumber)
         }
     }
 }
@@ -388,7 +468,11 @@ final class EditorContainerView: NSView {
         let showsMinimap = minimapView.map { !$0.isHidden } ?? false
         let minimapWidth = showsMinimap ? MinimapView.width : 0
         let textWidth = max(0, bounds.width - gutterWidth - minimapWidth)
-        gutterView.frame = NSRect(x: 0, y: 0, width: gutterWidth, height: bounds.height)
+        let gutterFrame = NSRect(x: 0, y: 0, width: gutterWidth, height: bounds.height)
+        if gutterView.frame != gutterFrame {
+            gutterView.frame = gutterFrame
+            gutterView.needsDisplay = true
+        }
         scrollView.frame = NSRect(x: gutterWidth, y: 0, width: textWidth, height: bounds.height)
         minimapView?.frame = NSRect(x: gutterWidth + textWidth, y: 0, width: minimapWidth, height: bounds.height)
         if let stickyView {
@@ -397,7 +481,6 @@ final class EditorContainerView: NSView {
             stickyView.frame = NSRect(x: 0, y: bounds.height - height, width: gutterWidth + textWidth, height: height)
             stickyView.isHidden = height == 0
         }
-        gutterView.needsDisplay = true
     }
 }
 
@@ -473,5 +556,76 @@ extension NSView {
             view.removeAllSubviews()
             view.removeFromSuperview()
         }
+    }
+}
+
+extension NSView {
+    /// The rects this draw is asked for (`getRectsBeingDrawn`).
+    func rectsBeingDrawn() -> [NSRect] {
+        var pointer: UnsafePointer<NSRect>?
+        var count = 0
+        getRectsBeingDrawn(&pointer, count: &count)
+        guard let pointer else { return [] }
+        return Array(UnsafeBufferPointer(start: pointer, count: count))
+    }
+}
+
+/// Draws line numbers with the font's digit glyphs, shaped once: `NSString` measured and drew
+/// each number through the typesetter, 27 µs a row (1.4 ms for a screenful, on every scroll).
+struct LineNumberGlyphs {
+    let font: NSFont
+    private let ctFont: CTFont
+    private let glyphs: [CGGlyph]
+    private let advances: [CGFloat]
+    private let ascent: CGFloat
+    /// The height `NSString` gives a line of digits (numbers are centered in their row by it).
+    private let lineHeight: CGFloat
+
+    init?(font: NSFont) {
+        self.font = font
+        var glyphs: [CGGlyph] = [], advances: [CGFloat] = [], runFont: CTFont?
+        // Shaped, not looked up: the font's tabular digits are a feature applied when shaping.
+        for digit in 0...9 {
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: String(digit), attributes: [.font: font]))
+            guard let run = (CTLineGetGlyphRuns(line) as? [CTRun])?.first, CTRunGetGlyphCount(run) == 1 else { return nil }
+            var glyph = CGGlyph(), advance = CGSize.zero
+            CTRunGetGlyphs(run, CFRange(location: 0, length: 1), &glyph)
+            CTRunGetAdvances(run, CFRange(location: 0, length: 1), &advance)
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            guard let value = attributes[kCTFontAttributeName], CFGetTypeID(value as CFTypeRef) == CTFontGetTypeID() else { return nil }
+            let used = value as! CTFont // swiftlint:disable:this force_cast
+            if let runFont, !CFEqual(runFont, used) { return nil }
+            runFont = used
+            glyphs.append(glyph)
+            advances.append(advance.width)
+        }
+        guard let runFont else { return nil }
+        ctFont = runFont
+        self.glyphs = glyphs
+        self.advances = advances
+        // Where `NSString` puts the baseline: the ascent rounded up (as in its line height).
+        ascent = ceil(CTFontGetAscent(runFont))
+        lineHeight = ("0" as NSString).size(withAttributes: [.font: font]).height
+    }
+
+    /// Draws `number` right-aligned at `right`, centered in the row at `y`.
+    func draw(_ number: Int, right: CGFloat, y: CGFloat, height: CGFloat, color: NSColor, in context: CGContext) {
+        var shown: [CGGlyph] = [], positions: [CGPoint] = []
+        var rest = max(0, number), x = right
+        repeat {
+            let digit = rest % 10
+            x -= advances[digit]
+            shown.append(glyphs[digit])
+            positions.append(CGPoint(x: x, y: 0))
+            rest /= 10
+        } while rest > 0
+        context.saveGState()
+        // This view is flipped: the glyphs are drawn upright about their baseline.
+        context.translateBy(x: 0, y: y + (height - lineHeight) / 2 + ascent)
+        context.scaleBy(x: 1, y: -1)
+        context.textMatrix = .identity
+        context.setFillColor(color.cgColor)
+        CTFontDrawGlyphs(ctFont, shown, positions, shown.count, context)
+        context.restoreGState()
     }
 }

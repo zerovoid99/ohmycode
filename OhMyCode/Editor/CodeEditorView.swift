@@ -82,6 +82,9 @@ final class EditorController: NSObject {
     private var textElementTrimTask: Task<Void, Never>?
     /// The text changed: sticky scroll is updated after the next layout pass.
     private var stickyNeedsUpdate = false
+    /// Lines edited since the last layout pass (in the new text), and whether lines after them
+    /// moved: what the gutter and the overlay redraw once the edit is laid out.
+    private var editedLines: (lines: ClosedRange<Int>, moved: Bool)?
 
     init(document: EditorDocument, group: EditorGroup? = nil) {
         self.document = document
@@ -137,7 +140,7 @@ final class EditorController: NSObject {
         overlay.codeLenses = { [weak self] in self?.codeLensMarks() ?? [] }
         overlay.hoveredCodeLens = { [weak self] in self?.hoveredCodeLens }
         overlay.whitespace = { [weak self] in self?.whitespaceMarks() ?? [] }
-        overlay.indentGuides = { [weak self] in self?.indentGuideRects() ?? [] }
+        overlay.indentGuides = { [weak self] rect in self?.indentGuideRects(in: rect) ?? [] }
         overlay.brackets = { [weak self] in self?.bracketRects() ?? [] }
         overlay.linkUnderline = { [weak self] in self?.linkUnderlineRect() }
         overlay.occurrences = { [weak self] in self?.occurrenceRects() ?? [] }
@@ -148,6 +151,7 @@ final class EditorController: NSObject {
         overlay.inlayHints = { [weak self] in self?.inlayHintRects() ?? [] }
         overlay.conflictBands = { [weak self] in self?.conflictBands() ?? [] }
         overlay.conflictActions = { [weak self] in self?.conflictActionRects() ?? [] }
+        overlay.cursorMarks = { [weak self] in self?.cursorMarks() ?? [] }
 
         let gutter = GutterView(textView: textView, document: document)
         self.gutterView = gutter
@@ -209,9 +213,8 @@ final class EditorController: NSObject {
         gutter.onBlameExited = { [weak self] in self?.blameHover.mouseExited() }
         gutter.onBlameClick = { [weak self] line in self?.handleBlameColumnClick(line: line) }
         gutter.menuForLine = { [weak self] line in self?.gutterMenu(line: line) }
-        textView.onLayout = { [weak self, weak gutter, weak overlay] in
-            gutter?.needsDisplay = true
-            overlay?.needsDisplay = true
+        textView.onLayout = { [weak self] in
+            self?.layoutDidChange()
             self?.refreshHighlights(force: false)
             self?.minimapView?.refresh()
             if self?.stickyNeedsUpdate == true {
@@ -609,10 +612,70 @@ final class EditorController: NSObject {
     func refreshAfterEdit() {
         occurrences.update()
         gutterView.updateWidth()
-        gutterView.needsDisplay = true
-        diagnosticsOverlay?.needsDisplay = true
         minimapView?.refresh(textChanged: true)
         updateStickyAfterLayout()
+    }
+
+    /// The document's text changed: `lines` (in the new text) were edited; with `moved`, the
+    /// lines after them moved. They're redrawn once laid out (see `layoutDidChange`).
+    func linesEdited(_ lines: ClosedRange<Int>, moved: Bool) {
+        if let pending = editedLines {
+            editedLines = (min(pending.lines.lowerBound, lines.lowerBound)...max(pending.lines.upperBound, lines.upperBound),
+                           pending.moved || moved)
+        } else {
+            editedLines = (lines, moved)
+        }
+        textView?.needsLayout = true
+    }
+
+    /// After a layout pass or a scroll: the gutter and the overlay redraw only what changed
+    /// (moved, edited, scrolled into view, or the cursor's marks). The edited lines wait for a
+    /// layout pass (a scroll can come between an edit and its layout).
+    private func layoutDidChange(isLayout: Bool = true) {
+        guard let gutterView else { return }
+        gutterView.layoutDidChange()
+        guard isLayout, let edit = editedLines else { diagnosticsOverlay?.layoutDidChange(); return }
+        editedLines = nil
+        let lineCount = document.lineIndex.lineCount
+        let lines = min(edit.lines.lowerBound, lineCount - 1)...min(edit.lines.upperBound, lineCount - 1)
+        // With the blame column, the line after them too: a run of lines from one commit may
+        // start there now.
+        gutterView.invalidateLines(lines.lowerBound...lines.upperBound + (document.showsBlameColumn ? 1 : 0), toEnd: edit.moved)
+        diagnosticsOverlay?.layoutDidChange()
+        invalidateOverlay(lines: lines, toEnd: edit.moved)
+    }
+
+    /// Redraws the overlay across the width for `lines` (and the blank lines around them, whose
+    /// indent guides follow their neighbours), or from them down with `toEnd`.
+    private func invalidateOverlay(lines: ClosedRange<Int>, toEnd: Bool) {
+        guard let overlay = diagnosticsOverlay, let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager else { return }
+        let index = document.lineIndex
+        var first = lines.lowerBound, last = lines.upperBound
+        if AppSettings.shared.showsIndentGuides {
+            let tabSize = max(1, document.displayTabWidth)
+            while first > 0, lines.lowerBound - first < 200, indentColumns(ofLine: first - 1, tabSize: tabSize) == nil { first -= 1 }
+            while last + 1 < index.lineCount, last - lines.upperBound < 200,
+                  indentColumns(ofLine: last + 1, tabSize: tabSize) == nil { last += 1 }
+        }
+        func frame(ofLine line: Int) -> CGRect? {
+            guard let location = contentManager.location(contentManager.documentRange.location, offsetBy: index.lineStarts[line]),
+                  let fragment = layoutManager.textLayoutFragment(for: location), fragment.state == .layoutAvailable else { return nil }
+            return fragment.layoutFragmentFrame.offsetBy(dx: 0, dy: textView.textContainerOrigin.y)
+        }
+        let visible = overlay.visibleRect
+        guard let top = frame(ofLine: first)?.minY ?? frame(ofLine: lines.lowerBound)?.minY else { return }
+        let bottom = toEnd ? visible.maxY : (frame(ofLine: last)?.maxY ?? frame(ofLine: lines.upperBound)?.maxY ?? visible.maxY)
+        let rect = NSRect(x: 0, y: top - 2, width: max(overlay.bounds.width, visible.maxX), height: bottom - top + 4)
+            .intersection(visible)
+        if !rect.isEmpty { overlay.setNeedsDisplay(rect) }
+    }
+
+    /// What the overlay draws for the cursor, as it draws it (see `DiagnosticsOverlayView.Mark`).
+    func cursorMarks() -> Set<DiagnosticsOverlayView.Mark> {
+        DiagnosticsOverlayView.marks(brackets: bracketRects(), activeGuides: indentGuideRects(onlyActive: true).map(\.rect),
+                                     occurrences: occurrenceRects(), annotation: blameAnnotation(),
+                                     extraCursors: extraCursorShapes())
     }
 
     /// Sticky scroll follows the line at the top of the view, which isn't known until the
@@ -764,7 +827,7 @@ final class EditorController: NSObject {
     @objc private func viewportDidScroll() {
         NotificationCenter.default.post(name: Self.didScrollNotification, object: self)
         lightbulb.viewportMoved()
-        gutterView.needsDisplay = true
+        layoutDidChange(isLayout: false)
         minimapView?.refresh()
         stickyView?.update()
         scheduleTextElementTrim()
@@ -850,9 +913,9 @@ extension EditorController: NSTextViewDelegate {
         hover.dismiss()
         hoveredLink = nil
         clearExtraCursors() // an edit that bypassed the cursors (paste, completion): positions are stale
-        // Highlighting is rescheduled by the document's edit observer.
+        // Highlighting is rescheduled by the document's edit observer; the edited lines are
+        // redrawn once laid out (`linesEdited`).
         gutterView.updateWidth()
-        gutterView.needsDisplay = true
         let typed = pendingTypedText
         pendingTypedText = nil
         completion.textDidChange(typed: typed)
@@ -898,7 +961,6 @@ extension EditorController: NSTextViewDelegate {
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {
-        diagnosticsOverlay?.needsDisplay = true // extra cursors are drawn there
         snippetSelectionChanged()
         lightbulb.update()
         signatureHelp.selectionChanged()
@@ -909,7 +971,11 @@ extension EditorController: NSTextViewDelegate {
         if document.editor === self || document.editor == nil {
             document.updateCursor(forSelectionAt: textView.selectedRange().location)
         }
-        gutterView.needsDisplay = true
+        // Only what the cursor shows: the current line's number, and the overlay's marks for
+        // it (brackets, its block's guide, its line's blame, extra cursors). After an edit,
+        // once it's laid out (`layoutDidChange`): its geometry isn't known yet.
+        gutterView.currentLineDidChange()
+        if editedLines == nil { diagnosticsOverlay?.marksDidChange() }
     }
 }
 
@@ -1178,7 +1244,7 @@ extension EditorController: SyntaxHighlighterClient {
         appliedColorsVersion = document.editVersion
         highlightedRange = range
         rememberNonCode(highlights)
-        diagnosticsOverlay?.needsDisplay = true // brackets in strings stop matching
+        diagnosticsOverlay?.marksDidChange() // brackets in strings stop matching
     }
 }
 

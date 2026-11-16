@@ -133,7 +133,7 @@ extension EditorController {
     // MARK: Indent guides
 
     /// Columns of indentation of a line (tabs count as the tab width); nil for blank lines.
-    private func indentColumns(ofLine line: Int, tabSize: Int) -> Int? {
+    func indentColumns(ofLine line: Int, tabSize: Int) -> Int? {
         let text = document.textStorage.mutableString
         let index = document.lineIndex
         var position = index.lineStarts[line]
@@ -191,30 +191,62 @@ extension EditorController {
         return (guide, first...last)
     }
 
-    /// The guides in view: one thin rect per line and level, and whether it's the active block's.
-    func indentGuideRects() -> [(rect: NSRect, isActive: Bool)] {
+    /// The guides in `rect` (the visible rect by default) and the viewport: one thin rect per
+    /// line and level, and whether it's the active block's. `onlyActive`: just those, the same
+    /// rects, its lines looked up one by one (the cursor's marks, on every cursor move).
+    func indentGuideRects(in rect: NSRect? = nil, onlyActive: Bool = false) -> [(rect: NSRect, isActive: Bool)] {
         guard AppSettings.shared.showsIndentGuides, let layoutManager = textView.textLayoutManager,
               let contentManager = layoutManager.textContentManager,
               let viewport = layoutManager.textViewportLayoutController.viewportRange else { return [] }
         let tabSize = max(1, document.displayTabWidth)
+        let active = activeIndentGuide(tabSize: tabSize)
+        if onlyActive, active == nil { return [] }
         let space = (" " as NSString).size(withAttributes: [.font: EditorTheme.font]).width
         let origin = textView.textContainerOrigin
         let left = origin.x + (textView.textContainer?.lineFragmentPadding ?? 0)
-        let active = activeIndentGuide(tabSize: tabSize)
+        let area = rect ?? textView.visibleRect
         let documentStart = contentManager.documentRange.location
+        let index = document.lineIndex
         var result: [(NSRect, Bool)] = []
-        layoutManager.enumerateTextLayoutFragments(from: viewport.location, options: [.ensuresLayout]) { fragment in
-            let offset = contentManager.offset(from: documentStart, to: fragment.rangeInElement.location)
-            guard offset <= document.textStorage.length else { return false }
-            let line = document.lineIndex.line(containing: offset)
+        // A line's guides (levels in `levels`), from its paragraph's frame.
+        func add(line: Int, fragment: NSTextLayoutFragment, levels: Range<Int>) {
             let frame = fragment.layoutFragmentFrame.offsetBy(dx: origin.x, dy: origin.y)
-            let level = indentLevel(ofLine: line, tabSize: tabSize)
-            for guide in 0..<level {
+            guard frame.maxY >= area.minY, frame.minY <= area.maxY else { return }
+            for guide in levels {
                 let x = left + CGFloat(guide * tabSize) * space
                 let isActive = active.map { $0.level == guide && $0.lines.contains(line) } ?? false
                 result.append((NSRect(x: floor(x), y: frame.minY, width: 1, height: frame.height), isActive))
             }
-            return fragment.rangeInElement.endLocation.compare(viewport.endLocation) == .orderedAscending
+        }
+        let viewStart = contentManager.offset(from: documentStart, to: viewport.location)
+        let viewEnd = contentManager.offset(from: documentStart, to: viewport.endLocation)
+        if onlyActive, let active {
+            // The block's lines in the viewport, each its own paragraph (a hidden line isn't).
+            let first = max(active.lines.lowerBound, index.line(containing: viewStart))
+            let last = min(active.lines.upperBound, index.line(containing: max(viewStart, viewEnd - 1)))
+            guard first <= last else { return [] }
+            for line in first...last {
+                let start = index.lineStarts[line]
+                guard let location = contentManager.location(documentStart, offsetBy: start),
+                      let fragment = layoutManager.textLayoutFragment(for: location),
+                      contentManager.offset(from: documentStart, to: fragment.rangeInElement.location) == start else { continue }
+                let level = indentLevel(ofLine: line, tabSize: tabSize)
+                add(line: line, fragment: fragment, levels: active.level..<max(active.level, min(level, active.level + 1)))
+            }
+            return result
+        }
+        // The viewport's paragraphs down to the bottom of `area`; those above it are skipped
+        // before their indentation is read.
+        layoutManager.enumerateTextLayoutFragments(from: viewport.location, options: [.ensuresLayout]) { fragment in
+            let frame = fragment.layoutFragmentFrame
+            if frame.minY + origin.y > area.maxY { return false }
+            let more = fragment.rangeInElement.endLocation.compare(viewport.endLocation) == .orderedAscending
+            if frame.maxY + origin.y < area.minY { return more }
+            let offset = contentManager.offset(from: documentStart, to: fragment.rangeInElement.location)
+            guard offset <= document.textStorage.length else { return false }
+            let line = index.line(containing: offset)
+            add(line: line, fragment: fragment, levels: 0..<indentLevel(ofLine: line, tabSize: tabSize))
+            return more
         }
         return result
     }

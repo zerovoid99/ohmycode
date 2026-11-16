@@ -15,8 +15,8 @@ final class DiagnosticsOverlayView: NSView {
     var hoveredCodeLens: (() -> NSRect?)?
     /// Spaces and tabs shown as · and →.
     var whitespace: (() -> [(rect: NSRect, isTab: Bool)])?
-    /// Indent guides (one rect per line and level), brighter for the cursor's block.
-    var indentGuides: (() -> [(rect: NSRect, isActive: Bool)])?
+    /// Indent guides in a rect (one rect per line and level), brighter for the cursor's block.
+    var indentGuides: ((NSRect) -> [(rect: NSRect, isActive: Bool)])?
     /// The bracket beside the cursor and its match: outlined.
     var brackets: (() -> [NSRect])?
     /// The link under the mouse while ⌘ is held: underlined.
@@ -42,6 +42,40 @@ final class DiagnosticsOverlayView: NSView {
         self.document = document
         super.init(frame: textView.bounds)
         autoresizingMask = [.width, .height]
+        // Redrawn only where invalidated. The text view's height (so this view's) changes on
+        // most layout passes in a big file, as TextKit refines its estimate: AppKit redrew all of
+        // it each time. What's drawn stays where it is when the view grows or shrinks.
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        layerContentsPlacement = .topLeft
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let widthChanged = newSize.width != frame.width
+        super.setFrameSize(newSize)
+        if widthChanged { needsDisplay = true } // the execution line's band spans the width
+    }
+
+    // Drawn again whole for another screen's scale or appearance (the redraw policy above
+    // leaves that to the view).
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsDisplay = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // Out of a window (the editor closed): nothing is shown, and TextKit's paragraphs
+        // aren't kept. Back in one, all of it is drawn again.
+        drawnFragments = []
+        drawnFrames = [:]
+        drawnVisibleRect = .zero
+        drawnMarks = []
+        if window != nil { needsDisplay = true }
     }
 
     @available(*, unavailable)
@@ -49,6 +83,110 @@ final class DiagnosticsOverlayView: NSView {
 
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Tests: what was invalidated, and the rects each draw was asked for (nil: not recorded).
+    var invalidations: [NSRect]?
+    var draws: [[NSRect]]?
+
+    override func setNeedsDisplay(_ invalidRect: NSRect) {
+        invalidations?.append(invalidRect.intersection(bounds))
+        super.setNeedsDisplay(invalidRect)
+    }
+
+    // MARK: What to redraw
+
+    /// Something drawn for the cursor (its brackets, its block's indent guide, the symbol's
+    /// other places, its line's blame, extra cursors): redrawn where it was and where it goes.
+    struct Mark: Hashable {
+        let x, y, width, height: CGFloat
+        let detail: String
+
+        init(_ rect: NSRect, _ detail: String, outset: CGFloat = 3) {
+            let rect = rect.insetBy(dx: -outset, dy: -outset)
+            (x, y, width, height, self.detail) = (rect.minX, rect.minY, rect.width, rect.height, detail)
+        }
+
+        var rect: NSRect { NSRect(x: x, y: y, width: width, height: height) }
+    }
+
+    static func marks(brackets: [NSRect], activeGuides: [NSRect], occurrences: [(rect: NSRect, isWrite: Bool)],
+                      annotation: BlameAnnotation?, extraCursors: (carets: [NSRect], selections: [NSRect])?) -> Set<Mark> {
+        var marks = Set<Mark>()
+        for rect in brackets { marks.insert(Mark(rect, "bracket")) }
+        for rect in activeGuides { marks.insert(Mark(rect, "guide", outset: 1)) }
+        for (rect, isWrite) in occurrences { marks.insert(Mark(rect, isWrite ? "write" : "read")) }
+        if let annotation {
+            // Italic text leans past its width.
+            marks.insert(Mark(annotation.rect, "blame \(annotation.isHovered) \(annotation.text)", outset: 6))
+        }
+        for rect in extraCursors?.carets ?? [] { marks.insert(Mark(rect, "caret")) }
+        for rect in extraCursors?.selections ?? [] { marks.insert(Mark(rect, "selection", outset: 1)) }
+        return marks
+    }
+
+    /// The cursor's marks now (the editor's: the same rects as drawn).
+    var cursorMarks: (() -> Set<Mark>)?
+    /// The cursor's marks as last drawn or invalidated to be drawn.
+    private var drawnMarks = Set<Mark>()
+
+    /// The cursor moved, or something it shows did: redraws the marks that changed.
+    func marksDidChange() {
+        guard let marks = cursorMarks?(), marks != drawnMarks else { return }
+        for mark in marks.symmetricDifference(drawnMarks) { setNeedsDisplay(mark.rect) }
+        drawnMarks = marks
+    }
+
+    /// The laid-out paragraphs as last drawn: kept (not just their identities) so that a
+    /// new one can't reuse a dropped one's address.
+    private var drawnFragments: [NSTextLayoutFragment] = []
+    private var drawnFrames: [ObjectIdentifier: CGRect] = [:]
+    private var drawnVisibleRect = NSRect.zero
+
+    /// After a layout pass or a scroll: redraws what came into view, and the paragraphs that
+    /// moved, appeared (edited ones are new) or went. Text that stayed put isn't redrawn.
+    func layoutDidChange() {
+        guard let textView, let layoutManager = textView.textLayoutManager,
+              let viewport = layoutManager.textViewportLayoutController.viewportRange else { return }
+        let visible = visibleRect
+        if visible != drawnVisibleRect {
+            for piece in Self.subtract(drawnVisibleRect, from: visible) { setNeedsDisplay(piece) }
+            drawnVisibleRect = visible
+        }
+        let origin = textView.textContainerOrigin
+        var fragments: [NSTextLayoutFragment] = []
+        var frames: [ObjectIdentifier: CGRect] = [:]
+        layoutManager.enumerateTextLayoutFragments(from: viewport.location, options: []) { fragment in
+            if fragment.rangeInElement.location.compare(viewport.endLocation) != .orderedAscending { return false }
+            guard fragment.state == .layoutAvailable else { return true }
+            fragments.append(fragment)
+            frames[ObjectIdentifier(fragment)] = fragment.layoutFragmentFrame.offsetBy(dx: origin.x, dy: origin.y)
+            return true
+        }
+        if frames != drawnFrames {
+            let width = max(bounds.width, visible.maxX)
+            func invalidate(_ frame: CGRect) {
+                let rect = NSRect(x: 0, y: frame.minY - 2, width: width, height: frame.height + 4).intersection(visible)
+                if !rect.isEmpty { setNeedsDisplay(rect) }
+            }
+            for (id, frame) in frames where drawnFrames[id] != frame { invalidate(frame) }
+            for (id, frame) in drawnFrames where frames[id] != frame { invalidate(frame) }
+        }
+        drawnFragments = fragments
+        drawnFrames = frames
+        marksDidChange()
+    }
+
+    /// The parts of `rect` outside `other` (up to four bands).
+    static func subtract(_ other: NSRect, from rect: NSRect) -> [NSRect] {
+        let overlap = rect.intersection(other)
+        guard !overlap.isEmpty else { return rect.isEmpty ? [] : [rect] }
+        var pieces: [NSRect] = []
+        if overlap.minY > rect.minY { pieces.append(NSRect(x: rect.minX, y: rect.minY, width: rect.width, height: overlap.minY - rect.minY)) }
+        if overlap.maxY < rect.maxY { pieces.append(NSRect(x: rect.minX, y: overlap.maxY, width: rect.width, height: rect.maxY - overlap.maxY)) }
+        if overlap.minX > rect.minX { pieces.append(NSRect(x: rect.minX, y: overlap.minY, width: overlap.minX - rect.minX, height: overlap.height)) }
+        if overlap.maxX < rect.maxX { pieces.append(NSRect(x: overlap.maxX, y: overlap.minY, width: rect.maxX - overlap.maxX, height: overlap.height)) }
+        return pieces
+    }
 
     /// Rects (in this view) of the text each diagnostic covers, with its color. Visible for tests.
     func segments() -> [(rect: CGRect, color: NSColor)] {
@@ -97,7 +235,10 @@ final class DiagnosticsOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let signpost = Signposts.begin("Overlay Draw"); defer { Signposts.end("Overlay Draw", signpost) }
+        if draws != nil { draws?.append(rectsBeingDrawn()) }
         let theme = EditorTheme.current
+        let isWhole = dirtyRect.contains(visibleRect)
+        if isWhole { drawnVisibleRect = visibleRect }
         if let rect = executionLine?(), rect.intersects(dirtyRect) {
             NSColor.systemYellow.withAlphaComponent(0.22).setFill()
             rect.fill(using: .sourceOver)
@@ -125,11 +266,23 @@ final class DiagnosticsOverlayView: NSView {
                 }
             }
         }
-        for (rect, isActive) in indentGuides?() ?? [] where rect.intersects(dirtyRect) {
+        let guides = indentGuides?(dirtyRect) ?? []
+        for (rect, isActive) in guides where rect.intersects(dirtyRect) {
             theme.lineNumber.withAlphaComponent(isActive ? 0.55 : 0.18).setFill()
             rect.fill(using: .sourceOver)
         }
-        for rect in brackets?() ?? [] where rect.intersects(dirtyRect.insetBy(dx: -2, dy: -2)) {
+        let brackets = brackets?() ?? []
+        let occurrences = occurrences?() ?? []
+        let annotation = blameAnnotation?()
+        let extraCursors = extraCursors?()
+        // Drawn whole: these are the cursor's marks shown now.
+        if isWhole {
+            let visible = visibleRect
+            let activeGuides = guides.filter { $0.isActive && $0.rect.maxY >= visible.minY && $0.rect.minY <= visible.maxY }
+            drawnMarks = Self.marks(brackets: brackets, activeGuides: activeGuides.map(\.rect), occurrences: occurrences,
+                                    annotation: annotation, extraCursors: extraCursors)
+        }
+        for rect in brackets where rect.intersects(dirtyRect.insetBy(dx: -2, dy: -2)) {
             let box = NSBezierPath(roundedRect: rect.insetBy(dx: -0.5, dy: 0.5), xRadius: 2, yRadius: 2)
             theme.selection.withAlphaComponent(0.3).setFill()
             box.fill()
@@ -137,7 +290,7 @@ final class DiagnosticsOverlayView: NSView {
             box.lineWidth = 1
             box.stroke()
         }
-        for (rect, isWrite) in occurrences?() ?? [] where rect.intersects(dirtyRect) {
+        for (rect, isWrite) in occurrences where rect.intersects(dirtyRect) {
             let box = NSBezierPath(roundedRect: rect.insetBy(dx: -0.5, dy: 0), xRadius: 2, yRadius: 2)
             theme.selection.withAlphaComponent(isWrite ? 0.5 : 0.35).setFill()
             box.fill()
@@ -194,7 +347,7 @@ final class DiagnosticsOverlayView: NSView {
             let size = text.size(withAttributes: attributes)
             text.draw(at: NSPoint(x: mark.rect.minX, y: mark.rect.midY - size.height / 2), withAttributes: attributes)
         }
-        if let annotation = blameAnnotation?() {
+        if let annotation {
             // Brighter and underlined while the mouse is on it: it can be clicked.
             let isHovered = annotation.isHovered
             var attributes: [NSAttributedString.Key: Any] = [
@@ -204,7 +357,7 @@ final class DiagnosticsOverlayView: NSView {
             if isHovered { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             (annotation.text as NSString).draw(at: annotation.rect.origin, withAttributes: attributes)
         }
-        if let (carets, selections) = extraCursors?() {
+        if let (carets, selections) = extraCursors {
             theme.selection.withAlphaComponent(0.55).setFill()
             for rect in selections where rect.intersects(dirtyRect) { rect.fill(using: .sourceOver) }
             theme.cursor.setFill()
