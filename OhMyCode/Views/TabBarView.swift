@@ -13,7 +13,9 @@ struct TabBarView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
                 ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
-                    let document = workspace.document(id: tab.id)
+                    // Not the document itself: SwiftUI keeps a closed tab's closures (its menu)
+                    // for a while, and they would keep the closed document.
+                    let fileURL = workspace.document(id: tab.id)?.url
                     TabItemView(
                         title: tab.info.title, help: tab.info.help, isDirty: tab.info.isDirty, isDiff: tab.info.isDiff,
                         isActive: tab.id == group.activeDocumentID,
@@ -21,7 +23,7 @@ struct TabBarView: View {
                         onSelect: {
                             workspace.activeGroupID = group.id
                             workspace.activeDocumentID = tab.id
-                            document?.editor(inGroup: group)?.focus()
+                            workspace.document(id: tab.id)?.editor(inGroup: group)?.focus()
                         },
                         onClose: { workspace.closeTab(tab.id, in: group) }
                     )
@@ -40,28 +42,28 @@ struct TabBarView: View {
                         perform: { drop($0, at: $1) }))
                     .contextMenu {
                         Button("Close") { workspace.closeTab(tab.id, in: group) }
-                        if let document {
-                            Button("Open Changes") { workspace.openChanges(for: document.url) }
+                        if let fileURL {
+                            Button("Open Changes") { workspace.openChanges(for: fileURL) }
                             Button("Show File History") {
                                 workspace.activeGroupID = group.id
-                                workspace.activeDocumentID = document.id
+                                workspace.activeDocumentID = tab.id
                                 workspace.showFileHistory()
                             }
                             Divider()
                             Button("Split Right") {
                                 workspace.activeGroupID = group.id
-                                workspace.activeDocumentID = document.id
+                                workspace.activeDocumentID = tab.id
                                 workspace.splitEditor()
                             }
                             .disabled(workspace.groups.count >= Workspace.maxGroups)
                             Button("Move to Next Group") {
                                 workspace.activeGroupID = group.id
-                                workspace.activeDocumentID = document.id
+                                workspace.activeDocumentID = tab.id
                                 workspace.moveActiveEditor(by: 1)
                             }
                             Button("Move to Previous Group") {
                                 workspace.activeGroupID = group.id
-                                workspace.activeDocumentID = document.id
+                                workspace.activeDocumentID = tab.id
                                 workspace.moveActiveEditor(by: -1)
                             }
                         }
