@@ -73,6 +73,85 @@ struct OccurrenceHighlightTests {
         withExtendedLifetime(window) {}
     }
 
+    /// A big file: the part in view first, then the whole file off the main thread.
+    @Test func bigFilesAreScannedInViewThenInTheBackground() async throws {
+        let filler = String(repeating: "let value = other + 1\n", count: 400)
+        let (document, controller, window) = try makeEditor("alpha beta\n" + filler + "alpha beta\n" + filler + "alpha\n")
+        let highlighter = controller.occurrences
+        highlighter.backgroundThreshold = 0
+        var shownBeforeScan: [String]?
+        highlighter.willApplyBackgroundScan = { shownBeforeScan = self.texts(document, highlighter.ranges) }
+        controller.textView.setSelectedRange(NSRange(location: 2, length: 0)) // in "alpha"
+        await highlighter.waitForUpdate()
+        #expect(shownBeforeScan?.isEmpty == true, "only one alpha in view: not highlighted until the whole file is scanned")
+        #expect(texts(document, highlighter.ranges) == ["alpha", "alpha", "alpha"])
+        #expect(highlighter.ranges.last.map(NSMaxRange) == document.textStorage.length - 1)
+
+        // A selection works the same way.
+        controller.textView.setSelectedRange(NSRange(location: 6, length: 4)) // "beta"
+        await highlighter.waitForUpdate()
+        #expect(texts(document, highlighter.ranges) == ["beta", "beta"])
+        withExtendedLifetime(window) {}
+    }
+
+    /// The text changes (or the cursor moves on) while the whole file is scanned: the result is
+    /// dropped, never shown at the old places.
+    @Test func aStaleBackgroundScanIsDropped() async throws {
+        let filler = String(repeating: "let value = other + 1\n", count: 400)
+        let (document, controller, window) = try makeEditor("alpha beta\n" + filler + "alpha beta\n")
+        let highlighter = controller.occurrences
+        highlighter.backgroundThreshold = 0
+        let textView = controller.textView!
+
+        // Edited after the scan read the text: everything after the edit moved by 3.
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        var edited = false
+        highlighter.willApplyBackgroundScan = {
+            guard !edited else { return }
+            edited = true
+            document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "// ")
+            controller.textDidChangeProgrammatically() // as an edit made elsewhere is told
+            textView.setSelectedRange(NSRange(location: 5, length: 0)) // still in "alpha"
+        }
+        await highlighter.waitForUpdate()
+        #expect(edited)
+        #expect(texts(document, highlighter.ranges).allSatisfy { $0 == "alpha" })
+        // The newer lookup finds them where they are now.
+        #expect(try await eventually { self.texts(document, highlighter.ranges) == ["alpha", "alpha"] })
+        #expect(highlighter.ranges.first?.location == 3)
+
+        // The cursor moved to another word meanwhile, with nothing edited: the newer word wins.
+        var moved = false
+        highlighter.willApplyBackgroundScan = {
+            guard !moved else { return }
+            moved = true
+            textView.setSelectedRange(NSRange(location: 10, length: 0)) // in "beta"
+        }
+        textView.setSelectedRange(NSRange(location: 19, length: 0)) // in the first "value"
+        await highlighter.waitForUpdate()
+        #expect(moved)
+        #expect(try await eventually { self.texts(document, highlighter.ranges) == ["beta", "beta"] })
+        withExtendedLifetime(window) {}
+    }
+
+    /// A one-letter name found more than `maxMatches` times: those in view are still highlighted
+    /// when they come after the first `maxMatches`.
+    @Test func capturedMatchesIncludeThoseInView() async throws {
+        let (document, controller, window) = try makeEditor(String(repeating: "x = x + 1\n", count: 1_500))
+        let highlighter = controller.occurrences
+        highlighter.backgroundThreshold = 0
+        let textView = controller.textView!
+        let last = document.textStorage.length - 10
+        textView.setSelectedRange(NSRange(location: last, length: 0))
+        textView.scrollRangeToVisible(NSRange(location: last, length: 0))
+        textView.layoutSubtreeIfNeeded()
+        await highlighter.waitForUpdate()
+        #expect(highlighter.ranges.count > OccurrenceHighlighter.maxMatches)
+        #expect(highlighter.ranges.contains(NSRange(location: last, length: 1)))
+        #expect(!controller.occurrenceRects().isEmpty)
+        withExtendedLifetime(window) {}
+    }
+
     @Test func selectedTextAndTheSetting() async throws {
         let (document, controller, window) = try makeEditor("a.b(1)\nx = a.b(2)\nab\n")
         let highlighter = controller.occurrences

@@ -277,7 +277,7 @@ final class EditorDocument: Identifiable {
     }
 
     /// Whether a UTF-16 unit is part of an identifier (letters, digits, `_`; nil: past the text).
-    static func isWordUnit(_ unit: unichar?) -> Bool {
+    nonisolated static func isWordUnit(_ unit: unichar?) -> Bool {
         guard let unit else { return false }
         if unit < 0x80 {
             return (unit >= 0x61 && unit <= 0x7A) || (unit >= 0x41 && unit <= 0x5A) || (unit >= 0x30 && unit <= 0x39) || unit == 0x5F

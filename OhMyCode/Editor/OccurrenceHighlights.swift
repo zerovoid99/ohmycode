@@ -25,14 +25,22 @@ final class OccurrenceHighlighter {
 
     var ranges: [NSRange] { highlights.map(\.range) }
 
+    /// Files longer than this (UTF-16 units) are searched in view first, then in full off the
+    /// main thread: a whole-file scan of 20 MB held it for 19–39 ms.
+    var backgroundThreshold = 256 * 1024
+    /// Units copied per turn of the run loop when copying the text for a background scan
+    /// (about 0.4 ms each).
+    static let snapshotSlice = 1 << 20
+    /// Tests: called after a background scan, before its result is checked and shown.
+    var willApplyBackgroundScan: (() -> Void)?
+
     /// The cursor or selection moved (or the text changed): highlight again after a pause.
     func update() {
-        task?.cancel()
-        guard let editor, AppSettings.shared.highlightsOccurrences else { clear(); return }
+        guard let editor, AppSettings.shared.highlightsOccurrences else { task?.cancel(); clear(); return }
         let document = editor.document
         let selection = editor.textView.selectedRange()
         // Still on a highlighted symbol (or one selected by Go to Next Highlight), nothing
-        // edited: the highlights stay.
+        // edited: the highlights stay (and a scan of the rest of the file goes on).
         if version == document.editVersion, highlights.contains(where: { highlight in
             selection.length == 0
                 ? NSLocationInRange(selection.location, highlight.range) || NSMaxRange(highlight.range) == selection.location
@@ -40,6 +48,7 @@ final class OccurrenceHighlighter {
         }) {
             return
         }
+        task?.cancel()
         if version != document.editVersion { clear() }
         task = Task { [weak self] in
             try? await Task.sleep(for: Self.delay)
@@ -70,8 +79,10 @@ final class OccurrenceHighlighter {
             let selected = text.substring(with: selection)
             guard !selected.contains(where: \.isNewline), !selected.allSatisfy(\.isWhitespace) else { clear(); return }
             let wholeWord = document.wordRange(at: selection.location) == selection
-            found = document.ranges(of: selected, wholeWord: wholeWord, limit: Self.maxMatches).map { ($0, .text) }
-            if found.count < 2 { found = [] }
+            guard let ranges = await find(selected, wholeWord: wholeWord, version: version, isCurrent: {
+                editor.textView.selectedRange() == selection
+            }) else { return }
+            found = ranges.map { ($0, .text) }
         } else if let word = document.wordRange(at: selection.location) {
             if let client = document.languageClient, client.state == .ready, client.supports(.documentHighlight) {
                 let position = document.lspPosition(at: selection.location)
@@ -85,13 +96,82 @@ final class OccurrenceHighlighter {
                 let name = text.substring(with: word)
                 // Numbers aren't symbols.
                 if let first = name.unicodeScalars.first, !CharacterSet.decimalDigits.contains(first) {
-                    found = document.ranges(of: name, wholeWord: true, limit: Self.maxMatches).map { ($0, .text) }
+                    // Still on the same word (anywhere in it): a scan that finishes after the
+                    // cursor moved within the word is still right.
+                    guard let ranges = await find(name, wholeWord: true, version: version, isCurrent: {
+                        let current = editor.textView.selectedRange()
+                        return current.length == 0 && document.wordRange(at: current.location) == word
+                    }) else { return }
+                    found = ranges.map { ($0, .text) }
                 }
-                if found.count < 2 { found = [] }
             }
         }
         guard !Task.isCancelled else { return }
-        found.sort { $0.0.location < $1.0.location }
+        show(found, version: version)
+    }
+
+    /// Where `needle` appears (as a whole word if asked); nothing if only once. A small file is
+    /// scanned at once. A big one is scanned in view first (shown right away), then whole, on a
+    /// copy of the text, off the main thread. nil: the text changed, the task was cancelled, or
+    /// `isCurrent` says the cursor moved on before the whole-file scan finished.
+    private func find(_ needle: String, wholeWord: Bool, version: Int, isCurrent: () -> Bool) async -> [NSRange]? {
+        guard let editor else { return nil }
+        let document = editor.document
+        let text = document.textStorage.mutableString
+        let limit = Self.maxMatches
+        guard text.length > backgroundThreshold else {
+            let found = text.occurrences(of: needle as NSString, wholeWord: wholeWord, limit: limit)
+            return found.count < 2 ? [] : found
+        }
+        // In view, and a screenful around it: cheap, and what's seen.
+        var visible: [NSRange] = []
+        if let range = editor.visibleCharacterRange() {
+            let margin = max(range.length, 4096)
+            let start = max(0, range.location - margin), end = min(text.length, NSMaxRange(range) + margin)
+            visible = text.occurrences(of: needle as NSString, wholeWord: wholeWord, limit: limit,
+                                       in: NSRange(location: start, length: end - start))
+            show(visible.count < 2 ? [] : visible.map { ($0, .text) }, version: version)
+        }
+        // The copy lives only as long as the scan: kept until the next edit it would cost twice
+        // the file's size (40 MB for 20 MB) for every editor that once scanned. Copied in slices,
+        // it never holds the main thread long.
+        guard let snapshot = await snapshot(of: document, version: version) else { return nil }
+        let scan = Task.detached(priority: .userInitiated) {
+            snapshot.string.occurrences(of: needle as NSString, wholeWord: wholeWord, limit: limit)
+        }
+        let all = await withTaskCancellationHandler { await scan.value } onCancel: { scan.cancel() }
+        willApplyBackgroundScan?()
+        guard !Task.isCancelled, document.editVersion == version, isCurrent() else { return nil }
+        // The file's first `maxMatches`, and those in view even when they come after them.
+        let found = all + visible.filter { $0.location > (all.last?.location ?? -1) }
+        return found.count < 2 ? [] : found
+    }
+
+    /// The text as of `version`, copied a slice at a time with the run loop turning in between
+    /// (a 20 MB file in one go held the main thread for 7.5 ms). nil if it changed meanwhile.
+    private func snapshot(of document: EditorDocument, version: Int) async -> TextSnapshot? {
+        let text = document.textStorage.mutableString
+        let length = text.length
+        let buffer = UnsafeMutablePointer<unichar>.allocate(capacity: max(length, 1))
+        var position = 0
+        while position < length {
+            if position > 0 {
+                try? await Task.sleep(for: .milliseconds(1))
+                guard !Task.isCancelled, document.editVersion == version, text.length == length else {
+                    buffer.deallocate()
+                    return nil
+                }
+            }
+            let count = min(Self.snapshotSlice, length - position)
+            text.getCharacters(buffer + position, range: NSRange(location: position, length: count))
+            position += count
+        }
+        return TextSnapshot(string: NSString(charactersNoCopy: buffer, length: length, freeWhenDone: true))
+    }
+
+    private func show(_ found: [(NSRange, DocumentHighlight.Kind)], version: Int) {
+        guard let editor else { return }
+        let found = found.sorted { $0.0.location < $1.0.location }
         self.version = version
         let changed = found.map(\.0) != ranges || found.map(\.1) != highlights.map(\.kind)
         highlights = found.map { (range: $0.0, kind: $0.1) }
@@ -112,17 +192,9 @@ final class OccurrenceHighlighter {
 extension EditorDocument {
     /// Where `string` appears (as a whole word if asked), up to `limit` places.
     func ranges(of string: String, wholeWord: Bool, limit: Int) -> [NSRange] {
-        var result: [NSRange] = []
-        guard limit > 0 else { return result }
         // In chunks, the units around each place checked as they're read: `range(of:)` from
         // each place on, and two `wordRange(at:)`, took 1.9 s for a one-letter name in 20 MB.
-        textStorage.mutableString.forEachOccurrence(of: string as NSString) { found, before, after in
-            if !wholeWord || (!Self.isWordUnit(before) && !Self.isWordUnit(after)) {
-                result.append(found)
-            }
-            return result.count < limit
-        }
-        return result
+        textStorage.mutableString.occurrences(of: string as NSString, wholeWord: wholeWord, limit: limit)
     }
 }
 

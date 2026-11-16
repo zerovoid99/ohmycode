@@ -35,10 +35,14 @@ extension NSString {
 
     /// Every place `needle` appears from `start` on (compared unit by unit, overlapping places
     /// too), with the units before and after it (nil at the text's ends) for whole-word checks;
-    /// `body` returns false to stop. Reads in chunks, like `forEachChunk`.
-    func forEachOccurrence(of needle: NSString, from start: Int = 0, _ body: (NSRange, unichar?, unichar?) -> Bool) {
+    /// `body` returns false to stop. With `end`, only places that start before it. Reads in
+    /// chunks, like `forEachChunk`.
+    func forEachOccurrence(of needle: NSString, from start: Int = 0, to end: Int? = nil,
+                           _ body: (NSRange, unichar?, unichar?) -> Bool) {
         let count = needle.length, length = length
-        guard count > 0, start >= 0, start + count <= length else { return }
+        // Past the last place a match can start.
+        let stop = min(end ?? length, length - count + 1)
+        guard count > 0, start >= 0, start < stop else { return }
         let pattern = [unichar](unsafeUninitializedCapacity: count) { buffer, initialized in
             needle.getCharacters(buffer.baseAddress!, range: NSRange(location: 0, length: count))
             initialized = count
@@ -48,10 +52,10 @@ extension NSString {
         withUnsafeTemporaryAllocation(of: unichar.self, capacity: step + count + 1) { buffer in
             let units = buffer.baseAddress!
             var position = start
-            while position + count <= length {
+            while position < stop {
                 // The places a match can start in this round, and the text they need: a unit
                 // before the first, and the needle's length and a unit more after the last.
-                let candidates = min(step, length - count - position + 1)
+                let candidates = min(step, stop - position)
                 let readStart = max(position - 1, 0)
                 let readCount = min(position + candidates + count, length) - readStart
                 getCharacters(units, range: NSRange(location: readStart, length: readCount))
@@ -67,5 +71,26 @@ extension NSString {
                 position += candidates
             }
         }
+    }
+
+    /// Where `needle` appears in `range` (the whole text by default; places that start in it),
+    /// as a whole word if asked, up to `limit` places. A cancelled task stops early (between
+    /// slices of a megabyte or so), with what it found so far.
+    func occurrences(of needle: NSString, wholeWord: Bool, limit: Int, in range: NSRange? = nil) -> [NSRange] {
+        var result: [NSRange] = []
+        let range = range ?? NSRange(location: 0, length: length)
+        let slice = 1 << 20
+        var position = range.location
+        while position < NSMaxRange(range), result.count < limit, !Task.isCancelled {
+            let end = min(position + slice, NSMaxRange(range))
+            forEachOccurrence(of: needle, from: position, to: end) { found, before, after in
+                if !wholeWord || (!EditorDocument.isWordUnit(before) && !EditorDocument.isWordUnit(after)) {
+                    result.append(found)
+                }
+                return result.count < limit
+            }
+            position = end
+        }
+        return result
     }
 }
