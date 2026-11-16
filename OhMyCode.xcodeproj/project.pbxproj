@@ -27,6 +27,7 @@
 		158727EFA177EFB90D1A8413 /* CodeLenses.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3009E733B258A1D4C7896F51 /* CodeLenses.swift */; };
 		15C8D675FC4F51388ED12DD0 /* Breakpoints.swift in Sources */ = {isa = PBXBuildFile; fileRef = E520F6D2E010896834BCCC39 /* Breakpoints.swift */; };
 		19E2283B45FF94DEFF846914 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5526368FD02C2215106BF09 /* TerminalPanel.swift */; };
+		1AA20065A21DE446281DAD95 /* SidebarLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C86819BE0E7E0943CB2DA00 /* SidebarLayoutTests.swift */; };
 		1AC61C937F4E32F73FA243EB /* WhitespaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E13FA664353862B8CC80898 /* WhitespaceTests.swift */; };
 		1B1B14FBC1EDE8C35433943C /* ProcessIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1982B1E8AC78DF8767EBF8BF /* ProcessIO.swift */; };
 		1CAACB5E1539BC428AF5F78F /* ReferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B2EE7BE3BFA8F86486EE2E /* ReferencesView.swift */; };
@@ -362,6 +363,7 @@
 		689AB726F376231D0C97C084 /* XcodeTestingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XcodeTestingTests.swift; sourceTree = "<group>"; };
 		6BCA72007416F816817C38E1 /* MarkdownTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownTests.swift; sourceTree = "<group>"; };
 		6C6DC7EAB94EABAD4CADAAA5 /* OhMyCodeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OhMyCodeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		6C86819BE0E7E0943CB2DA00 /* SidebarLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarLayoutTests.swift; sourceTree = "<group>"; };
 		6FB8339443B219FB68634B94 /* OhMyCode.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OhMyCode.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		706ED70875F472C4F029C013 /* GitHubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitHubTests.swift; sourceTree = "<group>"; };
 		717D9E61C3E74E899FD53900 /* TerminalLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkTests.swift; sourceTree = "<group>"; };
@@ -699,6 +701,7 @@
 				3B13B9095F5907FD20AAE2F1 /* SemanticTokenTests.swift */,
 				B19A42FC2F40360BF86D004E /* SessionTests.swift */,
 				235C4B58C44E541E5D4CCE51 /* SettingsTests.swift */,
+				6C86819BE0E7E0943CB2DA00 /* SidebarLayoutTests.swift */,
 				FC6F72A9E5C1698124351A83 /* SnippetTests.swift */,
 				761D7DD6B19C1B92A0D77DE6 /* SplitEditorTests.swift */,
 				EBBC78B08D2E20847B26819B /* StashTests.swift */,
@@ -1288,6 +1291,7 @@
 				E307A58CBD3A9F112C4320A2 /* SemanticTokenTests.swift in Sources */,
 				C8CE25DEB292FB41D9F74A39 /* SessionTests.swift in Sources */,
 				A7691BACE48515FE4E24533A /* SettingsTests.swift in Sources */,
+				1AA20065A21DE446281DAD95 /* SidebarLayoutTests.swift in Sources */,
 				E99DA1E2262D98D0346E1807 /* SnippetTests.swift in Sources */,
 				D3FBB6809B020C010DBE4836 /* SplitEditorTests.swift in Sources */,
 				2173832CE7C6545543DE5181 /* StashTests.swift in Sources */,

@@ -9,6 +9,9 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 - Syntax colors that arrive after the text is drawn now show. A file just opened (or a window
   opened in the background) stayed uncolored until its lines were edited or scrolled, because
   TextKit doesn't redraw text whose rendering attributes change.
+- Run and Debug no longer pushes the sidebar up under the title bar. With nothing to run, its
+  text asked for a window 1,746 pt tall; in a shorter window the whole sidebar, its picker too,
+  was cut off at the top.
 
 ## [0.1.1] - 2026-11-16
 

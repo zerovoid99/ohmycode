@@ -56,7 +56,10 @@ struct WorkspaceView: View {
                     PullRequestsView(workspace: workspace)
                 }
             }
-            .frame(maxHeight: .infinity, alignment: .top)
+            // Whatever a mode's content asks for, the sidebar never sets the window's minimum
+            // height: a taller minimum than the screen pushed the whole sidebar (its picker
+            // too) up under the title bar.
+            .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
             .themedBackground(.sidebar, fallback: .clear)
             .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 480)
         } detail: {
