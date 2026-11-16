@@ -41,6 +41,30 @@ struct PerformanceGuardTests {
         withExtendedLifetime(window) {}
     }
 
+    /// Nothing may keep a copy of the line index across an edit: the edit would then copy all
+    /// the line starts (sticky scroll's pending update did, 1.6 MB a keystroke in a 5 MB file).
+    @Test func editsDontCopyTheLineIndex() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "omc-guard-\(UUID().uuidString).swift")
+        try PerformanceBenchmarks.code(bytes: 200_000).write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let document = try EditorDocument(url: url)
+        let controller = EditorController(document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = controller.makeView()
+        window.layoutIfNeeded()
+        document.attach(controller)
+        let sticky = try #require(controller.stickyView)
+        let middle = document.lineIndex.lineStarts[document.lineIndex.lineCount / 2] + 4
+        controller.textView.setSelectedRange(NSRange(location: middle, length: 0))
+        let storage = document.lineIndex.storageAddress
+        for _ in 0..<5 {
+            sticky.update() // as scrolling does; its work runs later
+            controller.textView.insertText("a", replacementRange: NSRange(location: NSNotFound, length: 0))
+        }
+        #expect(document.lineIndex.storageAddress == storage)
+        withExtendedLifetime(window) {}
+    }
+
     @Test func longLinesDontWrapWithoutWordWrap() throws {
         let long = String(repeating: "let value = 1; ", count: 400) // ~6000 columns
         let url = FileManager.default.temporaryDirectory.appending(path: "omc-guard-\(UUID().uuidString).swift")

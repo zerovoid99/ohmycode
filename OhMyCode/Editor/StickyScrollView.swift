@@ -36,12 +36,15 @@ final class StickyScrollView: NSView {
             return
         }
         let document = editor.document
+        // Only the starts of the lines the task may ask about, not the line index: a task holding
+        // the index made the next keystroke copy all of its line starts.
         let index = document.lineIndex
-        let top = editor.topVisibleLine
+        let top = max(0, min(editor.topVisibleLine, index.lineCount - 1))
+        let starts = Array(index.lineStarts[top..<min(top + Self.maxLines + 1, index.lineCount)])
         task = Task { [weak self] in
             func scopes(_ line: Int) async -> [Int] {
-                let line = min(line, index.lineCount - 1)
-                return Array(await highlighter.enclosingScopeLines(line: line, lineStart: index.lineStarts[line])
+                let offset = min(line - top, starts.count - 1)
+                return Array(await highlighter.enclosingScopeLines(line: top + offset, lineStart: starts[offset])
                     .suffix(Self.maxLines))
             }
             // The pinned lines cover the first lines of the viewport, so what matters is the

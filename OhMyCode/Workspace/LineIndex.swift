@@ -39,6 +39,12 @@ struct LineIndex: Equatable {
 
     private(set) var lineStarts = LineStarts([0])
 
+    /// Where the line starts are stored. Tests check that edits change them in place: a copy of
+    /// the index kept somewhere makes each edit copy all of them.
+    var storageAddress: UnsafeRawPointer? {
+        lineStarts.base.withUnsafeBufferPointer { UnsafeRawPointer($0.baseAddress) }
+    }
+
     var lineCount: Int { lineStarts.count }
 
     init(string: NSString) {
