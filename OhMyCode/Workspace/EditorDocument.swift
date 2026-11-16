@@ -473,7 +473,7 @@ final class EditorDocument: Identifiable {
         if let languageClient {
             let inserted = textStorage.mutableString.substring(with: range)
             languageClient.didChange(url: url, range: lspRange, text: inserted,
-                                     fullText: { self.textStorage.mutableString as String })
+                                     fullText: { self.textStorage.mutableString })
         }
 
         highlighter?.didEdit(InputEdit(

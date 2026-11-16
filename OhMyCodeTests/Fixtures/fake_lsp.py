@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Minimal LSP server for tests. Mirrors documents from incremental changes (UTF-16
-positions), reports a diagnostic for every "BAD", and answers completion/definition."""
+positions), reports a diagnostic for every "BAD", and answers completion/definition.
+With --full-sync it asks for the whole text on every change (textDocumentSync 1)."""
 import json, os, re, sys
 from urllib.parse import unquote, urlparse, quote
 
@@ -130,6 +131,8 @@ def occurrences(word):
     return result
 
 renamed = []
+full_sync = "--full-sync" in sys.argv
+did_change_versions = []  # of each didChange
 completions_asked = 0
 cancelled = []
 
@@ -141,7 +144,7 @@ while True:
     if method == "initialize":
         root = path_of(params["rootUri"])
         send({"jsonrpc": "2.0", "id": mid, "result": {"capabilities": {
-            "textDocumentSync": 2, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": True,
+            "textDocumentSync": 1 if full_sync else 2, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": True,
             "hoverProvider": True, "referencesProvider": True, "renameProvider": {"prepareProvider": True},
             "documentFormattingProvider": True, "documentRangeFormattingProvider": True, "documentSymbolProvider": True,
             "implementationProvider": True, "typeDefinitionProvider": True, "callHierarchyProvider": True,
@@ -206,6 +209,9 @@ while True:
         publish(doc["uri"])
     elif method == "textDocument/didChange":
         uri = params["textDocument"]["uri"]
+        if full_sync and any("range" in change for change in params["contentChanges"]):
+            raise SystemExit("a ranged change sent to a full-sync server")
+        did_change_versions.append(params["textDocument"]["version"])
         for change in params["contentChanges"]:
             docs[uri] = apply(docs[uri], change)
         publish(uri)
@@ -222,7 +228,8 @@ while True:
     elif method == "$/cancelRequest":
         cancelled.append(params["id"])
     elif method == "omc/stats":
-        send({"jsonrpc": "2.0", "id": mid, "result": {"completions": completions_asked, "cancelled": len(cancelled)}})
+        send({"jsonrpc": "2.0", "id": mid, "result": {"completions": completions_asked, "cancelled": len(cancelled),
+            "changes": did_change_versions}})
     elif method == "textDocument/completion":
         send({"jsonrpc": "2.0", "id": mid, "result": {"isIncomplete": False, "items": [
             {"label": "fooBar", "kind": 3, "detail": "(count: Int) -> Int", "insertTextFormat": 2,

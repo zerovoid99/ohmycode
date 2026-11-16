@@ -90,10 +90,16 @@ final class LanguageServerConnection: @unchecked Sendable {
     var isRunning: Bool { process.isRunning }
 
     func send(_ body: Data) {
-        let message = Data("Content-Length: \(body.count)\r\n\r\n".utf8) + body
+        send { body }
+    }
+
+    /// Sends what `body` makes on the write queue (a big message encoded off the main thread),
+    /// in order with the other messages; nothing if it makes nothing.
+    func send(_ body: @escaping @Sendable () -> Data?) {
         let handle = stdin.fileHandleForWriting
         writeQueue.async {
-            try? handle.write(contentsOf: message)
+            guard let body = body() else { return }
+            try? handle.write(contentsOf: Data("Content-Length: \(body.count)\r\n\r\n".utf8) + body)
         }
     }
 

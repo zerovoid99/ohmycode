@@ -22,12 +22,19 @@ struct LanguageClientTests {
         return LanguageServerConfig(name: "Fake LSP", command: ["/usr/bin/python3", script.path], languages: [.swift])
     }
 
+    /// The fake server asking for the whole text on every change (`textDocumentSync` 1).
+    static var fullSyncServer: LanguageServerConfig {
+        let server = fakeServer
+        return LanguageServerConfig(name: server.name, command: server.command + ["--full-sync"], languages: server.languages)
+    }
+
     func makeWorkspace(text: String, files: [String: String] = [:]) throws -> (Workspace, EditorDocument, EditorController, NSWindow) {
         try Self.makeWorkspace(text: text, files: files)
     }
 
     /// A folder with main.swift (opened in an editor in a window) plus `files`.
-    static func makeWorkspace(text: String, files: [String: String] = [:]) throws -> (Workspace, EditorDocument, EditorController, NSWindow) {
+    static func makeWorkspace(text: String, files: [String: String] = [:],
+                              server: LanguageServerConfig = fakeServer) throws -> (Workspace, EditorDocument, EditorController, NSWindow) {
         let root = FileManager.default.temporaryDirectory.appending(path: "omc-lsp-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try text.write(to: root.appending(path: "main.swift"), atomically: true, encoding: .utf8)
@@ -37,7 +44,7 @@ struct LanguageClientTests {
             try contents.write(to: url, atomically: true, encoding: .utf8)
         }
         let workspace = Workspace()
-        workspace.languageServerOverrides[.swift] = Self.fakeServer
+        workspace.languageServerOverrides[.swift] = server
         workspace.openFolder(root)
         workspace.open(fileAt: root.appending(path: "main.swift"))
         let document = workspace.activeDocument!
@@ -90,6 +97,45 @@ struct LanguageClientTests {
         }
         let serverText = try await client.request("omc/text", params: ["uri": document.url.absoluteString]) as? String
         #expect(serverText == document.textStorage.string)
+        withExtendedLifetime((workspace, window)) {}
+    }
+
+    /// A full-sync server gets the whole text at most every so often, not per keystroke, but
+    /// always before a request: it never answers about an older text.
+    @Test func fullSyncSendsTheCurrentTextBeforeEachRequest() async throws {
+        let (workspace, document, _, window) = try Self.makeWorkspace(text: "let a = 1\nlet b = 2\n", server: Self.fullSyncServer)
+        #expect(try await eventually { document.languageClient?.state == .ready })
+        let client = try #require(document.languageClient)
+        #expect(!client.incrementalSync)
+        client.fullSyncInterval = .seconds(3600) // only requests send it
+        func changes() async throws -> [Int] {
+            try #require(try await client.request("omc/stats", params: nil) as? [String: Any])["changes"] as? [Int] ?? []
+        }
+        func serverText() async throws -> String? {
+            try await client.request("omc/text", params: ["uri": document.url.absoluteString]) as? String
+        }
+
+        let pieces = ["x", "\n", "é", "😀", "ab\ncd", "", "  ", "日本"]
+        for round in 0..<3 {
+            for _ in 0..<40 {
+                let length = document.textStorage.length
+                let location = Int.random(in: 0...length)
+                let text = document.textStorage.mutableString
+                if location > 0, location < length, CFStringIsSurrogateLowCharacter(text.character(at: location)) { continue }
+                document.textStorage.replaceCharacters(in: NSRange(location: location, length: 0), with: pieces.randomElement()!)
+            }
+            // A feature's request (not just the test's own) goes after the text.
+            _ = try await client.hover(url: document.url, position: LSPPosition(line: 0, character: 1))
+            #expect(try await serverText() == document.textStorage.string)
+            let sent = try await changes()
+            #expect(sent.count == round + 1, "one change per burst of typing, not one per keystroke")
+            #expect(sent == sent.sorted() && Set(sent).count == sent.count, "versions only go up")
+        }
+
+        // Without a request, it goes out after a pause: the diagnostic comes.
+        client.fullSyncInterval = .milliseconds(50)
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "BAD ")
+        #expect(try await eventually { document.diagnostics.count == 1 })
         withExtendedLifetime((workspace, window)) {}
     }
 

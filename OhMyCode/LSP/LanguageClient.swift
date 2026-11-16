@@ -151,6 +151,9 @@ final class LanguageClient {
             continuation.resume(throwing: LanguageServerError(message: "\(name) exited"))
         }
         pending.removeAll()
+        fullTextFlush?.cancel()
+        fullTextFlush = nil
+        pendingFullText.removeAll()
     }
 
     // MARK: Documents
@@ -162,15 +165,62 @@ final class LanguageClient {
         ])
     }
 
+    /// Full sync: how often the whole text goes out while typing, at most.
+    @ObservationIgnored var fullSyncInterval: Duration = .milliseconds(100)
+    /// Full sync: the documents edited since their text was last sent, with their latest version
+    /// and how to read the text. Sent every `fullSyncInterval`, and before any other message
+    /// (a completion, a save), so the server never answers about an older text.
+    @ObservationIgnored private var pendingFullText: [URL: (version: Int, text: () -> NSString)] = [:]
+    @ObservationIgnored private var fullTextFlush: Task<Void, Never>?
+
     /// `range` is in pre-edit coordinates; `fullText` is used when the server wants full sync.
-    func didChange(url: URL, range: LSPRange, text: String, fullText: () -> String) {
+    func didChange(url: URL, range: LSPRange, text: String, fullText: @escaping () -> NSString) {
         guard let version = versions[url] else { return }
         versions[url] = version + 1
-        let change: [String: Any] = incrementalSync ? ["range": range.json, "text": text] : ["text": fullText()]
+        guard incrementalSync else {
+            // The whole text per keystroke, encoded on the main thread, took 15 ms for 5 MB.
+            pendingFullText[url] = (version + 1, fullText)
+            if fullTextFlush == nil {
+                fullTextFlush = Task { [weak self, fullSyncInterval] in
+                    try? await Task.sleep(for: fullSyncInterval)
+                    guard !Task.isCancelled else { return }
+                    self?.sendPendingFullText()
+                }
+            }
+            return
+        }
         notify("textDocument/didChange", params: [
             "textDocument": ["uri": url.absoluteString, "version": version + 1],
-            "contentChanges": [change],
+            "contentChanges": [["range": range.json, "text": text]],
         ])
+    }
+
+    /// Sends the edited documents' whole texts now: copied here (one memcpy), encoded on the
+    /// connection's write queue, ahead of anything sent after.
+    func sendPendingFullText() {
+        fullTextFlush?.cancel()
+        fullTextFlush = nil
+        guard !pendingFullText.isEmpty else { return }
+        let changes = pendingFullText
+        pendingFullText.removeAll()
+        for (url, change) in changes {
+            let uri = url.absoluteString, version = change.version
+            let text = TextSnapshot(string: change.text().snapshot())
+            let encode: @Sendable () -> Data? = {
+                try? JSONSerialization.data(withJSONObject: [
+                    "jsonrpc": "2.0", "method": "textDocument/didChange",
+                    "params": [
+                        "textDocument": ["uri": uri, "version": version] as [String: Any],
+                        "contentChanges": [["text": text.string]],
+                    ] as [String: Any],
+                ] as [String: Any])
+            }
+            if state == .ready {
+                connection.send(encode)
+            } else if let data = encode() {
+                queued.append(data)
+            }
+        }
     }
 
     func didSave(url: URL) {
@@ -180,6 +230,7 @@ final class LanguageClient {
 
     func didClose(url: URL) {
         guard versions.removeValue(forKey: url) != nil else { return }
+        pendingFullText[url] = nil
         notify("textDocument/didClose", params: ["textDocument": ["uri": url.absoluteString]])
     }
 
@@ -519,6 +570,7 @@ final class LanguageClient {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<JSONBox, Error>) in
                 guard !Task.isCancelled else { return continuation.resume(throwing: CancellationError()) }
                 pending[id] = continuation
+                sendPendingFullText() // answered about the current text
                 send(data, force: beforeReady)
             }
         } onCancel: {
@@ -540,6 +592,7 @@ final class LanguageClient {
     }
 
     private func write(_ message: [String: Any], force: Bool) {
+        sendPendingFullText()
         guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
         send(data, force: force)
     }
