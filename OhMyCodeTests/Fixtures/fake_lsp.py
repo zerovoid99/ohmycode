@@ -30,6 +30,11 @@ def units(text):  # UTF-16 code units
     data = text.encode("utf-16-le")
     return [data[i:i + 2] for i in range(0, len(data), 2)]
 
+def prefix(u, count):
+    """The text of the first `count` UTF-16 units. A position may fall inside a surrogate
+    pair (between an emoji's halves); the half is left out."""
+    return b"".join(u[:count]).decode("utf-16-le", errors="ignore")
+
 def offset(u, pos):
     line, col, i = 0, 0, 0
     while i < len(u) and line < pos["line"]:
@@ -73,7 +78,7 @@ def word_at(uri, pos):
     line = text_of(uri).split("\n")[pos["line"]]
     u = units(line)
     # back to str index from UTF-16 column
-    col = len(b"".join(u[:pos["character"]]).decode("utf-16-le"))
+    col = len(prefix(u, pos["character"]))
     for m in re.finditer(r"\w+", line):
         if m.start() <= col <= m.end():
             start16 = len(units(line[:m.start()]))
@@ -331,7 +336,7 @@ while True:
     elif method == "textDocument/signatureHelp":
         uri, pos = params["textDocument"]["uri"], params["position"]
         line = text_of(uri).split("\n")[pos["line"]]
-        before = b"".join(units(line)[:pos["character"]]).decode("utf-16-le")
+        before = prefix(units(line), pos["character"])
         call = before.rfind("fooBar(")
         if call < 0 or ")" in before[call:]:
             send({"jsonrpc": "2.0", "id": mid, "result": None})
