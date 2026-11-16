@@ -47,6 +47,74 @@ struct LSPPipelineTests {
         withExtendedLifetime(window) {}
     }
 
+    /// Messages are parsed where they're read (off the main thread), diagnostics included.
+    @Test func messagesAreParsedWithTheirDiagnostics() throws {
+        let body: [String: Any] = ["jsonrpc": "2.0", "method": "textDocument/publishDiagnostics", "params": [
+            "uri": "file:///tmp/a.swift",
+            "diagnostics": [["range": ["start": ["line": 2, "character": 4], "end": ["line": 2, "character": 7]],
+                             "severity": 2, "message": "unused", "source": "fake", "code": "W1"]],
+        ]]
+        let message = try #require(IncomingMessage(try JSONSerialization.data(withJSONObject: body)))
+        let diagnostics = try #require(message.diagnostics)
+        #expect(diagnostics.url == URL(string: "file:///tmp/a.swift"))
+        #expect(diagnostics.list.count == 1)
+        #expect(diagnostics.list.first?.range == LSPRange(start: LSPPosition(line: 2, character: 4), end: LSPPosition(line: 2, character: 7)))
+        #expect(diagnostics.list.first?.severity == .warning && diagnostics.list.first?.message == "unused")
+        // The server's own JSON goes back with a code action request (its code, its data).
+        #expect(diagnostics.list.first?.json["code"] as? String == "W1")
+
+        let answer = try #require(IncomingMessage(Data(#"{"jsonrpc":"2.0","id":4,"result":{"data":[0,4,1,2,0,1,0,3,1,0]}}"#.utf8)))
+        #expect(answer.diagnostics == nil && answer.object["id"] as? Int == 4)
+        #expect(SemanticTokens.numbers((answer.object["result"] as? [String: Any])?["data"]) == [0, 4, 1, 2, 0, 1, 0, 3, 1, 0])
+        #expect(SemanticTokens.numbers(nil).isEmpty)
+        #expect(IncomingMessage(Data("not json".utf8)) == nil)
+    }
+
+    /// A request whose task is cancelled (typing on) stops waiting, and the server is told.
+    @Test func cancellingARequestTellsTheServer() async throws {
+        let (workspace, document, _, window) = try LanguageClientTests.makeWorkspace(text: "let SLOW = 1\n")
+        #expect(try await LanguageClientTests.eventually { document.languageClient?.state == .ready })
+        let client = try #require(document.languageClient)
+        // The fake server takes a second to format a file with SLOW in it.
+        let task = Task { try await client.formatting(url: document.url, tabSize: 4, insertSpaces: true) }
+        try await Task.sleep(for: .milliseconds(100))
+        let clock = ContinuousClock()
+        let start = clock.now
+        task.cancel()
+        let result = await task.result
+        #expect(clock.now - start < .milliseconds(500), "cancelling waited for the answer")
+        #expect(throws: CancellationError.self) { try result.get() }
+        let stats = try await client.request("omc/stats", params: nil) as? [String: Any]
+        #expect(stats?["cancelled"] as? Int == 1)
+        // The late answer to the cancelled request is dropped; the client still works.
+        #expect(try await client.request("omc/text", params: ["uri": document.url.absoluteString]) as? String == "let SLOW = 1\n")
+        withExtendedLifetime((workspace, window)) {}
+    }
+
+    /// The list's rows: best match first, the server's order (sortText) among equals, cut off.
+    @Test func completionRowsAreRankedAndLimited() {
+        func item(_ id: Int, _ label: String, sort: String? = nil, filter: String? = nil) -> CompletionItem {
+            CompletionItem(id: id, label: label, detail: nil, kind: 3, filterText: filter, sortText: sort, insertText: label, isSnippet: false)
+        }
+        let items = [item(0, "other"), item(1, "fooBaz", sort: "2"), item(2, "fooBar", sort: "1"), item(3, "xfoo"),
+                     item(4, "shown", filter: "foohidden")]
+        let candidates = items.map { FuzzyCandidate($0.filterText) }
+        func labels(_ prefix: String, limit: Int = 200) -> [String] {
+            CompletionController.rows(items: items, candidates: candidates, prefix: prefix, limit: limit).map(\.item.label)
+        }
+        // Nothing typed: everything, in the server's order.
+        #expect(labels("") == ["fooBar", "fooBaz", "other", "shown", "xfoo"])
+        // A match at the start beats one inside; equal matches keep the server's order.
+        #expect(Array(labels("foo").prefix(2)) == ["fooBar", "fooBaz"])
+        #expect(Set(labels("foo")) == ["fooBar", "fooBaz", "xfoo", "shown"])
+        #expect(labels("foo", limit: 1) == ["fooBar"])
+        #expect(labels("zzz").isEmpty)
+        // Matched letters are highlighted in the label only when the label is what was matched.
+        let rows = CompletionController.rows(items: items, candidates: candidates, prefix: "foo")
+        #expect(rows.first { $0.item.label == "fooBar" }?.matches == [0, 1, 2])
+        #expect(rows.first { $0.item.label == "shown" }?.matches == [])
+    }
+
     /// The same hints again (every pause in typing asks for them) leave the text alone: writing
     /// attributes makes TextKit lay the text out again. Only what changed is written.
     @Test func unchangedInlayHintsAreNotRewritten() throws {

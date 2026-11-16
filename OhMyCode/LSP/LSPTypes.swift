@@ -12,8 +12,10 @@ struct LSPPosition: Equatable, Sendable {
         self.character = character
     }
 
+    // `NSDictionary` here and in the other types decoded by the thousand (ranges, diagnostics,
+    // completion items): casting to `[String: Any]` converts every key and value up front.
     init?(json: Any?) {
-        guard let object = json as? [String: Any], let line = object["line"] as? Int,
+        guard let object = json as? NSDictionary, let line = object["line"] as? Int,
               let character = object["character"] as? Int else { return nil }
         self.init(line: line, character: character)
     }
@@ -31,7 +33,7 @@ struct LSPRange: Equatable, Sendable {
     }
 
     init?(json: Any?) {
-        guard let object = json as? [String: Any], let start = LSPPosition(json: object["start"]),
+        guard let object = json as? NSDictionary, let start = LSPPosition(json: object["start"]),
               let end = LSPPosition(json: object["end"]) else { return nil }
         self.init(start: start, end: end)
     }
@@ -69,7 +71,7 @@ struct Diagnostic: Equatable, Sendable {
     }
 
     init?(json: Any?) {
-        guard let object = json as? [String: Any], let range = LSPRange(json: object["range"]),
+        guard let object = json as? NSDictionary, let range = LSPRange(json: object["range"]),
               let message = object["message"] as? String else { return nil }
         self.range = range
         self.severity = (object["severity"] as? Int).flatMap(Severity.init) ?? .error
@@ -113,14 +115,14 @@ struct CompletionItem: Identifiable, Sendable {
     }
 
     init?(json: Any?, id: Int) {
-        guard let object = json as? [String: Any], let label = object["label"] as? String else { return nil }
+        guard let object = json as? NSDictionary, let label = object["label"] as? String else { return nil }
         self.id = id
         self.label = label
         self.detail = object["detail"] as? String
         self.kind = object["kind"] as? Int
         self.filterText = object["filterText"] as? String ?? label
         self.sortText = object["sortText"] as? String ?? label
-        let textEdit = object["textEdit"] as? [String: Any]
+        let textEdit = object["textEdit"] as? NSDictionary
         self.insertText = textEdit?["newText"] as? String ?? object["insertText"] as? String ?? label
         self.isSnippet = (object["insertTextFormat"] as? Int) == 2
         self.editRange = LSPRange(json: textEdit?["range"] ?? (textEdit?["replace"]))

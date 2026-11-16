@@ -22,6 +22,8 @@ final class CompletionController {
     private let model = CompletionModel()
     private var panel: NSPanel?
     private var items: [CompletionItem] = []
+    /// The items' filter texts, prepared for matching once per answer (not once per keystroke).
+    private var candidates: [FuzzyCandidate] = []
     private var isIncomplete = false
     /// Where the word being completed starts (UTF-16 offset).
     private var wordStart = 0
@@ -111,17 +113,22 @@ final class CompletionController {
         requestTask = Task { [weak self] in
             if delay > .zero {
                 try? await Task.sleep(for: delay)
-                guard !Task.isCancelled else { return }
             }
-            guard let cursor = self?.beginRequest() else { return }
+            // Typed on already (each key asks again while the server's list is incomplete).
+            guard !Task.isCancelled, let cursor = self?.beginRequest() else { return }
             let position = document.lspPosition(at: cursor)
             // The server's items and the extensions' together, asked at the same time.
             let server = Task { () -> (items: [CompletionItem], isIncomplete: Bool)? in
                 guard let client else { return nil }
                 return try? await client.completion(url: document.url, position: position, triggerCharacter: trigger)
             }
-            let fromExtensions = await document.extensionHost?.completions(for: document, at: cursor, trigger: trigger, firstID: 1_000_000)
-            let result = await server.value
+            // Typing on cancels this task: the server is told to stop too.
+            let (fromExtensions, result) = await withTaskCancellationHandler {
+                let fromExtensions = await document.extensionHost?.completions(for: document, at: cursor, trigger: trigger, firstID: 1_000_000)
+                return (fromExtensions, await server.value)
+            } onCancel: {
+                server.cancel()
+            }
             guard !Task.isCancelled else { return }
             self?.finishRequest(server: result, extensions: fromExtensions, trigger: trigger)
         }
@@ -140,6 +147,7 @@ final class CompletionController {
         let snippets = trigger == nil ? snippetItems(firstID: 2_000_000) : []
         guard result != nil || fromExtensions?.items.isEmpty == false || !snippets.isEmpty else { return }
         items = (result?.items ?? []) + (fromExtensions?.items ?? []) + snippets
+        candidates = items.map { FuzzyCandidate($0.filterText) }
         isIncomplete = result?.isIncomplete == true || fromExtensions?.isIncomplete == true
         filter()
     }
@@ -151,24 +159,35 @@ final class CompletionController {
         let cursor = editor.textView.selectedRange().location
         guard cursor >= wordStart, cursor <= text.length else { return dismiss() }
         let prefix = text.substring(with: NSRange(location: wordStart, length: cursor - wordStart))
-        let query = FuzzyMatcher.prepareQuery(prefix)
-
-        var rows: [(row: CompletionModel.Row, score: Int)] = []
-        for item in items {
-            if query.isEmpty {
-                rows.append((CompletionModel.Row(item: item, matches: []), 0))
-            } else if let match = FuzzyMatcher.match(query, FuzzyCandidate(item.filterText)) {
-                // Highlight positions are for filterText; only show them when it is the label.
-                let matches = item.filterText == item.label ? match.positions : []
-                rows.append((CompletionModel.Row(item: item, matches: matches), match.score))
-            }
-        }
-        rows.sort { $0.score != $1.score ? $0.score > $1.score : $0.row.item.sortText < $1.row.item.sortText }
-        model.rows = rows.prefix(200).map(\.row)
+        model.rows = Self.rows(items: items, candidates: candidates, prefix: prefix)
         model.selection = 0
         // An exact match stays listed: its insert text may add more (e.g. call arguments).
         if model.rows.isEmpty { return dismiss() }
         show()
+    }
+
+    /// The best `limit` items for what's typed, best first (the server's order among equals).
+    /// `candidates` are the items' filter texts. Sorts the matches' indices, not the items.
+    static func rows(items: [CompletionItem], candidates: [FuzzyCandidate], prefix: String, limit: Int = 200) -> [CompletionModel.Row] {
+        let query = FuzzyMatcher.prepareQuery(prefix)
+        var matched: [(index: Int, match: FuzzyMatch)] = []
+        if query.isEmpty {
+            matched = items.indices.map { ($0, FuzzyMatch(score: 0, positions: [])) }
+        } else {
+            for index in items.indices {
+                if let match = FuzzyMatcher.match(query, candidates[index]) { matched.append((index, match)) }
+            }
+        }
+        matched.sort {
+            if $0.match.score != $1.match.score { return $0.match.score > $1.match.score }
+            let left = items[$0.index].sortText, right = items[$1.index].sortText
+            return left != right ? left < right : $0.index < $1.index
+        }
+        return matched.prefix(limit).map { index, match in
+            let item = items[index]
+            // Highlight positions are for filterText; only show them when it is the label.
+            return CompletionModel.Row(item: item, matches: item.filterText == item.label ? match.positions : [])
+        }
     }
 
     private func show() {

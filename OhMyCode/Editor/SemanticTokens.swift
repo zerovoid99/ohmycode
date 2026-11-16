@@ -28,6 +28,18 @@ enum SemanticTokens {
         }
     }
 
+    /// The numbers in a `semanticTokens` answer's `data`. Read from the `NSArray` as it is:
+    /// casting it to `[Any]` first boxes every number (half a million in a long file).
+    static func numbers(_ data: Any?) -> [Int] {
+        guard let array = data as? NSArray else { return [] }
+        var numbers: [Int] = []
+        numbers.reserveCapacity(array.count)
+        for element in array {
+            if let number = element as? NSNumber { numbers.append(number.intValue) }
+        }
+        return numbers
+    }
+
     /// The server's numbers (line delta, start delta, length, type, modifiers) as tokens.
     @MainActor
     static func decode(_ data: [Int], legend: [String], in document: EditorDocument) -> [SemanticToken] {

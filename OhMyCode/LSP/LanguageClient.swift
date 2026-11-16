@@ -12,8 +12,8 @@ struct LanguageServerError: LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// LSP client for one server process. All protocol state lives on the main thread; message
-/// bodies are small and parsing them here keeps ordering simple.
+/// LSP client for one server process. All protocol state lives on the main thread; messages
+/// arrive parsed (see `IncomingMessage`), and big answers are decoded off it.
 @MainActor
 @Observable
 final class LanguageClient {
@@ -40,8 +40,8 @@ final class LanguageClient {
     init(name: String, command: [String], rootURL: URL, environment: [String: String]) throws {
         self.name = name
         self.rootURL = rootURL
-        connection = try LanguageServerConnection(command: command, directory: rootURL, environment: environment)
-        connection.onMessage = { [weak self] data in self?.handle(data) }
+        connection = try LanguageServerConnection(command: command, directory: rootURL, environment: environment, parsesMessages: true)
+        connection.onParsedMessage = { [weak self] message in self?.handle(message) }
         connection.onExit = { [weak self] status in self?.serverDidExit(status) }
         Task { await initialize() }
     }
@@ -227,10 +227,18 @@ final class LanguageClient {
         let result = try await request("textDocument/completion", params: [
             "textDocument": ["uri": url.absoluteString], "position": position.json, "context": context,
         ])
-        let list = result as? [String: Any]
-        let rawItems = (list?["items"] as? [Any]) ?? (result as? [Any]) ?? []
-        let items = rawItems.enumerated().compactMap { CompletionItem(json: $1, id: $0) }
-        return (items, list?["isIncomplete"] as? Bool ?? false)
+        return await decoding(result) { result in
+            let list = result as? [String: Any]
+            let rawItems = (list?["items"] as? [Any]) ?? (result as? [Any]) ?? []
+            let items = rawItems.enumerated().compactMap { CompletionItem(json: $1, id: $0) }
+            return (items, list?["isIncomplete"] as? Bool ?? false)
+        }
+    }
+
+    /// Decodes a big answer off the main thread.
+    private func decoding<T: Sendable>(_ result: Any?, _ decode: @escaping @Sendable (Any?) -> T) async -> T {
+        let box = JSONBox(result)
+        return await Task.detached(priority: .userInitiated) { decode(box.value) }.value
     }
 
     func definition(url: URL, position: LSPPosition) async throws -> [LSPLocation] {
@@ -350,7 +358,7 @@ final class LanguageClient {
     /// Every token in the file, as the server encodes them (5 numbers each, relative).
     func semanticTokens(url: URL) async throws -> [Int] {
         let result = try await request("textDocument/semanticTokens/full", params: ["textDocument": ["uri": url.absoluteString]])
-        return ((result as? [String: Any])?["data"] as? [Any] ?? []).compactMap { ($0 as? NSNumber)?.intValue }
+        return await decoding(result) { result in SemanticTokens.numbers((result as? [String: Any])?["data"]) }
     }
 
     /// The file's links (targets may come later, from `resolveDocumentLink`).
@@ -504,11 +512,25 @@ final class LanguageClient {
         nextID += 1
         var message: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method]
         if let params { message["params"] = params }
-        let box = try await withCheckedThrowingContinuation { continuation in
-            pending[id] = continuation
-            write(message, force: beforeReady)
+        // Cancelling the task that waits gives up on the answer and tells the server to stop
+        // working on it (a completion or a file's tokens asked for before the latest keystroke).
+        let data = try JSONSerialization.data(withJSONObject: message)
+        let box = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<JSONBox, Error>) in
+                guard !Task.isCancelled else { return continuation.resume(throwing: CancellationError()) }
+                pending[id] = continuation
+                send(data, force: beforeReady)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancel(id) }
         }
         return box.value
+    }
+
+    private func cancel(_ id: Int) {
+        guard let continuation = pending.removeValue(forKey: id) else { return } // answered already
+        notify("$/cancelRequest", params: ["id": id])
+        continuation.resume(throwing: CancellationError())
     }
 
     private func notify(_ method: String, params: Any?) {
@@ -519,11 +541,15 @@ final class LanguageClient {
 
     private func write(_ message: [String: Any], force: Bool) {
         guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
+        send(data, force: force)
+    }
+
+    private func send(_ data: Data, force: Bool) {
         if force || state == .ready { connection.send(data) } else { queued.append(data) }
     }
 
-    private func handle(_ data: Data) {
-        guard let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+    private func handle(_ incoming: IncomingMessage) {
+        let message = incoming.object
         let method = message["method"] as? String
         let id = message["id"]
 
@@ -538,11 +564,8 @@ final class LanguageClient {
         guard let method else { return }
         if let id {
             respond(to: id, method: method, params: message["params"])
-        } else if method == "textDocument/publishDiagnostics",
-                  let params = message["params"] as? [String: Any],
-                  let uri = params["uri"] as? String, let url = URL(string: uri) {
-            let diagnostics = (params["diagnostics"] as? [Any] ?? []).compactMap(Diagnostic.init(json:))
-            onDiagnostics?(url, diagnostics)
+        } else if let diagnostics = incoming.diagnostics {
+            onDiagnostics?(diagnostics.url, diagnostics.list)
         }
     }
 

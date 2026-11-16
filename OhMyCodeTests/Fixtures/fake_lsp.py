@@ -130,6 +130,8 @@ def occurrences(word):
     return result
 
 renamed = []
+completions_asked = 0
+cancelled = []
 
 while True:
     msg = read()
@@ -207,6 +209,20 @@ while True:
         for change in params["contentChanges"]:
             docs[uri] = apply(docs[uri], change)
         publish(uri)
+    elif method == "textDocument/completion" and re.search(r"MANY_ITEMS=(\d+)", docs.get(params["textDocument"]["uri"], "")):
+        # A big list (like a TypeScript server's globals), sorted by number. With SLOW_FIRST the
+        # first answer comes late: after the answer to the request that follows it.
+        text = docs[params["textDocument"]["uri"]]
+        count = int(re.search(r"MANY_ITEMS=(\d+)", text).group(1))
+        result = {"isIncomplete": "INCOMPLETE" in text, "items": [
+            {"label": "%s%dValue" % (("get", "set", "make", "fooBar", "item")[i % 5], i), "kind": 3 + i % 4,
+             "detail": "(value: Int, other: String) -> Result%d" % i, "sortText": "%06d" % i} for i in range(count)]}
+        completions_asked += 1
+        send({"jsonrpc": "2.0", "id": mid, "result": result})
+    elif method == "$/cancelRequest":
+        cancelled.append(params["id"])
+    elif method == "omc/stats":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"completions": completions_asked, "cancelled": len(cancelled)}})
     elif method == "textDocument/completion":
         send({"jsonrpc": "2.0", "id": mid, "result": {"isIncomplete": False, "items": [
             {"label": "fooBar", "kind": 3, "detail": "(count: Int) -> Int", "insertTextFormat": 2,

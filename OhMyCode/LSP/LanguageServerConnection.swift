@@ -1,8 +1,30 @@
 import Foundation
 
+/// A message from the server, parsed where it was read: off the main thread. (A big answer,
+/// thousands of completion items or a long file's semantic tokens, takes tens of milliseconds
+/// to parse.)
+final class IncomingMessage: @unchecked Sendable {
+    // @unchecked Sendable: made on the read queue, then only read (JSON objects are immutable).
+    let object: [String: Any]
+    /// `textDocument/publishDiagnostics`, already decoded.
+    let diagnostics: (url: URL, list: [Diagnostic])?
+
+    init?(_ data: Data) {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        self.object = object
+        if object["method"] as? String == "textDocument/publishDiagnostics", object["id"] == nil,
+           let params = object["params"] as? [String: Any], let uri = params["uri"] as? String, let url = URL(string: uri) {
+            diagnostics = (url, (params["diagnostics"] as? [Any] ?? []).compactMap(Diagnostic.init(json:)))
+        } else {
+            diagnostics = nil
+        }
+    }
+}
+
 /// A language server process speaking JSON-RPC over stdio with `Content-Length` framing.
-/// Bytes are read on a background queue; each complete message body is delivered to the
-/// main thread, where the client parses and routes it.
+/// Bytes are read on a background queue; each complete message is delivered, in order, to the
+/// main thread: as its body (`onMessage`), or with `parsesMessages` already parsed there
+/// (`onParsedMessage`).
 final class LanguageServerConnection: @unchecked Sendable {
     // @unchecked Sendable: `buffer` is only touched on the stdout handler's queue, writes are
     // serialized on `writeQueue`, `onMessage`/`onExit` are used on the main thread only.
@@ -14,10 +36,14 @@ final class LanguageServerConnection: @unchecked Sendable {
     private var readSource: DispatchSourceRead?
     private var buffer = Data()
 
+    private let parsesMessages: Bool
+
     @MainActor var onMessage: ((Data) -> Void)?
+    @MainActor var onParsedMessage: ((IncomingMessage) -> Void)?
     @MainActor var onExit: ((Int32) -> Void)?
 
-    init(command: [String], directory: URL, environment: [String: String]) throws {
+    init(command: [String], directory: URL, environment: [String: String], parsesMessages: Bool = false) throws {
+        self.parsesMessages = parsesMessages
         process.executableURL = URL(filePath: command[0])
         process.arguments = Array(command.dropFirst())
         process.currentDirectoryURL = directory
@@ -102,8 +128,11 @@ final class LanguageServerConnection: @unchecked Sendable {
             buffer.removeSubrange(buffer.startIndex..<bodyEnd)
         }
         guard !messages.isEmpty else { return }
+        let parsed = parsesMessages ? messages.compactMap(IncomingMessage.init) : []
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
+                for message in parsed { self?.onParsedMessage?(message) }
+                guard self?.parsesMessages == false else { return }
                 for message in messages { self?.onMessage?(message) }
             }
         }
