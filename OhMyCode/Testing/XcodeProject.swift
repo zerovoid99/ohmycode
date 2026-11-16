@@ -25,7 +25,7 @@ struct XcodeProject: Equatable, Sendable {
     /// Asks `xcodebuild -list` for the schemes and targets (nil without a project, or if it fails).
     static func load(in root: URL, environment: [String: String]) async -> XcodeProject? {
         guard let (container, isWorkspace) = container(in: root) else { return nil }
-        let output = await Task.detached(priority: .userInitiated) { () -> Data? in
+        let output = await ProcessIO.detached(priority: .userInitiated) { () -> Data? in
             let process = Process()
             process.executableURL = URL(filePath: "/usr/bin/xcrun")
             process.arguments = ["xcodebuild", "-list", "-json", isWorkspace ? "-workspace" : "-project", container]
@@ -36,7 +36,7 @@ struct XcodeProject: Equatable, Sendable {
             process.standardError = FileHandle.nullDevice
             guard let result = try? ProcessIO.run(process, output: pipe, error: nil, timeout: .seconds(60)), result.status == 0 else { return nil }
             return result.output
-        }.value
+        }
         guard let output, let json = try? JSONDecoder().decode(JSONValue.self, from: output) else { return nil }
         return parse(json, container: container, isWorkspace: isWorkspace, root: root)
     }

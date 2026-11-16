@@ -87,7 +87,7 @@ enum GitHub {
     static func run(_ arguments: [String], in directory: URL) async throws -> Data {
         let environment = await ShellEnvironment.shared.environment()
         let override = executable
-        return try await Task.detached(priority: .userInitiated) {
+        return try await ProcessIO.detached(priority: .userInitiated) {
             let process = Process()
             if let override {
                 process.executableURL = URL(fileURLWithPath: override)
@@ -117,7 +117,7 @@ enum GitHub {
                 throw Failure.failed(message.isEmpty ? "gh \(arguments.first ?? "") failed (\(result.status))." : message)
             }
             return result.output
-        }.value
+        }
     }
 
     static func pullRequests(in directory: URL) async throws -> [PullRequest] {
@@ -202,7 +202,7 @@ extension Workspace {
         defer { isRunningGitCommand = false }
         do {
             if let status = gitStatus, status.upstream == nil, let branch = status.branch {
-                try await Task.detached { try Git.push(branch: branch, settingUpstreamTo: "origin", in: repository) }.value
+                try await ProcessIO.detached { try Git.push(branch: branch, settingUpstreamTo: "origin", in: repository) }
             }
             let url = try await GitHub.create(title: title, body: body, base: nil, draft: draft, in: root)
             refreshGit()

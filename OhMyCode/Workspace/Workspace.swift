@@ -144,7 +144,7 @@ final class Workspace {
     /// Files for Find in Files: the quick-open index (git-aware), built first if needed.
     func searchableFiles() async -> [String] {
         if fileIndex == nil, let rootURL {
-            let index = await Task.detached(priority: .userInitiated) { FileIndexer.build(root: rootURL) }.value
+            let index = await ProcessIO.detached(priority: .userInitiated) { FileIndexer.build(root: rootURL) }
             if self.rootURL == rootURL, fileIndex == nil { fileIndex = index }
         }
         return fileIndex?.files.map(\.text) ?? []
@@ -370,9 +370,9 @@ final class Workspace {
                 guard !Task.isCancelled else { return }
             }
             self.backgroundWork.indexBuilds += 1
-            let index = await Task.detached(priority: .userInitiated) {
+            let index = await ProcessIO.detached(priority: .userInitiated) {
                 FileIndexer.build(root: rootURL)
-            }.value
+            }
             guard !Task.isCancelled, self.rootURL == rootURL else { return }
             self.fileIndex = index
             if self.palette?.mode == .files { self.palette?.refresh() }
@@ -497,9 +497,9 @@ final class Workspace {
             self.pendingEvents = nil
             if !pending.gitStateChanged, let paths = pending.paths, !paths.isEmpty {
                 let repository = self.gitRepository
-                let ignored = await Task.detached(priority: .utility) {
+                let ignored = await ProcessIO.detached(priority: .utility) {
                     FileIndexer.areIgnored(Array(paths), in: repository)
-                }.value
+                }
                 guard !ignored, self.rootURL == rootURL else { return }
             }
             if pending.rebuildsIndex { self.rebuildFileIndex() }
@@ -637,11 +637,11 @@ final class Workspace {
                 guard !Task.isCancelled else { return }
             }
             self.backgroundWork.gitRefreshes += 1
-            let result = await Task.detached(priority: .utility) { () -> (Git.Repository, GitStatus, [GitStash], [GitSubmodule])? in
+            let result = await ProcessIO.detached(priority: .utility) { () -> (Git.Repository, GitStatus, [GitStash], [GitSubmodule])? in
                 guard let repository = knownRepository ?? Git.repository(at: rootURL),
                       let status = Git.status(of: repository) else { return nil }
                 return (repository, status, Git.stashes(in: repository) ?? [], Git.submodules(in: repository) ?? [])
-            }.value
+            }
             guard !Task.isCancelled, self.rootURL == rootURL else { return }
             // HEAD or what's staged changed, as far as status shows; or it can't be known from
             // file events, the .git directory being outside the folder (a worktree, a subfolder).
@@ -835,7 +835,7 @@ final class Workspace {
         isRunningGitCommand = true
         defer { isRunningGitCommand = false }
         do {
-            try await Task.detached { try Git.commit(message: trimmed, in: repository) }.value
+            try await ProcessIO.detached { try Git.commit(message: trimmed, in: repository) }
             refreshGit()
             return true
         } catch {
@@ -851,12 +851,12 @@ final class Workspace {
         guard let repository = gitRepository, gitStatus?.hasCommits == true else { return false }
         isRunningGitCommand = true
         defer { isRunningGitCommand = false }
-        let pushed = await Task.detached { Git.isHeadPushed(in: repository) }.value
+        let pushed = await ProcessIO.detached { Git.isHeadPushed(in: repository) }
         if pushed, !confirm("The last commit is already pushed. Amending rewrites it, so the branch will need a force push. Amend anyway?") {
             return false
         }
         do {
-            try await Task.detached { try Git.amend(message: trimmed, in: repository) }.value
+            try await ProcessIO.detached { try Git.amend(message: trimmed, in: repository) }
             refreshGit()
             return true
         } catch {
@@ -871,14 +871,14 @@ final class Workspace {
         guard let repository = gitRepository, gitStatus?.hasCommits == true else { return nil }
         isRunningGitCommand = true
         defer { isRunningGitCommand = false }
-        let (last, pushed) = await Task.detached { (Git.lastCommit(in: repository), Git.isHeadPushed(in: repository)) }.value
+        let (last, pushed) = await ProcessIO.detached { (Git.lastCommit(in: repository), Git.isHeadPushed(in: repository)) }
         guard let last else { return nil }
         let question = pushed
             ? "Undo “\(last.message.prefix(60))”? It's already pushed: the branch will need a force push."
             : "Undo “\(last.message.prefix(60))”? Its changes stay staged."
         guard confirm(question) else { return nil }
         do {
-            try await Task.detached { try Git.undoLastCommit(hasParent: last.hasParent, in: repository) }.value
+            try await ProcessIO.detached { try Git.undoLastCommit(hasParent: last.hasParent, in: repository) }
             refreshGit()
             return last.message
         } catch {
@@ -890,7 +890,7 @@ final class Workspace {
     /// The last commit's message, to edit and amend.
     func lastCommitMessage() async -> String? {
         guard let repository = gitRepository, gitStatus?.hasCommits == true else { return nil }
-        return await Task.detached { Git.lastCommit(in: repository)?.message }.value
+        return await ProcessIO.detached { Git.lastCommit(in: repository)?.message }
     }
 
     private func runGit(_ operation: @escaping @Sendable (Git.Repository) throws -> Void) {
@@ -907,7 +907,7 @@ final class Workspace {
         isRunningGitCommand = true
         var succeeded = true
         do {
-            try await Task.detached { try operation(repository) }.value
+            try await ProcessIO.detached { try operation(repository) }
         } catch {
             errorMessage = error.localizedDescription
             succeeded = false
@@ -944,15 +944,15 @@ final class Workspace {
         }
         backgroundWork.diffBaseLoads += 1
         Task {
-            let base = await Task.detached(priority: .utility) {
+            let base = await ProcessIO.detached(priority: .utility) {
                 Git.indexContent(ofRelativePath: path, in: repository)
-            }.value
+            }
             document.setDiffBase(base)
         }
         document.blameProvider = { text in
-            await Task.detached(priority: .utility) {
+            await ProcessIO.detached(priority: .utility) {
                 Git.blame(relativePath: path, contents: text, in: repository)
-            }.value
+            }
         }
         document.scheduleBlame(after: .zero)
         document.blameActions = BlameActions(
@@ -972,9 +972,9 @@ final class Workspace {
             return
         }
         Task {
-            let (head, index) = await Task.detached(priority: .utility) {
+            let (head, index) = await ProcessIO.detached(priority: .utility) {
                 (Git.headContent(ofRelativePath: path, in: repository), Git.indexContent(ofRelativePath: path, in: repository))
-            }.value
+            }
             session.setStaged(head: head, index: index)
         }
     }
@@ -1002,9 +1002,9 @@ final class Workspace {
         }
         if fileHistory?.url != url { fileHistory = FileHistory(url: url, commits: nil, isLoading: true) }
         historyTask = Task {
-            let commits = await Task.detached(priority: .utility) {
+            let commits = await ProcessIO.detached(priority: .utility) {
                 Git.history(ofRelativePath: path, in: repository)
-            }.value
+            }
             guard !Task.isCancelled else { return }
             fileHistory = FileHistory(url: url, commits: commits ?? [], isLoading: false)
         }
@@ -1075,11 +1075,11 @@ final class Workspace {
         let wantsParent: Bool
         if case .commit = session.mode { wantsParent = true } else { wantsParent = false }
         Task {
-            let (parent, version) = await Task.detached(priority: .utility) { () -> (String?, String?) in
+            let (parent, version) = await ProcessIO.detached(priority: .utility) { () -> (String?, String?) in
                 let version = commit.path.flatMap { Git.content(atCommit: commit.sha, repositoryPath: $0, in: repository) }
                 guard wantsParent, let parent = commit.parents.first, let parentPath = commit.parentPath else { return (nil, version) }
                 return (Git.content(atCommit: parent, repositoryPath: parentPath, in: repository), version)
-            }.value
+            }
             if wantsParent {
                 // Added in the commit: nothing before; deleted: nothing after.
                 session.setLoaded(base: parent ?? "", current: version ?? "", isNewFile: parent == nil)
@@ -1108,7 +1108,7 @@ final class Workspace {
                                   graph: repoHistory?.graph ?? [], pinned: pinned)
         repoHistoryTask = Task {
             // The graph is laid out again for the whole list: a new page can end lanes above it.
-            let (page, commits, graph, found) = await Task.detached(priority: .utility) {
+            let (page, commits, graph, found) = await ProcessIO.detached(priority: .utility) {
                 let page = Git.log(in: repository, limit: limit, skip: skip, filter: filter)
                 let commits = more ? existing + (page ?? []) : page ?? []
                 // Search results skip commits between them: lines there would be wrong.
@@ -1116,7 +1116,7 @@ final class Workspace {
                 // A search that looks like a hash also finds that commit.
                 let found = more ? pinned : filter?.hashPrefix.flatMap { Git.commit(named: $0, in: repository) }
                 return (page, commits, graph, found)
-            }.value
+            }
             guard !Task.isCancelled else { return }
             let extra = found.flatMap { commits.contains($0) ? nil : $0 }
             repoHistory = RepoHistory(commits: (extra.map { [$0] } ?? []) + commits, isLoading: false,
@@ -1130,9 +1130,9 @@ final class Workspace {
     /// Reads the files a commit changed (once).
     func loadFiles(of commit: RepoCommit) async {
         guard commitFiles[commit.sha] == nil, let repository = gitRepository else { return }
-        let files = await Task.detached(priority: .utility) {
+        let files = await ProcessIO.detached(priority: .utility) {
             Git.changedFiles(in: commit, repository: repository)
-        }.value
+        }
         commitFiles[commit.sha] = files ?? []
     }
 
@@ -1179,7 +1179,7 @@ final class Workspace {
 
     func loadWorktrees() async {
         guard let repository = gitRepository else { worktrees = nil; return }
-        worktrees = await Task.detached(priority: .userInitiated) { Git.worktrees(in: repository) }.value ?? []
+        worktrees = await ProcessIO.detached(priority: .userInitiated) { Git.worktrees(in: repository) } ?? []
     }
 
     /// Whether a worktree is the one this window shows.
@@ -1228,7 +1228,7 @@ final class Workspace {
         guard let repository = gitRepository else { return }
         isRunningGitCommand = true
         do {
-            try await Task.detached { try Git.removeWorktree(at: worktree.path, force: false, in: repository) }.value
+            try await ProcessIO.detached { try Git.removeWorktree(at: worktree.path, force: false, in: repository) }
             isRunningGitCommand = false
             refreshGit()
             await loadWorktrees()
@@ -1283,7 +1283,7 @@ final class Workspace {
         guard let repository = gitRepository else { return }
         isComparing = true
         defer { isComparing = false }
-        let result = await Task.detached(priority: .userInitiated) { () -> Result<RefComparison, Git.CommandError> in
+        let result = await ProcessIO.detached(priority: .userInitiated) { () -> Result<RefComparison, Git.CommandError> in
             guard let baseSHA = Git.resolveCommit(base, in: repository) else {
                 return .failure(Git.CommandError(message: "“\(base)” isn't a branch, tag or commit."))
             }
@@ -1302,7 +1302,7 @@ final class Workspace {
             return .success(RefComparison(base: base, target: target, sinceCommonAncestor: sinceCommonAncestor,
                                           baseSHA: from, targetSHA: targetSHA, files: files,
                                           ahead: counts.ahead, behind: counts.behind))
-        }.value
+        }
         switch result {
         case .success(let comparison): self.comparison = comparison
         case .failure(let error): errorMessage = error.localizedDescription
@@ -1324,7 +1324,7 @@ final class Workspace {
     func commitDetails(_ sha: String) async -> CommitDetails? {
         if let cached = commitDetailsCache[sha] { return cached }
         guard let repository = gitRepository else { return nil }
-        let details = await Task.detached(priority: .userInitiated) { Git.commitDetails(sha, in: repository) }.value
+        let details = await ProcessIO.detached(priority: .userInitiated) { Git.commitDetails(sha, in: repository) }
         if let details { commitDetailsCache[sha] = details }
         return details
     }
@@ -1333,12 +1333,12 @@ final class Workspace {
     @discardableResult
     func openBlameChanges(_ line: BlameLine) async -> DiffSession? {
         guard !line.isUncommitted, let repository = gitRepository else { return nil }
-        let found = await Task.detached(priority: .userInitiated) { () -> (RepoCommit, CommitFile)? in
+        let found = await ProcessIO.detached(priority: .userInitiated) { () -> (RepoCommit, CommitFile)? in
             guard let commit = Git.commit(named: line.commit, in: repository),
                   let files = Git.changedFiles(in: commit, repository: repository),
                   let file = files.first(where: { $0.path == line.path }) else { return nil }
             return (commit, file)
-        }.value
+        }
         guard let (commit, file) = found else { NSSound.beep(); return nil }
         return openCommit(commit, file: file)
     }
@@ -1391,7 +1391,7 @@ final class Workspace {
 
     func loadBranches() async {
         guard let repository = gitRepository else { branches = nil; return }
-        branches = await Task.detached(priority: .userInitiated) { Git.branches(in: repository) }.value
+        branches = await ProcessIO.detached(priority: .userInitiated) { Git.branches(in: repository) }
     }
 
     /// Switches branches; a remote branch gets a local one tracking it (or switches to the
@@ -1426,12 +1426,12 @@ final class Workspace {
         isRunningGitCommand = true
         Task {
             do {
-                try await Task.detached { try Git.deleteBranch(branch.name, force: false, in: repository) }.value
+                try await ProcessIO.detached { try Git.deleteBranch(branch.name, force: false, in: repository) }
             } catch {
                 // Not merged anywhere: deleting would lose its commits (they stay in the reflog for a while).
                 if confirm("Delete \(branch.name)? It has commits that aren't merged into any other branch; they'll be lost.") {
                     do {
-                        try await Task.detached { try Git.deleteBranch(branch.name, force: true, in: repository) }.value
+                        try await ProcessIO.detached { try Git.deleteBranch(branch.name, force: true, in: repository) }
                     } catch {
                         errorMessage = error.localizedDescription
                     }
@@ -1468,7 +1468,7 @@ final class Workspace {
 
     func loadRemotes() async {
         guard let repository = gitRepository else { remotes = nil; return }
-        remotes = await Task.detached(priority: .userInitiated) { Git.remoteList(in: repository) }.value ?? []
+        remotes = await ProcessIO.detached(priority: .userInitiated) { Git.remoteList(in: repository) } ?? []
     }
 
     func fetch(from remote: GitRemote) { runGit { try Git.fetch(remote: remote.name, in: $0) } }
@@ -1680,7 +1680,7 @@ final class Workspace {
     func planInteractiveRebase(from commit: RepoCommit) async {
         guard let repository = gitRepository else { return }
         guard gitStatus?.operation == nil else { errorMessage = "Finish the merge or rebase in progress first."; return }
-        let steps = await Task.detached { Git.rebaseCommits(from: commit, in: repository) }.value
+        let steps = await ProcessIO.detached { Git.rebaseCommits(from: commit, in: repository) }
         guard let steps, !steps.isEmpty else {
             errorMessage = "\(commit.shortSHA) isn't on the current branch, so it can't be rebased from here."
             return
@@ -1732,7 +1732,7 @@ final class Workspace {
 
     func loadFiles(of stash: GitStash) async {
         guard stashFiles[stash.sha] == nil, let repository = gitRepository else { return }
-        let files = await Task.detached(priority: .utility) { Git.files(in: stash, repository: repository) }.value
+        let files = await ProcessIO.detached(priority: .utility) { Git.files(in: stash, repository: repository) }
         stashFiles[stash.sha] = files ?? []
     }
 

@@ -949,9 +949,9 @@ enum ExtensionProcess {
 
     static func run(_ command: String, arguments: [String], directory: URL?, input: String?, timeout: Double) async throws -> JSONValue {
         let environment = await ShellEnvironment.shared.environment()
-        return try await Task.detached(priority: .userInitiated) {
+        return try await ProcessIO.detached(priority: .userInitiated) {
             try runBlocking(command, arguments: arguments, directory: directory, input: input, timeout: timeout, environment: environment)
-        }.value
+        }
     }
 
     private static func runBlocking(_ command: String, arguments: [String], directory: URL?, input: String?, timeout: Double,

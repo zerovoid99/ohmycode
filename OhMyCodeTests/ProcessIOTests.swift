@@ -71,8 +71,33 @@ struct ProcessIOTests {
         #expect(outputs.count == count && outputs.allSatisfy { $0?.count == 41 })
     }
 
-    /// Programs extensions run with input (`omc.process.run`): writing it must not wait for a
-    /// dispatch thread, or with as many running as there are cores none ever finishes.
+    /// Waits for commands (a blame per open file) don't hold Swift concurrency's threads, one
+    /// per core: other async work goes on meanwhile, and the commands all run at once.
+    @Test(.timeLimit(.minutes(1))) func slowCommandsDontHoldUpOtherWork() async throws {
+        let count = ProcessInfo.processInfo.activeProcessorCount * 2
+        let started = ContinuousClock.now
+        let commands = (0..<count).map { _ in
+            Task {
+                await ProcessIO.detached(priority: .utility) { () -> Int32 in
+                    let (process, output, error) = shell("sleep 2")
+                    return (try? ProcessIO.run(process, output: output, error: error).status) ?? -1
+                }
+            }
+        }
+        try await Task.sleep(for: .milliseconds(300))
+        let other = ContinuousClock.now
+        #expect(await Task.detached(priority: .utility) { 42 }.value == 42)
+        #expect(ContinuousClock.now - other < .milliseconds(500), "other work waited \(ContinuousClock.now - other)")
+        for command in commands { #expect(await command.value == 0) }
+        // Not a core's worth at a time (which took twice as long).
+        #expect(ContinuousClock.now - started < .seconds(3.5))
+
+        // What throws is thrown.
+        await #expect(throws: CancellationError.self) { try await ProcessIO.detached { () throws -> Int in throw CancellationError() } }
+    }
+
+    /// The same for programs extensions run with input (`omc.process.run`): writing it must not
+    /// wait for a dispatch thread either.
     @Test(.timeLimit(.minutes(1))) func manyExtensionProgramsWithInputAtOnceAllFinish() async throws {
         let count = ProcessInfo.processInfo.activeProcessorCount * 4
         let outputs = await withTaskGroup(of: String?.self) { group in

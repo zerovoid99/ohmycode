@@ -54,17 +54,23 @@ enum LanguageServers {
 /// would hide servers installed with Homebrew, npm, cargo, etc.
 actor ShellEnvironment {
     static let shared = ShellEnvironment()
-    private var cached: [String: String]?
+    private var loading: Task<[String: String], Never>?
 
-    func environment() -> [String: String] {
-        if let cached { return cached }
-        var environment = ProcessInfo.processInfo.environment
-        if let path = loginPath() { environment["PATH"] = path }
-        cached = environment
-        return environment
+    func environment() async -> [String: String] {
+        if let loading { return await loading.value }
+        // The login shell (it may take seconds) is waited for off Swift concurrency's threads.
+        let task = Task {
+            await ProcessIO.detached(priority: .userInitiated) {
+                var environment = ProcessInfo.processInfo.environment
+                if let path = Self.loginPath() { environment["PATH"] = path }
+                return environment
+            }
+        }
+        loading = task
+        return await task.value
     }
 
-    private func loginPath() -> String? {
+    private static func loginPath() -> String? {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let process = Process()
         process.executableURL = URL(filePath: shell)

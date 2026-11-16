@@ -51,7 +51,7 @@ extension Workspace {
 
     /// The current user's processes, newest first (lldb-dap lists them).
     static func runningProcesses() async -> [RunningProcess] {
-        await Task.detached(priority: .userInitiated) {
+        await ProcessIO.detached(priority: .userInitiated) {
             let process = Process()
             process.executableURL = URL(filePath: "/usr/bin/xcrun")
             process.arguments = ["lldb-dap", "--list-processes"]
@@ -66,7 +66,7 @@ extension Workspace {
                       let name = entry["name"]?.string else { return nil }
                 return RunningProcess(pid: pid, name: name, executable: entry["executable"]?.string ?? "")
             }.sorted { $0.pid > $1.pid }
-        }.value
+        }
     }
 
     /// A file's breakpoints changed: its gutter redraws, a running debugger gets them.

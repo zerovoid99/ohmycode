@@ -236,14 +236,14 @@ final class TestController {
     private func hasPytest() async -> Bool {
         if let hasPytestOverride { return hasPytestOverride }
         let environment = await ShellEnvironment.shared.environment()
-        return await Task.detached {
+        return await ProcessIO.detached {
             let process = Process()
             process.executableURL = URL(filePath: "/usr/bin/env")
             process.arguments = ["python3", "-m", "pytest", "--version"]
             process.environment = environment
             process.standardError = FileHandle.nullDevice
             return (try? ProcessIO.run(process, output: Pipe(), error: nil))?.status == 0
-        }.value
+        }
     }
 
     private func start(_ framework: TestFramework, tests: [TestItem]?, members: [TestItem], root: URL) async {

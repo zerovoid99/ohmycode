@@ -72,6 +72,35 @@ enum ProcessIO {
         return process.terminationReason == .uncaughtSignal ? 128 + process.terminationStatus : process.terminationStatus
     }
 
+    /// Runs `work` (which waits for processes: git, a tool) on a thread of its own and returns
+    /// its result, as `Task.detached { work() }.value` would, but off Swift concurrency's
+    /// threads. There are as many of those as cores, and a wait holds one: a blame per open
+    /// file took them all, and any other async work queued behind the commands. A thread
+    /// costs about as much as starting the process does.
+    static func detached<T: Sendable>(priority: TaskPriority = .medium, _ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            startThread(priority) { continuation.resume(returning: work()) }
+        }
+    }
+
+    static func detached<T: Sendable>(priority: TaskPriority = .medium, _ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            startThread(priority) { continuation.resume(with: Result { try work() }) }
+        }
+    }
+
+    private static func startThread(_ priority: TaskPriority, _ body: @escaping @Sendable () -> Void) {
+        let thread = Thread(block: body)
+        thread.qualityOfService = switch priority {
+        case .userInitiated, .high: .userInitiated
+        case .utility: .utility
+        case .background: .background
+        default: .default
+        }
+        thread.name = "ProcessIO.detached"
+        thread.start()
+    }
+
     /// Runs `process` (pipes already set) to the end on this thread: its output and error, and status.
     static func run(_ process: Process, output: Pipe, error: Pipe?, timeout: Duration? = nil) throws -> (output: Data, error: Data, status: Int32) {
         try process.run()

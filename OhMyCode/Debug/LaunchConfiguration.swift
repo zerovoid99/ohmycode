@@ -200,7 +200,7 @@ struct LaunchConfiguration: Codable, Equatable, Identifiable, Sendable {
     /// Configurations for a Swift package's executables (built first with `swift build`).
     static func swiftPackage(in root: URL, environment: [String: String]) async -> [LaunchConfiguration] {
         guard FileManager.default.fileExists(atPath: root.appending(path: "Package.swift").path) else { return [] }
-        let output = await Task.detached(priority: .userInitiated) { () -> Data? in
+        let output = await ProcessIO.detached(priority: .userInitiated) { () -> Data? in
             let process = Process()
             process.executableURL = URL(filePath: "/usr/bin/env")
             process.arguments = ["swift", "package", "describe", "--type", "json"]
@@ -211,7 +211,7 @@ struct LaunchConfiguration: Codable, Equatable, Identifiable, Sendable {
             process.standardError = FileHandle.nullDevice
             guard let result = try? ProcessIO.run(process, output: pipe, error: nil), result.status == 0 else { return nil }
             return result.output
-        }.value
+        }
         guard let output, let description = try? JSONDecoder().decode(JSONValue.self, from: output) else { return [] }
         let executables = (description["products"]?.array ?? []).filter { $0["type"]?["executable"] != nil }.compactMap { $0["name"]?.string }
         return executables.map { product in
