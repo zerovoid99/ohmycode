@@ -5,6 +5,7 @@ struct OhMyCodeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
+        LaunchTrace.mark("app.init")
         GrammarRegistry.warmUp()
         DispatchQueue.main.async {
             AppSettings.shared.applyAppearance() // once NSApp exists
@@ -117,6 +118,7 @@ private struct WindowReader: NSViewRepresentable {
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            if let window { LaunchTrace.windowAttached(window) }
             found(window)
         }
     }

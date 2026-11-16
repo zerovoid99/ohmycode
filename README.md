@@ -51,6 +51,26 @@ That's a debug build, several times slower in places. For release numbers, add
 `-configuration Release ENABLE_TESTABILITY=YES ENABLE_HARDENED_RUNTIME=NO` (the hardened runtime
 won't load the test bundle).
 
+Typing, scrolling and cursor moves are timed with their drawing: each step ends with layout and a
+Core Animation commit, where the text, gutter and overlay draw what the step left dirty. The
+`.nodraw` numbers leave drawing out, like the benchmarks before November 2026 (whose
+`displayIfNeeded` drew nothing). The window is never shown.
+
+Launch times (from the process's start to the first window, the first editor drawn and its
+first highlight, with nothing to restore and with a hot-exit session of 5 files, one of 5 MB):
+
+```sh
+TEST_RUNNER_OMC_BENCH=1 xcodebuild -scheme OhMyCode test -only-testing:OhMyCodeTests/LaunchBenchmarks
+```
+
+It launches a copy of the built app under its own bundle ID, in the background, with
+`OMC_LAUNCH_TRACE=1` (windows transparent and click-through; milestones printed, then it quits
+by itself) and `OMC_SUPPORT_DIR` (a scratch Application Support folder, so your sessions are
+never read or written). The same variables work on any build.
+
+Instruments' Points of Interest show intervals for opening a document, `textDidEdit`,
+`applyHighlights`, parsing, and gutter and overlay drawing, and the launch milestones.
+
 ## Third-party libraries
 - [libghostty-vt](https://github.com/ghostty-org/ghostty) 1.0.1 (MIT): terminal emulation for
   the integrated terminal. Prebuilt XCFramework from `release.files.ghostty.org`, pinned by

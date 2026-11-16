@@ -98,6 +98,7 @@ actor SyntaxEngine {
     }
 
     private func parse(_ string: NSString, reusing oldTree: MutableTree?) -> MutableTree? {
+        let signpost = Signposts.begin("Parse"); defer { Signposts.end("Parse", signpost) }
         let length = string.length, offset = self.offset
         return parser.parse(tree: oldTree) { byteOffset, _ in
             let start = byteOffset / 2 - offset

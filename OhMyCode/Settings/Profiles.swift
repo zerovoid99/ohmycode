@@ -40,7 +40,7 @@ final class ProfileManager {
         defaults: AppSettings.isRunningTests ? UserDefaults(suiteName: "dev.zerovoid99.ohmycode.tests.profiles")! : .standard,
         appFolder: AppSettings.isRunningTests
             ? FileManager.default.temporaryDirectory.appending(path: "omc-test-profiles-\(ProcessInfo.processInfo.processIdentifier)")
-            : URL.applicationSupportDirectory.appending(path: "OhMyCode/Profiles"))
+            : URL.omcApplicationSupport.appending(path: "OhMyCode/Profiles"))
 
     struct Parts {
         var settings: AppSettings

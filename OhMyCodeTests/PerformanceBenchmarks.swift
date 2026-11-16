@@ -7,6 +7,12 @@ import Testing
 ///     TEST_RUNNER_OMC_BENCH=1 xcodebuild … test -only-testing:OhMyCodeTests/PerformanceBenchmarks
 ///
 /// Results are printed as `BENCH name: value`. Off in ordinary runs (they take a while).
+///
+/// Typing, scrolling and cursor moves are timed with their drawing: each step ends as an event
+/// does, with layout and the Core Animation commit, where views draw what the step left dirty
+/// (text, gutter, overlay). Until November 2026 steps ended with `displayIfNeeded` alone, which
+/// draws nothing; the `.nodraw` numbers leave drawing out, comparable with those older runs.
+/// `check.windowDraws` says whether drawing really happens. The window is never ordered in.
 @MainActor
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["OMC_BENCH"] == "1"))
 struct PerformanceBenchmarks {
@@ -56,7 +62,22 @@ struct PerformanceBenchmarks {
         return result == KERN_SUCCESS ? Double(info.resident_size) / 1_048_576 : 0
     }
 
-    /// Opens a file in an editor in a window, as the app does.
+    /// Counts its draws: tells whether the benchmark window really draws.
+    private final class DrawCounter: NSView {
+        var draws = 0
+        override func draw(_ dirtyRect: NSRect) { draws += 1 }
+    }
+
+    /// Draws what's dirty, as the end of an event does: layout, then the Core Animation commit,
+    /// where layer-backed views (all of them) draw. `displayIfNeeded` alone draws nothing: views
+    /// draw into their layers at the commit, which the run loop does after each event and the
+    /// benchmark does here. Works in a window that's never ordered in, so nothing is shown.
+    private func draw(_ window: NSWindow) {
+        window.displayIfNeeded()
+        CATransaction.flush()
+    }
+
+    /// Opens a file in an editor in a window, as the app does. `layout` includes the first draw.
     private func open(_ url: URL) throws -> (EditorDocument, EditorController, NSWindow, Duration, Duration) {
         let clock = ContinuousClock()
         var document: EditorDocument!
@@ -67,12 +88,25 @@ struct PerformanceBenchmarks {
             window.contentView = controller.makeView()
             window.layoutIfNeeded()
             controller.textView.layoutSubtreeIfNeeded()
-            controller.textView.displayIfNeeded()
+            draw(window)
         }
         window.makeFirstResponder(controller.textView)
         document.editor = controller
         return (document, controller, window, load, layout)
     }
+
+    /// One event's worth of work: `change` (the edit, scroll or selection change), then what it
+    /// left dirty drawn, as AppKit does at the end of an event.
+    private func step(_ window: NSWindow, _ change: () -> Void) -> (change: Duration, draw: Duration) {
+        let clock = ContinuousClock()
+        let changed = clock.measure(change)
+        let drawn = clock.measure { draw(window) }
+        return (changed, drawn)
+    }
+
+    private func median(_ samples: [Duration]) -> Duration { samples.sorted()[samples.count / 2] }
+    private func p95(_ samples: [Duration]) -> Duration { samples.sorted()[samples.count * 95 / 100] }
+    private func mean(_ samples: [Duration]) -> Duration { samples.reduce(.zero, +) / samples.count }
 
     @Test(arguments: [1.0, 5.0, 20.0])
     func openTypeScroll(megabytes: Double) async throws {
@@ -80,6 +114,14 @@ struct PerformanceBenchmarks {
         let before = Self.residentMB()
         let (document, controller, window, load, layout) = try open(url)
         let label = "\(Int(megabytes))MB"
+
+        let counter = DrawCounter(frame: NSRect(x: 0, y: 0, width: 4, height: 4))
+        window.contentView?.addSubview(counter)
+        counter.needsDisplay = true
+        draw(window)
+        report("check.windowDraws \(label)", counter.draws > 0 ? "yes" : "NO (drawing isn't measured)")
+        counter.removeFromSuperview()
+
         report("open.load \(label)", ms(load))
         report("open.firstLayout \(label)", ms(layout))
         // Background work after opening (parse, folds, symbols).
@@ -91,49 +133,57 @@ struct PerformanceBenchmarks {
         report("open.backgroundParse \(label)", ms(settle))
         report("memory.afterOpen \(label)", String(format: "%.0f MB (+%.0f)", Self.residentMB(), Self.residentMB() - before))
 
-        // Typing in the middle: the synchronous part of each keystroke.
+        // Typing in the middle: each keystroke's synchronous work, then its drawing.
         let middle = document.lineIndex.lineStarts[document.lineIndex.lineCount / 2] + 8
         controller.textView.setSelectedRange(NSRange(location: middle, length: 0))
         controller.reveal(NSRange(location: middle, length: 0))
-        controller.textView.displayIfNeeded()
-        var samples: [Duration] = []
+        draw(window)
+        var typing: [(change: Duration, draw: Duration)] = []
         for index in 0..<100 {
             let character = index % 10 == 9 ? "\n" : "a"
-            samples.append(clock.measure {
+            typing.append(step(window) {
                 controller.textView.insertText(character, replacementRange: NSRange(location: NSNotFound, length: 0))
-                controller.textView.displayIfNeeded()
             })
         }
-        samples.sort()
-        report("typing.median \(label)", ms(samples[samples.count / 2]))
-        report("typing.p95 \(label)", ms(samples[samples.count * 95 / 100]))
-        report("typing.max \(label)", ms(samples.last!))
+        let typingTotal = typing.map { $0.change + $0.draw }
+        report("typing.median \(label)", ms(median(typingTotal)))
+        report("typing.p95 \(label)", ms(p95(typingTotal)))
+        report("typing.max \(label)", ms(typingTotal.max()!))
+        report("typing.nodraw.median \(label)", ms(median(typing.map(\.change))))
+        report("typing.draw.median \(label)", ms(median(typing.map(\.draw))))
 
-        // Scrolling: a page down at a time, each drawn.
+        // Scrolling: a page down at a time, each laid out and drawn.
         let scrollView = try #require(controller.textView.enclosingScrollView)
-        var scrolls: [Duration] = []
-        for step in 1...30 {
-            scrolls.append(clock.measure {
-                let y = min(controller.textView.bounds.height - scrollView.contentSize.height, CGFloat(step) * scrollView.contentSize.height)
+        var scrolls: [(change: Duration, draw: Duration)] = []
+        for page in 1...30 {
+            scrolls.append(step(window) {
+                let y = min(controller.textView.bounds.height - scrollView.contentSize.height, CGFloat(page) * scrollView.contentSize.height)
                 scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, y)))
                 scrollView.reflectScrolledClipView(scrollView.contentView)
                 controller.textView.layoutSubtreeIfNeeded()
-                scrollView.displayIfNeeded()
             })
         }
-        scrolls.sort()
-        report("scroll.median \(label)", ms(scrolls[scrolls.count / 2]))
-        report("scroll.max \(label)", ms(scrolls.last!))
+        let scrollTotal = scrolls.map { $0.change + $0.draw }
+        report("scroll.median \(label)", ms(median(scrollTotal)))
+        report("scroll.max \(label)", ms(scrollTotal.max()!))
+        report("scroll.nodraw.median \(label)", ms(median(scrolls.map(\.change))))
 
-        // The gutter drawn alone.
+        // The gutter and the overlay each drawn whole, alone.
         let gutterDraw = clock.measure { for _ in 0..<20 { controller.gutterView.display() } }
         report("draw.gutter \(label)", ms(gutterDraw / 20))
-
-        // Moving the cursor (selection change: symbol highlights, brackets, blame, lightbulb).
-        let moveDuration = clock.measure {
-            for index in 0..<100 { controller.textView.setSelectedRange(NSRange(location: middle + index, length: 0)) }
+        if let overlay = controller.diagnosticsOverlay {
+            let overlayDraw = clock.measure { for _ in 0..<20 { overlay.display() } }
+            report("draw.overlay \(label)", ms(overlayDraw / 20))
         }
-        report("cursor.move \(label)", ms(moveDuration / 100))
+
+        // Moving the cursor (selection change: symbol highlights, brackets, blame, lightbulb),
+        // then its drawing (current line, gutter, overlay). Means, as before.
+        var moves: [(change: Duration, draw: Duration)] = []
+        for index in 0..<100 {
+            moves.append(step(window) { controller.textView.setSelectedRange(NSRange(location: middle + index, length: 0)) })
+        }
+        report("cursor.move \(label)", ms(mean(moves.map { $0.change + $0.draw })))
+        report("cursor.move.nodraw \(label)", ms(mean(moves.map(\.change))))
 
         withExtendedLifetime(window) {}
         try? FileManager.default.removeItem(at: url)

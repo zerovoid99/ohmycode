@@ -192,6 +192,7 @@ final class EditorDocument: Identifiable {
     var fileName: String { url.lastPathComponent }
 
     init(url: URL) throws {
+        let signpost = Signposts.begin("Open Document"); defer { Signposts.end("Open Document", signpost) }
         let data = try Data(contentsOf: url)
         if data.prefix(8192).contains(0) { throw EditorDocumentError.binaryFile(url) }
         guard let text = String(data: data, encoding: .utf8) else {
@@ -453,6 +454,7 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored private var isReplacingBatch = false
 
     private func textDidEdit(range: NSRange, changeInLength delta: Int) {
+        let signpost = Signposts.begin("textDidEdit"); defer { Signposts.end("textDidEdit", signpost) }
         let start = range.location
         let oldEnd = start + range.length - delta
         let newEnd = NSMaxRange(range)

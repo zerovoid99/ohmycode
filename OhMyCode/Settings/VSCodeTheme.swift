@@ -223,7 +223,7 @@ enum VSCodeTheme {
 final class ThemeLibrary {
     static let shared = ThemeLibrary(directory: AppSettings.isRunningTests
         ? FileManager.default.temporaryDirectory.appending(path: "omc-themes-\(ProcessInfo.processInfo.processIdentifier)")
-        : URL.applicationSupportDirectory.appending(path: "Oh My Code/Themes"))
+        : URL.omcApplicationSupport.appending(path: "Oh My Code/Themes"))
 
     let directory: URL
     private(set) var themes: [EditorThemeDefinition] = []

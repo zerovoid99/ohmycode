@@ -180,7 +180,7 @@ final class OpenRouter {
     /// Opens a request in a window.
     func apply(_ request: OpenRequest, isDirectory: Bool? = nil, in workspace: Workspace) {
         workspace.window?.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        if !LaunchTrace.isEnabled { NSApp.activate() } // a traced launch takes no focus
         if isDirectory ?? request.isDirectory {
             if workspace.rootURL.map(FileWatcher.canonicalPath) != FileWatcher.canonicalPath(request.url) {
                 workspace.openFolder(request.url)
@@ -252,6 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
+            LaunchTrace.mark("app.didFinishLaunching")
             guard !AppSettings.isRunningTests, AppSettings.shared.hotExit else { return }
             Workspace.reopenLastSessions { OpenRouter.shared.open($0) }
         }

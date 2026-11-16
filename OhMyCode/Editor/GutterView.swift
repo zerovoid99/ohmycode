@@ -172,6 +172,8 @@ final class GutterView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        let signpost = Signposts.begin("Gutter Draw"); defer { Signposts.end("Gutter Draw", signpost) }
+        LaunchTrace.mark("editor.firstDraw")
         // Since macOS 14 views don't clip to bounds by default and `dirtyRect` may extend past
         // them: filling it unclipped painted over the whole editor and hid all text.
         let theme = EditorTheme.current

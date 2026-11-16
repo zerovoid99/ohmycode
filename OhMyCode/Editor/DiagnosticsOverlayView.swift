@@ -96,6 +96,7 @@ final class DiagnosticsOverlayView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        let signpost = Signposts.begin("Overlay Draw"); defer { Signposts.end("Overlay Draw", signpost) }
         let theme = EditorTheme.current
         if let rect = executionLine?(), rect.intersects(dirtyRect) {
             NSColor.systemYellow.withAlphaComponent(0.22).setFill()

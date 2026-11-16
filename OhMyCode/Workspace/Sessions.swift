@@ -46,7 +46,7 @@ struct WindowSession: Codable, Equatable {
 final class SessionStore {
     static let shared = SessionStore(directory: AppSettings.isRunningTests
         ? FileManager.default.temporaryDirectory.appending(path: "omc-test-sessions-\(ProcessInfo.processInfo.processIdentifier)")
-        : URL.applicationSupportDirectory.appending(path: "OhMyCode/Sessions"))
+        : URL.omcApplicationSupport.appending(path: "OhMyCode/Sessions"))
 
     let directory: URL
     /// Set while quitting: windows closing then are still "open" for next launch.

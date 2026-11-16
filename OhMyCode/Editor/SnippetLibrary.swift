@@ -18,14 +18,14 @@ final class SnippetLibrary: @unchecked Sendable {
     /// Under tests, a scratch folder: the user's own snippets are never read or replaced.
     static let shared = SnippetLibrary(userDirectory: NSClassFromString("XCTestCase") != nil
         ? FileManager.default.temporaryDirectory.appending(path: "omc-test-snippets-\(ProcessInfo.processInfo.processIdentifier)")
-        : URL.applicationSupportDirectory.appending(path: "OhMyCode/Snippets"))
+        : URL.omcApplicationSupport.appending(path: "OhMyCode/Snippets"))
 
     let userDirectory: URL
     private let lock = NSLock()
     /// Parsed files, kept while their modification date is the same.
     private var cache: [String: (date: Date, snippets: [(SnippetDefinition, scope: Set<String>?)])] = [:]
 
-    init(userDirectory: URL = URL.applicationSupportDirectory.appending(path: "OhMyCode/Snippets")) {
+    init(userDirectory: URL = URL.omcApplicationSupport.appending(path: "OhMyCode/Snippets")) {
         self.userDirectory = userDirectory
     }
 

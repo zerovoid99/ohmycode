@@ -1,6 +1,18 @@
 import AppKit
 import Observation
 
+extension URL {
+    /// ~/Library/Application Support, or the folder in `OMC_SUPPORT_DIR` when it's set: the
+    /// launch benchmark starts the app with one, so it never reads or writes the user's
+    /// sessions, history, profiles or snippets.
+    static var omcApplicationSupport: URL {
+        if let path = ProcessInfo.processInfo.environment["OMC_SUPPORT_DIR"], !path.isEmpty {
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        return .applicationSupportDirectory
+    }
+}
+
 /// User preferences (Settings window, ⌘,), persisted in UserDefaults and applied live: views
 /// listen for `AppSettings.didChange`.
 @MainActor

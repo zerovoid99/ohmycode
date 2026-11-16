@@ -1010,6 +1010,7 @@ final class CodeTextView: NSTextView, @preconcurrency NSTextFinderClient {
 
     override func layout() {
         super.layout()
+        LaunchTrace.mark("editor.firstLayout")
         onLayout?()
     }
 }
@@ -1032,6 +1033,8 @@ extension EditorController: SyntaxHighlighterClient {
     /// Applied as TextKit 2 rendering attributes: they only affect drawing, so the text storage
     /// isn't edited and no layout is invalidated.
     func applyHighlights(_ highlights: [NamedRange], in range: NSRange) {
+        let signpost = Signposts.begin("applyHighlights"); defer { Signposts.end("applyHighlights", signpost) }
+        LaunchTrace.mark("highlight.first")
         guard let layoutManager = textView.textLayoutManager,
               let contentManager = layoutManager.textContentManager,
               NSMaxRange(range) <= document.textStorage.length,

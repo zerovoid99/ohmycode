@@ -20,7 +20,7 @@ final class ExtensionStore {
     static let shared = ExtensionStore(
         directory: AppSettings.isRunningTests
             ? FileManager.default.temporaryDirectory.appending(path: "omc-test-extensions-\(UUID().uuidString)")
-            : URL.applicationSupportDirectory.appending(path: "OhMyCode/Extensions"),
+            : URL.omcApplicationSupport.appending(path: "OhMyCode/Extensions"),
         defaults: AppSettings.isRunningTests ? UserDefaults(suiteName: "dev.zerovoid99.ohmycode.tests.extensions")! : .standard)
 
     static let didChange = Notification.Name("omcExtensionsDidChange")

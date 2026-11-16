@@ -48,7 +48,7 @@ struct LocalHistoryEntry: Codable, Hashable, Identifiable, Sendable {
 final class LocalHistory {
     static let shared = LocalHistory(directory: AppSettings.isRunningTests
         ? FileManager.default.temporaryDirectory.appending(path: "omc-test-history-\(ProcessInfo.processInfo.processIdentifier)")
-        : URL.applicationSupportDirectory.appending(path: "OhMyCode/History"))
+        : URL.omcApplicationSupport.appending(path: "OhMyCode/History"))
 
     static let maxEntriesPerFile = 50
     static let maxFileSize = 2_000_000

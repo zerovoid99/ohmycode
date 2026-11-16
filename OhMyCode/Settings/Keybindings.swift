@@ -18,7 +18,7 @@ final class Keybindings {
 
     static var shared = Keybindings(file: AppSettings.isRunningTests
         ? FileManager.default.temporaryDirectory.appending(path: "omc-test-keybindings-\(ProcessInfo.processInfo.processIdentifier).json")
-        : URL.applicationSupportDirectory.appending(path: "OhMyCode/keybindings.json"))
+        : URL.omcApplicationSupport.appending(path: "OhMyCode/keybindings.json"))
 
     struct Rule: Codable, Equatable {
         var key: String
