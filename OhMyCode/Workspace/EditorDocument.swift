@@ -849,29 +849,34 @@ extension EditorDocument {
         return column + 1
     }
 
-    /// Columns a run of UTF-16 units takes. Not tied to the main actor (nor is `column`): the
-    /// closure checked which actor it was on for every unit, 37 ms per megabyte edited.
-    nonisolated private static func columns(_ units: UnsafeBufferPointer<unichar>, tabWidth: Int) -> Int {
-        var result = 0
-        for unit in units { result = column(after: result, unit, tabWidth: tabWidth) }
-        return result
-    }
-
+    /// The widest of `lines`, in one pass over their text (a pasted megabyte has 30,000 lines:
+    /// reading each one on its own took longer than the paste).
     private func columns(ofLines lines: ClosedRange<Int>) -> Int {
         let text = textStorage.mutableString
-        var widest = 0
-        var buffer = [unichar](repeating: 0, count: 4096)
-        for line in lines where line < lineIndex.lineCount {
-            let start = lineIndex.lineStarts[line]
-            let end = line + 1 < lineIndex.lineCount ? lineIndex.lineStarts[line + 1] : text.length
-            let length = end - start
-            if buffer.count < length { buffer = [unichar](repeating: 0, count: length) }
-            buffer.withUnsafeMutableBufferPointer { pointer in
-                text.getCharacters(pointer.baseAddress!, range: NSRange(location: start, length: length))
-                widest = max(widest, Self.columns(UnsafeBufferPointer(rebasing: pointer[0..<length]), tabWidth: displayTabWidth))
+        guard lines.lowerBound < lineIndex.lineCount else { return 0 }
+        let start = lineIndex.lineStarts[lines.lowerBound]
+        let end = lines.upperBound + 1 < lineIndex.lineCount ? lineIndex.lineStarts[lines.upperBound + 1] : text.length
+        var widest = 0, column = 0
+        let tabWidth = displayTabWidth
+        text.forEachChunk(in: NSRange(location: start, length: end - start)) { units, _ in
+            Self.widestLine(units, tabWidth: tabWidth, widest: &widest, column: &column)
+            return true
+        }
+        return max(widest, column)
+    }
+
+    /// Goes on measuring lines through `units`: the widest so far, and the current line's
+    /// columns. Not tied to the main actor (nor is `column`): the closure checked which actor
+    /// it was on for every unit, 37 ms per megabyte edited.
+    nonisolated private static func widestLine(_ units: UnsafeBufferPointer<unichar>, tabWidth: Int, widest: inout Int, column: inout Int) {
+        for unit in units {
+            if unit == 0x0A {
+                widest = max(widest, column)
+                column = 0
+            } else {
+                column = Self.column(after: column, unit, tabWidth: tabWidth)
             }
         }
-        return widest
     }
 
     /// Measures every line (opening, saving), in one pass over the text.
@@ -879,14 +884,7 @@ extension EditorDocument {
         var widest = 0, column = 0
         let tabWidth = displayTabWidth
         textStorage.mutableString.forEachChunk { units, _ in
-            for unit in units {
-                if unit == 0x0A {
-                    widest = max(widest, column)
-                    column = 0
-                } else {
-                    column = Self.column(after: column, unit, tabWidth: tabWidth)
-                }
-            }
+            Self.widestLine(units, tabWidth: tabWidth, widest: &widest, column: &column)
             return true
         }
         longestLineColumns = max(widest, column)

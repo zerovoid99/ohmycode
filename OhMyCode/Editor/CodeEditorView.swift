@@ -73,6 +73,8 @@ final class EditorController: NSObject {
     private var appliedColors = AppliedColors()
     private var appliedColorsVersion = -1
     private var textElementTrimTask: Task<Void, Never>?
+    /// The text changed: sticky scroll is updated after the next layout pass.
+    private var stickyNeedsUpdate = false
 
     init(document: EditorDocument, group: EditorGroup? = nil) {
         self.document = document
@@ -205,6 +207,10 @@ final class EditorController: NSObject {
             overlay?.needsDisplay = true
             self?.refreshHighlights(force: false)
             self?.minimapView?.refresh()
+            if self?.stickyNeedsUpdate == true {
+                self?.stickyNeedsUpdate = false
+                self?.stickyView?.update()
+            }
         }
         let containerView = EditorContainerView(gutterView: gutter, scrollView: scrollView)
         self.containerView = containerView
@@ -599,7 +605,17 @@ final class EditorController: NSObject {
         gutterView.needsDisplay = true
         diagnosticsOverlay?.needsDisplay = true
         minimapView?.refresh(textChanged: true)
-        stickyView?.update()
+        updateStickyAfterLayout()
+    }
+
+    /// Sticky scroll follows the line at the top of the view, which isn't known until the
+    /// edited text is laid out again: asked right after a big edit (pasting over all of a
+    /// 5 MB file, undoing a paste), TextKit had to estimate where that line is from the start
+    /// of the text, through every paragraph: 300 ms.
+    private func updateStickyAfterLayout() {
+        guard stickyView != nil else { return }
+        stickyNeedsUpdate = true
+        textView.needsLayout = true
     }
 
     private func didBecomeFocused() {
@@ -826,7 +842,7 @@ extension EditorController: NSTextViewDelegate {
         completion.textDidChange(typed: typed)
         signatureHelp.textDidChange(typed: typed)
         minimapView?.refresh(textChanged: true)
-        stickyView?.update()
+        updateStickyAfterLayout()
         for other in document.editors where other !== self { other.refreshAfterEdit() }
     }
 

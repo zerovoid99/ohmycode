@@ -91,7 +91,8 @@ final class CompletionController {
             }
             if isVisible || typed == nil { return }
         }
-        guard let typed, typed.count == 1 else { return }
+        // A paste is "typed" too: counting a megabyte's characters took 0.8 ms per 100 kB.
+        guard let typed, (typed as NSString).length <= 16, typed.count == 1 else { return }
         if triggerCharacters.contains(typed) {
             request(trigger: typed, delay: .zero)
         } else if Self.isWordText(typed) {

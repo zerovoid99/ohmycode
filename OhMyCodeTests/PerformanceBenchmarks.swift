@@ -294,4 +294,60 @@ struct PerformanceBenchmarks {
         report("folds.typingWithFollowUp median main-thread CPU \(label)", ms(median(settled)))
         withExtendedLifetime(window) {}
     }
+
+    /// Pasting a big text, and undoing that; replacing all of a file, and undoing that. Each
+    /// step is timed with its layout and drawing.
+    @Test(arguments: [1.0, 5.0])
+    func pasteAndUndo(megabytes: Double) async throws {
+        let url = try file(megabytes)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let (document, controller, window, _, _) = try open(url)
+        document.attach(controller)
+        await document.highlighter?.waitUntilIdle()
+        let label = "\(Int(megabytes))MB"
+        let view = controller.textView!
+        let undo = document.undoManager
+        undo.groupsByEvent = false
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("omc-bench-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString(Self.code(bytes: 1_000_000), forType: .string)
+        func timed(_ name: String, _ body: () -> Void) async {
+            let (change, drawn) = step(window) {
+                body()
+                view.scrollRangeToVisible(view.selectedRange()) // as Paste and Undo do
+                view.layoutSubtreeIfNeeded()
+            }
+            report("\(name) \(label)", ms(change + drawn))
+            // And what follows it on the main thread, once things settle.
+            let start = Self.mainThreadTime()
+            await document.highlighter?.waitUntilIdle()
+            try? await Task.sleep(for: .milliseconds(1_500))
+            draw(window)
+            report("\(name) followUp main-thread CPU \(label)", ms(Self.mainThreadTime() - start))
+        }
+        let middle = document.lineIndex.lineStarts[document.lineIndex.lineCount / 2]
+        view.setSelectedRange(NSRange(location: middle, length: 0))
+        view.scrollRangeToVisible(view.selectedRange())
+        draw(window)
+        let original = document.textStorage.length
+        await timed("paste.1MB") {
+            undo.beginUndoGrouping()
+            _ = view.readSelection(from: pasteboard, type: .string)
+            undo.endUndoGrouping()
+        }
+        await timed("paste.undo") { undo.undo() }
+        #expect(document.textStorage.length == original)
+        await timed("paste.redo") { undo.redo() }
+        await timed("paste.undoAgain") { undo.undo() }
+        view.selectAll(nil)
+        await timed("replaceAll.1MB") {
+            undo.beginUndoGrouping()
+            _ = view.readSelection(from: pasteboard, type: .string)
+            undo.endUndoGrouping()
+        }
+        await timed("replaceAll.undo") { undo.undo() }
+        #expect(document.textStorage.length == original)
+        withExtendedLifetime(window) {}
+    }
 }

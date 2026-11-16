@@ -2,9 +2,9 @@ import AppKit
 import Testing
 @testable import Oh_My_Code
 
-/// Folds moved in place by edits, fold marks placed from the laid-out lines, and text checking
-/// skipped when nothing is checked: what a keystroke with everything folded cost on top of
-/// TextKit's own work.
+/// Folds moved in place by edits, text checking skipped when nothing is checked, sticky scroll
+/// updated after layout, and edited lines measured in one pass: what a keystroke with
+/// everything folded, a big paste, and undoing one cost on top of TextKit's own work.
 @MainActor
 @Suite(.serialized)
 struct BigEditTests {
@@ -99,6 +99,67 @@ struct BigEditTests {
         let text = view.annotatedSubstringForChecking(proposedRange: range, actualRange: &actual)
         #expect(text != nil && actual.location != NSNotFound && actual.length > 0)
         #expect(text.map { document.textStorage.mutableString.substring(with: actual) == $0.string } == true)
+        withExtendedLifetime(window) {}
+    }
+
+    /// Pasting over all of a long file (and undoing it) from far down in it: sticky scroll
+    /// asked for the line at the top of the view before the new text was laid out, and TextKit
+    /// estimated where that is through every paragraph from the start (360 ms in 5 MB). It's
+    /// asked after the next layout instead, and still follows the text.
+    @Test func pastingOverALongFileFromFarDown() async throws {
+        let (document, controller, window, url) = try open(PerformanceBenchmarks.code(bytes: 3_000_000))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let view = controller.textView!
+        let lines = document.lineIndex.lineCount
+        controller.reveal(NSRange(location: document.lineIndex.lineStarts[lines * 3 / 4], length: 0))
+        view.layoutSubtreeIfNeeded()
+        let replacement = PerformanceBenchmarks.code(bytes: 1_000_000).replacingOccurrences(of: "Point", with: "Spot")
+        view.selectAll(nil)
+        let clock = ContinuousClock()
+        let pasted = clock.measure {
+            view.insertText(replacement, replacementRange: NSRange(location: NSNotFound, length: 0))
+            view.layoutSubtreeIfNeeded()
+        }
+        #expect(document.textStorage.length == (replacement as NSString).length)
+        #expect(pasted < .milliseconds(150), "pasting over all of the text took \(pasted)")
+        let undone = clock.measure {
+            document.undoManager.undo()
+            view.layoutSubtreeIfNeeded()
+        }
+        // Mostly the line index and line widths of the 3 MB put back (slow in a debug build).
+        #expect(undone < .seconds(1), "undoing it took \(undone)")
+        #expect(document.lineIndex.lineCount == lines)
+
+        // Sticky scroll still follows the text after an edit, once it's laid out: the lines
+        // above the one at the top, inside a method.
+        let sticky = try #require(controller.stickyView)
+        await document.highlighter?.waitUntilIdle()
+        let top = try #require(controller.rect(for: NSRange(location: document.lineIndex.lineStarts[14 * 40 + 8], length: 1)))
+        view.scroll(NSPoint(x: 0, y: top.minY))
+        view.layoutSubtreeIfNeeded()
+        await sticky.waitUntilUpdated()
+        view.setSelectedRange(NSRange(location: document.lineIndex.lineStarts[14 * 40 + 10], length: 0))
+        view.insertText("\n\n", replacementRange: NSRange(location: NSNotFound, length: 0))
+        view.layoutSubtreeIfNeeded()
+        await sticky.waitUntilUpdated()
+        let afterEdit = sticky.lines
+        sticky.update()
+        await sticky.waitUntilUpdated()
+        #expect(!afterEdit.isEmpty && afterEdit == sticky.lines)
+        withExtendedLifetime(window) {}
+    }
+
+    /// The edited lines are measured (the text view is as wide as the widest line) in one pass
+    /// over them: tabs to the next stop, wide characters two columns.
+    @Test func editedLinesAreMeasured() throws {
+        let (document, _, window, url) = try open("short\nlines\n")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let width = document.displayTabWidth
+        document.textStorage.replaceCharacters(in: NSRange(location: 6, length: 0), with: "a\n\t\tb\n日本語日本語x\nab")
+        #expect(document.longestLineColumns == max(2 * width + 1, 13))
+        let long = String(repeating: "0123456789", count: 2_000) // longer than a chunk read at a time
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "x\n" + long + "\n")
+        #expect(document.longestLineColumns == 20_000)
         withExtendedLifetime(window) {}
     }
 }
