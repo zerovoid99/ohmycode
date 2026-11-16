@@ -54,4 +54,20 @@ struct ProcessIOTests {
         }
         #expect(statuses.count == 200 && statuses.sorted() == (0..<200).map { Int32($0 % 3) }.sorted())
     }
+
+    /// Commands given input (a blame of every open file at once) finish however many run at
+    /// once: writing the input must not wait for a dispatch thread, as there may be none.
+    @Test(.timeLimit(.minutes(1))) func manyCommandsWithInputAtOnceAllFinish() async {
+        let folder = FileManager.default.temporaryDirectory
+        let count = ProcessInfo.processInfo.activeProcessorCount * 4
+        let outputs = await withTaskGroup(of: Data?.self) { group in
+            for index in 0..<count {
+                group.addTask(priority: .utility) {
+                    Git.run(["hash-object", "--stdin"], in: folder, input: Data("text \(index)\n".utf8))
+                }
+            }
+            return await group.reduce(into: [Data?]()) { $0.append($1) }
+        }
+        #expect(outputs.count == count && outputs.allSatisfy { $0?.count == 41 })
+    }
 }

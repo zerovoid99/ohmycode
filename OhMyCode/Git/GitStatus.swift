@@ -733,8 +733,11 @@ enum Git {
         let inputPipe = input.map { _ in Pipe() }
         process.standardInput = inputPipe ?? FileHandle.nullDevice
         // Input is written concurrently: git may fill the output pipe before it has read it all.
+        // On a thread of its own, not a dispatch queue: with as many commands waiting as there
+        // are cores (a blame per open file) no dispatch thread is left to write, git waits for
+        // its input forever, and every thread waiting for a git with it.
         if let inputPipe, let input {
-            DispatchQueue.global().async {
+            Thread.detachNewThread {
                 try? inputPipe.fileHandleForWriting.write(contentsOf: input)
                 try? inputPipe.fileHandleForWriting.close()
             }
