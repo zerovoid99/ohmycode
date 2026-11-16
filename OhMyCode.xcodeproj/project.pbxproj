@@ -72,6 +72,7 @@
 		488045A3248499F51BD061EA /* LocalHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FA142EA397F6BFCACCF79BA /* LocalHistoryTests.swift */; };
 		4893BA1A0390AF8B354EEF0B /* TreeSitterTypeScript in Frameworks */ = {isa = PBXBuildFile; productRef = 6073D10D5264C2569088CB60 /* TreeSitterTypeScript */; };
 		4A4BE889BC87DAF28B42A1C2 /* SourceControlView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A14A7EFABD0BFC396322A78C /* SourceControlView.swift */; };
+		4CA9C25232A93F31D7529A9F /* TextScanning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64C34CBD410DCCAF7F74C063 /* TextScanning.swift */; };
 		523ACA7819A4181D3548F975 /* EditorConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FEB380BB31707CFA139D310 /* EditorConfigTests.swift */; };
 		52C26B21FEADF4F93DAB4BB6 /* FuzzyMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2CDFC2E1CCF97A2D1EB482A /* FuzzyMatcher.swift */; };
 		530DE8347F8920C0C4DB8772 /* StatusBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B14BECEA4F9A853D675100EC /* StatusBarView.swift */; };
@@ -329,6 +330,7 @@
 		61A794578540942D2357BE54 /* SyntaxEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxEngine.swift; sourceTree = "<group>"; };
 		6370077B6CFBDF889C95B886 /* EditPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditPreviewView.swift; sourceTree = "<group>"; };
 		63C0BDA667585BA6CF3CCCE0 /* FileWatchingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileWatchingTests.swift; sourceTree = "<group>"; };
+		64C34CBD410DCCAF7F74C063 /* TextScanning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextScanning.swift; sourceTree = "<group>"; };
 		66612AF9070152598AA4295F /* SearchModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchModel.swift; sourceTree = "<group>"; };
 		67423292464882B4BC168F5B /* MergeEditorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MergeEditorTests.swift; sourceTree = "<group>"; };
 		67EAC67DA0BCF2450AAD5F84 /* BlameDiffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlameDiffTests.swift; sourceTree = "<group>"; };
@@ -561,6 +563,7 @@
 				B57FC7E0A748FFD0102DC9E2 /* Sessions.swift */,
 				8902C7C1FC02562C44039229 /* SourceLanguage.swift */,
 				1C7B60F3A673166AEFC17819 /* TextReplacement.swift */,
+				64C34CBD410DCCAF7F74C063 /* TextScanning.swift */,
 				F6163A12092027D9DED0CC99 /* Workspace.swift */,
 				370DFA55B9A04014B4A290AF /* Workspace+Files.swift */,
 				0CE2146BEDE3433D4D023C59 /* Workspace+Language.swift */,
@@ -1143,6 +1146,7 @@
 				7F1367F4A17FEE687D692013 /* TestRunner.swift in Sources */,
 				0052F878E12D70D55FD532AA /* TestingView.swift in Sources */,
 				BE1246C34BC63012B757AF7A /* TextReplacement.swift in Sources */,
+				4CA9C25232A93F31D7529A9F /* TextScanning.swift in Sources */,
 				A09C0787798D6942C1467B9B /* TextSearch.swift in Sources */,
 				85FEC831829AF27DCBF673AF /* ThemeStyle.swift in Sources */,
 				3043BD420289D09EDB6B05E8 /* TimelineView.swift in Sources */,

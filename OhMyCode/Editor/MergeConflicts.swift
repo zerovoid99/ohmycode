@@ -65,10 +65,15 @@ struct MergeConflict: Equatable {
 enum ConflictParser {
     private static let marker = 7
 
+    /// Whether `range` of `text` holds a conflict's opening `<<<<<<<` (a conflict needs one).
+    static func hasStart(in text: NSString, range: NSRange? = nil) -> Bool {
+        text.containsRun(of: 0x3C, count: marker, in: range) // "<"
+    }
+
     /// Every complete conflict in `text`, in order. Unfinished or malformed blocks are skipped.
     static func conflicts(in text: NSString) -> [MergeConflict] {
-        // Most files have none: one search instead of a line walk.
-        guard text.range(of: "<<<<<<<").location != NSNotFound else { return [] }
+        // Most files have none: one quick scan instead of a line walk.
+        guard hasStart(in: text) else { return [] }
         enum State { case idle, current, base, incoming }
         var state = State.idle
         var result: [MergeConflict] = []

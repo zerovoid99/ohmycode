@@ -65,6 +65,23 @@ struct PerformanceGuardTests {
         withExtendedLifetime(window) {}
     }
 
+    /// The widest line, measured in one pass on open: tabs to the next stop, wide characters two
+    /// columns, a surrogate pair one, the last line without its newline too.
+    @Test func longestLineCountsColumns() throws {
+        func longest(_ text: String) throws -> (Int, Int) {
+            let url = FileManager.default.temporaryDirectory.appending(path: "omc-guard-\(UUID().uuidString).txt")
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: url) }
+            let document = try EditorDocument(url: url)
+            return (document.longestLineColumns, document.displayTabWidth)
+        }
+        #expect(try longest("ab\n日本語日本語\r\n😀😀\nabcdefghij").0 == 12)
+        #expect(try longest("a\nabcdefghijk").0 == 11)
+        let (tabs, width) = try longest("x\n\t\t\tx\n")
+        #expect(tabs == 3 * width + 1)
+        #expect(try longest("").0 == 0)
+    }
+
     @Test func longLinesDontWrapWithoutWordWrap() throws {
         let long = String(repeating: "let value = 1; ", count: 400) // ~6000 columns
         let url = FileManager.default.temporaryDirectory.appending(path: "omc-guard-\(UUID().uuidString).swift")

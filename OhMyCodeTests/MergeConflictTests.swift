@@ -62,6 +62,16 @@ struct ConflictParserTests {
         // Two conflicts.
         #expect(parse(twoWay + twoWay).count == 2)
     }
+
+    /// The quick check for a conflict's start reads the text in chunks: a marker across two of them counts.
+    @Test func findsAStartAcrossChunks() {
+        let before = String(repeating: "a", count: 16 * 1024 - 3)
+        #expect(ConflictParser.hasStart(in: (before + "<<<<<<< x") as NSString))
+        #expect(!ConflictParser.hasStart(in: (before + "<<<<<< x") as NSString))
+        #expect(!ConflictParser.hasStart(in: "" as NSString))
+        #expect(ConflictParser.hasStart(in: "ab<<<<<<<" as NSString, range: NSRange(location: 2, length: 7)))
+        #expect(!ConflictParser.hasStart(in: "ab<<<<<<<" as NSString, range: NSRange(location: 3, length: 6)))
+    }
 }
 
 @MainActor
@@ -84,6 +94,26 @@ struct MergeConflictEditorTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         return true
+    }
+
+    /// Edits in a file without a `<<<<<<<` skip the scan, unless they make one: typed, or joined
+    /// from two lines.
+    @Test func editsThatMakeAConflictFindIt() async throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "omc-conflict-\(UUID().uuidString).txt")
+        try "a\n<<<\n<<<< HEAD\nmine\n=======\nyours\n>>>>>>> other\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let document = try EditorDocument(url: url)
+        #expect(document.conflicts.isEmpty)
+        let storage = document.textStorage
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "plain text\n") // no conflict yet
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(document.conflicts.isEmpty)
+        // Joining "<<<" and "<<<< HEAD" makes the opening marker.
+        storage.replaceCharacters(in: NSRange(location: storage.mutableString.range(of: "<<<\n").location + 3, length: 1), with: "")
+        #expect(try await eventually { document.conflicts.count == 1 })
+        // Typing a second conflict in front.
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "<<<<<<< a\n1\n=======\n2\n>>>>>>> b\n")
+        #expect(try await eventually { document.conflicts.count == 2 })
     }
 
     @Test func clickingAnActionResolvesAndUndoBringsItBack() async throws {

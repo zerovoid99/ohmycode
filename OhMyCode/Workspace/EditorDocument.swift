@@ -165,6 +165,9 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored var blameActions: BlameActions?
     /// Merge conflicts left in the text (`<<<<<<<` … `>>>>>>>`), re-read shortly after edits.
     @ObservationIgnored private(set) var conflicts: [MergeConflict] = []
+    /// Whether the text had a `<<<<<<<` at the last scan: without one, only an edit that types
+    /// one can make a conflict, and other edits skip the scan.
+    @ObservationIgnored private var mayHaveConflicts = true
     @ObservationIgnored private var conflictTask: Task<Void, Never>?
     /// Opens a conflict's two sides in a diff tab (set by the workspace).
     @ObservationIgnored var compareConflictAction: ((MergeConflict) -> Void)?
@@ -452,7 +455,13 @@ final class EditorDocument: Identifiable {
             redrawGutters()
         }
         scheduleBlame(after: .milliseconds(800))
-        scheduleConflictScan(after: .milliseconds(100))
+        // The edited lines, in the new text: they hold any `<<<<<<<` the edit made.
+        let editedLines = NSRange(location: lineIndex.lineStarts[startLine],
+                                  length: (newEndLine + 1 < lineIndex.lineCount ? lineIndex.lineStarts[newEndLine + 1] : textStorage.length)
+                                      - lineIndex.lineStarts[startLine])
+        if mayHaveConflicts || ConflictParser.hasStart(in: textStorage.mutableString, range: editedLines) {
+            scheduleConflictScan(after: .milliseconds(100))
+        }
         // The storage's edited range can be wider than what was replaced (attribute fixing);
         // snippet stops need the replacement itself, recorded by whoever made it.
         var exact = (start: start, oldEnd: oldEnd)
@@ -485,7 +494,9 @@ final class EditorDocument: Identifiable {
     }
 
     private func updateConflicts() {
-        let found = ConflictParser.conflicts(in: textStorage.mutableString)
+        let text = textStorage.mutableString
+        mayHaveConflicts = ConflictParser.hasStart(in: text)
+        let found = mayHaveConflicts ? ConflictParser.conflicts(in: text) : []
         guard found != conflicts else { return }
         conflicts = found
         for editor in editors { editor.diagnosticsOverlay?.needsDisplay = true }
@@ -567,7 +578,7 @@ final class EditorDocument: Identifiable {
     /// nothing sent to the language server) and laid out.
     fileprivate func tabIntervalChanged(_ interval: CGFloat) {
         foldingDelegate.setTabInterval(interval)
-        guard textStorage.length > 0, textStorage.mutableString.range(of: "\t", options: .literal).location != NSNotFound else { return }
+        guard textStorage.mutableString.containsRun(of: 0x09) else { return } // no tabs to redraw
         textStorage.beginEditing()
         textStorage.edited(.editedAttributes, range: NSRange(location: 0, length: textStorage.length), changeInLength: 0)
         textStorage.endEditing()
@@ -721,22 +732,22 @@ extension EditorDocument {
 }
 
 extension EditorDocument {
-    /// Columns a run of UTF-16 units takes: tabs to the next tab stop, wide characters two.
-    private static func columns(_ units: UnsafeBufferPointer<unichar>, tabWidth: Int) -> Int {
-        var column = 0
-        for unit in units {
-            if unit == 0x09 {
-                column += tabWidth - column % tabWidth
-            } else if unit == 0x0A || unit == 0x0D || (unit >= 0xDC00 && unit <= 0xDFFF) {
-                continue // line breaks; a surrogate pair counts once (its high half)
-            } else if unit >= 0x1100 && (unit <= 0x115F || (unit >= 0x2E80 && unit <= 0xA4CF) || (unit >= 0xAC00 && unit <= 0xD7A3)
-                                         || (unit >= 0xF900 && unit <= 0xFAFF) || (unit >= 0xFF00 && unit <= 0xFF60)) {
-                column += 2
-            } else {
-                column += 1
-            }
+    /// The column after `unit`, at `column`: tabs go to the next tab stop, wide characters take
+    /// two, line breaks and a surrogate pair's low half none.
+    @inline(__always)
+    private static func column(after column: Int, _ unit: unichar, tabWidth: Int) -> Int {
+        if unit == 0x09 { return column + tabWidth - column % tabWidth }
+        if unit == 0x0A || unit == 0x0D || (unit >= 0xDC00 && unit <= 0xDFFF) { return column }
+        if unit >= 0x1100 && (unit <= 0x115F || (unit >= 0x2E80 && unit <= 0xA4CF) || (unit >= 0xAC00 && unit <= 0xD7A3)
+                              || (unit >= 0xF900 && unit <= 0xFAFF) || (unit >= 0xFF00 && unit <= 0xFF60)) {
+            return column + 2
         }
-        return column
+        return column + 1
+    }
+
+    /// Columns a run of UTF-16 units takes.
+    private static func columns(_ units: UnsafeBufferPointer<unichar>, tabWidth: Int) -> Int {
+        units.reduce(0) { column(after: $0, $1, tabWidth: tabWidth) }
     }
 
     private func columns(ofLines lines: ClosedRange<Int>) -> Int {
@@ -756,10 +767,22 @@ extension EditorDocument {
         return widest
     }
 
-    /// Measures every line (opening, saving).
+    /// Measures every line (opening, saving), in one pass over the text.
     func measureLongestLine() {
-        guard lineIndex.lineCount > 0 else { longestLineColumns = 0; return }
-        longestLineColumns = columns(ofLines: 0...(lineIndex.lineCount - 1))
+        var widest = 0, column = 0
+        let tabWidth = displayTabWidth
+        textStorage.mutableString.forEachChunk { units, _ in
+            for unit in units {
+                if unit == 0x0A {
+                    widest = max(widest, column)
+                    column = 0
+                } else {
+                    column = Self.column(after: column, unit, tabWidth: tabWidth)
+                }
+            }
+            return true
+        }
+        longestLineColumns = max(widest, column)
     }
 
     /// Edited lines: true when one of them is now the widest.
