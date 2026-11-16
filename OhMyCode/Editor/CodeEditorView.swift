@@ -881,6 +881,40 @@ final class EditorController: NSObject {
         return NSRange(location: start, length: max(0, end - start))
     }
 
+    /// Redraws the text of `range` that's already drawn, after its rendering attributes (syntax
+    /// colors) changed. TextKit doesn't: each layout fragment draws into a view of its own,
+    /// which keeps what it drew until something else redraws it. Colors that arrived after the
+    /// first draw (a file opened, a window shown in the background) stayed plain until the text
+    /// was edited or scrolled.
+    private func redrawText(in range: NSRange) {
+        guard let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager,
+              let textRange = textRange(for: range, in: contentManager) else { return }
+        let origin = textView.textContainerOrigin
+        let visible = textView.visibleRect
+        var dirty = NSRect.null
+        layoutManager.enumerateTextLayoutFragments(from: textRange.location, options: []) { fragment in
+            let frame = fragment.layoutFragmentFrame.offsetBy(dx: origin.x, dy: origin.y)
+            // Stop at the end of the range, or below the view (nothing's drawn there).
+            guard fragment.rangeInElement.location.compare(textRange.endLocation) == .orderedAscending,
+                  frame.minY < visible.maxY else { return false }
+            dirty = dirty.union(frame)
+            return true
+        }
+        guard !dirty.isNull else { return }
+        dirty.origin.x = textView.bounds.minX
+        dirty.size.width = textView.bounds.width
+        let visibleDirty = dirty.intersection(visible)
+        guard !visibleDirty.isNull, !visibleDirty.isEmpty else { return }
+        // The fragments' views are the text view's grandchildren (under its content view), a
+        // line or a wrapped paragraph each: they're redrawn whole.
+        for container in textView.subviews where container !== diagnosticsOverlay {
+            for view in container.subviews {
+                let frame = container.convert(view.frame, to: textView)
+                if frame.intersects(visibleDirty) { view.needsDisplay = true }
+            }
+        }
+    }
+
     private func textRange(for range: NSRange, in contentManager: NSTextContentManager) -> NSTextRange? {
         let documentStart = contentManager.documentRange.location
         guard let start = contentManager.location(documentStart, offsetBy: range.location),
@@ -1229,7 +1263,9 @@ extension EditorController: SyntaxHighlighterClient {
                 if let index = appliedColors.index(of: color) { paint(target, index) }
             }
         }
+        var changed: NSRange?
         for span in appliedColors.update(to: colors, in: range) {
+            changed = changed.map { NSUnionRange($0, span.range) } ?? span.range
             if span.remove, let textRange = textRange(for: span.range, in: contentManager) {
                 layoutManager.removeRenderingAttribute(.foregroundColor, for: textRange)
             }
@@ -1246,6 +1282,7 @@ extension EditorController: SyntaxHighlighterClient {
                 start = end
             }
         }
+        if let changed { redrawText(in: changed) }
         appliedColorsVersion = document.editVersion
         highlightedRange = range
         rememberNonCode(highlights)

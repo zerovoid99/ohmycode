@@ -3,6 +3,13 @@
 All notable changes to Oh My Code. Versions follow [Semantic Versioning](https://semver.org);
 downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/releases).
 
+## [Unreleased]
+
+### Fixed
+- Syntax colors that arrive after the text is drawn now show. A file just opened (or a window
+  opened in the background) stayed uncolored until its lines were edited or scrolled, because
+  TextKit doesn't redraw text whose rendering attributes change.
+
 ## [0.1.1] - 2026-11-16
 
 ### Performance
@@ -25,5 +32,6 @@ tree-sitter highlighting, language servers, git, an integrated terminal and exte
 - The gutter and overlays redraw only the rows and marks that change, and line numbers are drawn
   from cached glyphs.
 
+[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.1...HEAD
 [0.1.1]: https://github.com/zerovoid99/ohmycode/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/zerovoid99/ohmycode/releases/tag/v0.1.0

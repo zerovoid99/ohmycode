@@ -140,4 +140,51 @@ struct AppliedColorsTests {
         colors.edit(start: 100, oldEnd: 110, newLength: 0)
         #expect(colors.range.length == 0 && colors.applied(at: 115) == AppliedColors.unknown)
     }
+
+    /// Colors that change after the text is drawn (a file opened, a window in the background)
+    /// redraw it: TextKit draws each layout fragment into a view of its own and doesn't redraw
+    /// those when rendering attributes change, so the text stayed plain until edited.
+    @Test func colorsChangingAfterTheTextIsDrawnRedrawIt() async throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "omc-colors-\(UUID().uuidString).swift")
+        try PerformanceBenchmarks.code(bytes: 20_000).write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let document = try EditorDocument(url: url)
+        let controller = EditorController(document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = controller.makeView()
+        window.layoutIfNeeded()
+        let highlighter = try #require(document.highlighter)
+        highlighter.addClient(controller)
+        await highlighter.waitUntilIdle()
+        highlighter.removeClient(controller) // colors are applied below, when nothing else runs
+        let range = try #require(controller.highlightedRange)
+        let highlights = await highlighter.highlights(in: range)
+
+        let view = controller.textView!
+        let fragmentViews = view.subviews.filter { $0 !== controller.diagnosticsOverlay }.flatMap(\.subviews)
+        func marked() -> Int {
+            fragmentViews.filter { ($0.needsDisplay || $0.layer?.needsDisplay() == true)
+                && $0.frame.intersects(view.convert(view.visibleRect, to: $0.superview)) }.count
+        }
+        func draw() {
+            view.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            CATransaction.flush()
+        }
+        #expect(!fragmentViews.isEmpty)
+        draw()
+        #expect(marked() == 0, "drawn already")
+
+        // Colors taken off, then put back: each time, the text in view is redrawn.
+        controller.applyHighlights([], in: range)
+        #expect(marked() > 0, "the text isn't redrawn without its colors")
+        draw()
+        controller.applyHighlights(highlights, in: range)
+        #expect(marked() > 0, "the text isn't redrawn with its colors")
+        // The same colors again: nothing to redraw.
+        draw()
+        controller.applyHighlights(highlights, in: range)
+        #expect(marked() == 0)
+        withExtendedLifetime(window) {}
+    }
 }
