@@ -34,6 +34,7 @@
 		1F6340BD53600AC51FF68193 /* VSCodeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B511C0F6AACECBD26C594F8 /* VSCodeTheme.swift */; };
 		2173832CE7C6545543DE5181 /* StashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC78B08D2E20847B26819B /* StashTests.swift */; };
 		21EDC22CA862562303AA0ABF /* LanguageServerConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7C57B7EB44D1B9076110A5 /* LanguageServerConnection.swift */; };
+		22A41F02FA5C10BB721D5A68 /* WindowedHighlightingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61128CB548B448BDD2438DA /* WindowedHighlightingTests.swift */; };
 		234640D26A9F03EFA06D017E /* CommitGraph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F75F53CE900295074EEE285 /* CommitGraph.swift */; };
 		23CDEADD4AD2DEE911808ABF /* WorktreeSubmoduleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1926672DEF8AA6C2EBB38393 /* WorktreeSubmoduleTests.swift */; };
 		24B7957B0621B9E84225341C /* SearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43F3388BA148B4E8F22F589 /* SearchTests.swift */; };
@@ -403,6 +404,7 @@
 		B508791DA58E78D057CDB5EF /* CallHierarchy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallHierarchy.swift; sourceTree = "<group>"; };
 		B510702FBAD37501ED1CC60E /* DebugViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugViews.swift; sourceTree = "<group>"; };
 		B57FC7E0A748FFD0102DC9E2 /* Sessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sessions.swift; sourceTree = "<group>"; };
+		B61128CB548B448BDD2438DA /* WindowedHighlightingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowedHighlightingTests.swift; sourceTree = "<group>"; };
 		B7047525B08553CFC890D220 /* CodeActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeActionTests.swift; sourceTree = "<group>"; };
 		B9E1653AB1FC39B91FD8C6A3 /* DebuggerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebuggerTests.swift; sourceTree = "<group>"; };
 		BAC70BDDB10EC612FCBE47F8 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -665,6 +667,7 @@
 				B4F2009FE316D50973213A0B /* TestingTests.swift */,
 				CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */,
 				0E13FA664353862B8CC80898 /* WhitespaceTests.swift */,
+				B61128CB548B448BDD2438DA /* WindowedHighlightingTests.swift */,
 				AC3DED2E346532D4378D6C4B /* WordWrapTests.swift */,
 				E51C35CA661DE3585B84B90A /* WorkspaceSymbolTests.swift */,
 				1926672DEF8AA6C2EBB38393 /* WorktreeSubmoduleTests.swift */,
@@ -1234,6 +1237,7 @@
 				C422ED907B71E4685C30F145 /* TestingTests.swift in Sources */,
 				D7A7FF2C9BF229A9AD1993F2 /* VSCodeThemeTests.swift in Sources */,
 				1AC61C937F4E32F73FA243EB /* WhitespaceTests.swift in Sources */,
+				22A41F02FA5C10BB721D5A68 /* WindowedHighlightingTests.swift in Sources */,
 				77385E231648078B92330DB0 /* WordWrapTests.swift in Sources */,
 				AFC35AE18929D58EFA699070 /* WorkspaceSymbolTests.swift in Sources */,
 				23CDEADD4AD2DEE911808ABF /* WorktreeSubmoduleTests.swift in Sources */,

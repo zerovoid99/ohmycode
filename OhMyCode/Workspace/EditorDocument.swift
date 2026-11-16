@@ -209,6 +209,7 @@ final class EditorDocument: Identifiable {
         }
         textStorage.delegate = observer
         storageObserver = observer
+        highlighter?.pointProvider = { [weak self] offset in self?.point(at: offset) ?? Point(row: 0, column: 0) }
         diskModificationDate = Self.modificationDate(of: url)
         editorConfig = EditorConfig.resolve(for: url)
         updateTabWidth()

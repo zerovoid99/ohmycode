@@ -27,6 +27,13 @@ made every keystroke update every paragraph after the cursor. Line positions aft
 shifted lazily, so typing in one place costs the same in a 20 MB file as in a small one. The
 hot-exit backup writes only files that changed, at most every two seconds.
 
+A syntax tree takes about 50 times the text's size in memory, so files over about 1 MB are parsed
+a window at a time: what's on screen and 128 KB either side, starting and ending at top-level
+lines. Scrolling out of it parses a new window in the background, and edits inside it reparse
+incrementally. Such files are colored at any size, but their outline and folding come from the
+language server (folding also from indentation), not from a part of the file. A 5 MB file adds
+about 15 MB of memory instead of 270 MB.
+
 `PerformanceGuardTests` (in the normal test run) fail if typing in a big file gets slow again.
 The full benchmarks (opening, typing, scrolling and memory for 1, 5 and 20 MB files) print their
 timings:
