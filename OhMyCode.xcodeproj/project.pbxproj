@@ -32,6 +32,7 @@
 		1CAACB5E1539BC428AF5F78F /* ReferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B2EE7BE3BFA8F86486EE2E /* ReferencesView.swift */; };
 		1D3022887233E995E0CC9A98 /* TerminalKeyMap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DA477C6C5DD7FADEA27948 /* TerminalKeyMap.swift */; };
 		1F6340BD53600AC51FF68193 /* VSCodeTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B511C0F6AACECBD26C594F8 /* VSCodeTheme.swift */; };
+		1FC4A110AD35E58C34BC19B7 /* KeystrokeGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AC27D83A2F182AE2B030834 /* KeystrokeGuardTests.swift */; };
 		2173832CE7C6545543DE5181 /* StashTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBBC78B08D2E20847B26819B /* StashTests.swift */; };
 		21EDC22CA862562303AA0ABF /* LanguageServerConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE7C57B7EB44D1B9076110A5 /* LanguageServerConnection.swift */; };
 		22A41F02FA5C10BB721D5A68 /* WindowedHighlightingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B61128CB548B448BDD2438DA /* WindowedHighlightingTests.swift */; };
@@ -282,6 +283,7 @@
 		283BBF8CB8D107A54E380B0E /* SyntaxHighlighterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntaxHighlighterTests.swift; sourceTree = "<group>"; };
 		2A31CC2BCD7DAB857B704425 /* BranchViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchViews.swift; sourceTree = "<group>"; };
 		2A58572347F6E63EE7072F13 /* ZenModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenModeTests.swift; sourceTree = "<group>"; };
+		2AC27D83A2F182AE2B030834 /* KeystrokeGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeystrokeGuardTests.swift; sourceTree = "<group>"; };
 		2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffHighlightTests.swift; sourceTree = "<group>"; };
 		2B511C0F6AACECBD26C594F8 /* VSCodeTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VSCodeTheme.swift; sourceTree = "<group>"; };
 		2B8F8EDE4D1869E66032FBAB /* AmendUndoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmendUndoTests.swift; sourceTree = "<group>"; };
@@ -629,6 +631,7 @@
 				DE28D03343C7DE6D0F809A45 /* InlayHintTests.swift */,
 				73427E6EBCAD9D4E1BB0530F /* InteractiveRebaseTests.swift */,
 				73418B3915E627D3E9C414FA /* KeybindingTests.swift */,
+				2AC27D83A2F182AE2B030834 /* KeystrokeGuardTests.swift */,
 				7A2EB4BF7034731316A9A0A0 /* LanguageFeatureTests.swift */,
 				5855E19A81E3842B0AD3414B /* LineCommandTests.swift */,
 				9BA9DA92A03F7F0A135A4135 /* LineIndexTests.swift */,
@@ -1200,6 +1203,7 @@
 				5A58818434281BBF89249AC8 /* InlayHintTests.swift in Sources */,
 				05DCB408E950A32E96F3286D /* InteractiveRebaseTests.swift in Sources */,
 				72FF0E07BAB372FBE37A8874 /* KeybindingTests.swift in Sources */,
+				1FC4A110AD35E58C34BC19B7 /* KeystrokeGuardTests.swift in Sources */,
 				44F88C3D502540F06F587353 /* LSPTests.swift in Sources */,
 				034D9CC0BA3A8D8AF6D44394 /* LanguageFeatureTests.swift in Sources */,
 				F5D0E76258A57117F2D14299 /* LineCommandTests.swift in Sources */,

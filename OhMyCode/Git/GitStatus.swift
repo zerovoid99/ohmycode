@@ -961,7 +961,7 @@ struct BlameLine: Sendable, Equatable {
     var path: String? = nil
 
     /// Lines changed in the buffer (or in the working tree) and not committed yet.
-    var isUncommitted: Bool { commit.allSatisfy { $0 == "0" } }
+    var isUncommitted: Bool { commit.utf8.allSatisfy { $0 == 0x30 } }
 
     /// A line edited since the file was blamed.
     static func uncommitted(at date: Date = Date()) -> BlameLine {
@@ -970,9 +970,22 @@ struct BlameLine: Sendable, Equatable {
 
     /// Blame kept in step with an edit: `old` lines became `count` uncommitted ones.
     static func shifted(_ blame: [BlameLine?], replacing old: Range<Int>, with count: Int) -> [BlameLine?] {
-        guard old.lowerBound <= blame.count else { return blame }
-        let edited = [BlameLine?](repeating: uncommitted(), count: count)
-        return Array(blame[..<old.lowerBound]) + edited + Array(blame[min(blame.count, old.upperBound)...])
+        var result = blame
+        shift(&result, replacing: old, with: count)
+        return result
+    }
+
+    /// `shifted`, in place: typing in a line writes that line's entry and moves nothing. This
+    /// runs on every keystroke, and a copy of the array is a copy of every line's blame.
+    static func shift(_ blame: inout [BlameLine?], replacing old: Range<Int>, with count: Int) {
+        guard old.lowerBound <= blame.count else { return }
+        let replaced = old.lowerBound..<min(blame.count, old.upperBound)
+        let edited = uncommitted()
+        if replaced.count == count {
+            for line in replaced { blame[line] = edited }
+        } else {
+            blame.replaceSubrange(replaced, with: repeatElement(edited, count: count))
+        }
     }
 
     /// One entry per line of the blamed text (nil where git said nothing).

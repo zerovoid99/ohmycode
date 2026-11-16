@@ -65,6 +65,45 @@ struct PerformanceGuardTests {
         withExtendedLifetime(window) {}
     }
 
+    /// A file of code in an editor in a window, laid out.
+    private func openEditor(bytes: Int) throws -> (EditorDocument, EditorController, NSWindow) {
+        let url = FileManager.default.temporaryDirectory.appending(path: "omc-guard-\(UUID().uuidString).swift")
+        try PerformanceBenchmarks.code(bytes: bytes).write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let document = try EditorDocument(url: url)
+        let controller = EditorController(document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = controller.makeView()
+        window.layoutIfNeeded()
+        controller.textView.layoutSubtreeIfNeeded()
+        document.attach(controller)
+        return (document, controller, window)
+    }
+
+    /// An edit changes the blame in place: making the array again for every keystroke took
+    /// time in proportion to the file's lines (a second, in a 20 MB file).
+    @Test func editsDontCopyTheBlame() async throws {
+        let (document, controller, window) = try openEditor(bytes: 200_000)
+        let lineCount = document.lineIndex.lineCount
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        document.blameProvider = { _ in
+            (0..<lineCount).map { BlameLine(commit: String(format: "%040x", $0 % 50 + 1), author: "a", date: date.addingTimeInterval(Double($0)), summary: "s") }
+        }
+        document.scheduleBlame(after: .zero)
+        await document.waitForBlame()
+        #expect(document.blameDates == date...date.addingTimeInterval(Double(lineCount - 1)))
+        func storage() -> UnsafeRawPointer? { document.blame?.withUnsafeBufferPointer { UnsafeRawPointer($0.baseAddress) } }
+        let before = storage()
+        let line = lineCount / 2
+        controller.textView.setSelectedRange(NSRange(location: document.lineIndex.lineStarts[line] + 4, length: 0))
+        for _ in 0..<5 { controller.textView.insertText("a", replacementRange: NSRange(location: NSNotFound, length: 0)) }
+        #expect(storage() == before)
+        #expect(document.blame?[line]?.isUncommitted == true)
+        #expect(document.blame?[line - 1]?.isUncommitted == false && document.blame?[line + 1]?.isUncommitted == false)
+        #expect(document.blame?.count == lineCount)
+        withExtendedLifetime(window) {}
+    }
+
     /// The widest line, measured in one pass on open: tabs to the next stop, wide characters two
     /// columns, a surrogate pair one, the last line without its newline too.
     @Test func longestLineCountsColumns() throws {

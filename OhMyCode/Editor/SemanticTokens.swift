@@ -89,15 +89,25 @@ extension EditorDocument {
         guard !semanticTokens.isEmpty else { return }
         let delta = newLength - oldRange.length
         let end = NSMaxRange(oldRange)
-        semanticTokens = semanticTokens.compactMap { token in
-            if NSMaxRange(token.range) <= oldRange.location { return token }
-            if token.range.location >= end, oldRange.length > 0 || token.range.location > oldRange.location {
-                var moved = token
-                moved.range.location += delta
-                return moved
-            }
-            // Typing at a token's end or inside it: it's no longer known.
-            return nil
+        // In place, from the first token the edit reaches (they're sorted by position, as
+        // `semanticTokens(in:)` relies on): this runs on every keystroke, and making the array
+        // again took 6 ms with 150,000 tokens.
+        var first = 0, high = semanticTokens.count
+        while first < high {
+            let middle = (first + high) / 2
+            if NSMaxRange(semanticTokens[middle].range) <= oldRange.location { first = middle + 1 } else { high = middle }
+        }
+        // Typing inside a token or right before it: it's no longer known. The ones after move.
+        var firstMoved = first
+        while firstMoved < semanticTokens.count {
+            let location = semanticTokens[firstMoved].range.location
+            if location >= end, oldRange.length > 0 || location > oldRange.location { break }
+            firstMoved += 1
+        }
+        if firstMoved > first { semanticTokens.removeSubrange(first..<firstMoved) }
+        guard delta != 0, first < semanticTokens.count else { return }
+        semanticTokens.withUnsafeMutableBufferPointer { tokens in
+            for index in first..<tokens.count { tokens[index].range.location += delta }
         }
     }
 

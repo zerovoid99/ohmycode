@@ -95,13 +95,10 @@ final class EditorDocument: Identifiable {
     var languageId: String { LanguageServerConfig.languageId(for: language) }
 
     /// Who last changed each line (git blame of the buffer); nil while unknown.
-    @ObservationIgnored private(set) var blame: [BlameLine?]? {
-        didSet {
-            // The oldest and newest commit dates, for the blame column's age bar.
-            let dates = (blame ?? []).compactMap { $0 }.filter { !$0.isUncommitted }.map(\.date)
-            blameDates = dates.min().flatMap { min in dates.max().map { min...$0 } }
-        }
-    }
+    @ObservationIgnored private(set) var blame: [BlameLine?]?
+    /// The oldest and newest commit dates, for the blame column's age bar: read from a blame
+    /// when it arrives (`setBlame`), not after each edit (the lines an edit touches aren't
+    /// committed, and reading every line's date on each keystroke took 55 ms in 40,000 lines).
     @ObservationIgnored private(set) var blameDates: ClosedRange<Date>?
     @ObservationIgnored var blameProvider: ((String) async -> [BlameLine?]?)?
     @ObservationIgnored private var blameTask: Task<Void, Never>?
@@ -208,7 +205,8 @@ final class EditorDocument: Identifiable {
         textContentStorage.delegate = foldingDelegate
 
         let observer = TextStorageObserver { [weak self] range, delta in
-            self?.textDidEdit(range: range, changeInLength: delta)
+            guard let self, !self.isReplacingBatch else { return }
+            self.textDidEdit(range: range, changeInLength: delta)
         }
         textStorage.delegate = observer
         storageObserver = observer
@@ -401,6 +399,40 @@ final class EditorDocument: Identifiable {
         cursorColumn = location - lineIndex.lineStarts[line] + 1
     }
 
+    /// Makes several replacements (sorted, not overlapping, in the current text's coordinates),
+    /// as one storage edit for TextKit: after each storage edit it moves every text element it
+    /// has made after that place, so 1,000 separate edits (typing at 1,000 cursors, Replace All)
+    /// took 25 s in a 1 MB file. The document itself still sees them one by one, right as
+    /// they're made: its line index, parser and LSP sync get ordinary single edits.
+    func replaceCharacters(_ edits: [TextReplacement]) {
+        let batched = edits.count > 1
+        if batched {
+            isReplacingBatch = true
+            textStorage.beginEditing()
+        }
+        // Front to back, each range moved by the edits before it: the line index then only has
+        // the lines between two edits to move for each (back to front, every edit moves all the
+        // lines after it).
+        var shift = 0
+        for edit in edits {
+            let length = (edit.text as NSString).length
+            let range = NSRange(location: edit.range.location + shift, length: edit.range.length)
+            pendingReplacement = (range, length)
+            textStorage.replaceCharacters(in: range, with: NSAttributedString(string: edit.text, attributes: EditorTheme.baseAttributes))
+            if batched {
+                textDidEdit(range: NSRange(location: range.location, length: length), changeInLength: length - range.length)
+            }
+            shift += length - range.length
+        }
+        if batched {
+            textStorage.endEditing() // tells the storage's delegate about all of it at once: ignored
+            isReplacingBatch = false
+        }
+    }
+
+    /// While `replaceCharacters` makes a batch: the storage's own report of it isn't an edit to handle.
+    @ObservationIgnored private var isReplacingBatch = false
+
     private func textDidEdit(range: NSRange, changeInLength delta: Int) {
         let start = range.location
         let oldEnd = start + range.length - delta
@@ -450,8 +482,9 @@ final class EditorDocument: Identifiable {
         }
         // Until blame runs again on the new text: edited lines aren't committed, lines after
         // them move with the edit.
-        if let blame {
-            self.blame = BlameLine.shifted(blame, replacing: old, with: count)
+        if blame != nil {
+            // In place (no `if let`: a second reference would make this copy every line's blame).
+            BlameLine.shift(&blame!, replacing: old, with: count)
             editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true }
             redrawGutters()
         }
@@ -553,10 +586,20 @@ final class EditorDocument: Identifiable {
             let version = editVersion
             let result = await blameProvider(textStorage.mutableString as String)
             guard !Task.isCancelled, version == editVersion else { return }
-            blame = result
+            setBlame(result)
             editors.forEach { $0.diagnosticsOverlay?.needsDisplay = true }
             redrawGutters()
         }
+    }
+
+    private func setBlame(_ lines: [BlameLine?]?) {
+        blame = lines
+        var oldest: Date?, newest: Date?
+        for case let line? in lines ?? [] where !line.isUncommitted {
+            oldest = oldest.map { min($0, line.date) } ?? line.date
+            newest = newest.map { max($0, line.date) } ?? line.date
+        }
+        blameDates = oldest.flatMap { oldest in newest.map { oldest...$0 } }
     }
 
     /// Waits for pending blame (tests).
@@ -736,7 +779,7 @@ extension EditorDocument {
     /// The column after `unit`, at `column`: tabs go to the next tab stop, wide characters take
     /// two, line breaks and a surrogate pair's low half none.
     @inline(__always)
-    private static func column(after column: Int, _ unit: unichar, tabWidth: Int) -> Int {
+    nonisolated private static func column(after column: Int, _ unit: unichar, tabWidth: Int) -> Int {
         if unit == 0x09 { return column + tabWidth - column % tabWidth }
         if unit == 0x0A || unit == 0x0D || (unit >= 0xDC00 && unit <= 0xDFFF) { return column }
         if unit >= 0x1100 && (unit <= 0x115F || (unit >= 0x2E80 && unit <= 0xA4CF) || (unit >= 0xAC00 && unit <= 0xD7A3)
@@ -746,9 +789,12 @@ extension EditorDocument {
         return column + 1
     }
 
-    /// Columns a run of UTF-16 units takes.
-    private static func columns(_ units: UnsafeBufferPointer<unichar>, tabWidth: Int) -> Int {
-        units.reduce(0) { column(after: $0, $1, tabWidth: tabWidth) }
+    /// Columns a run of UTF-16 units takes. Not tied to the main actor (nor is `column`): the
+    /// closure checked which actor it was on for every unit, 37 ms per megabyte edited.
+    nonisolated private static func columns(_ units: UnsafeBufferPointer<unichar>, tabWidth: Int) -> Int {
+        var result = 0
+        for unit in units { result = column(after: result, unit, tabWidth: tabWidth) }
+        return result
     }
 
     private func columns(ofLines lines: ClosedRange<Int>) -> Int {

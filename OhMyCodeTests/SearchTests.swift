@@ -197,6 +197,43 @@ struct SearchScaleTests {
         return (document, controller, window, url)
     }
 
+    /// Replace All's edits go to the text storage as one (each one alone cost 0.3 ms of TextKit
+    /// bookkeeping: 100,000 took half a minute); the document still sees each edit, so its line
+    /// index, parser and language server follow them one by one.
+    @Test func manyReplacementsAreOneStorageEdit() throws {
+        let text = PerformanceBenchmarks.code(bytes: 1_000_000)
+        let (document, _, window, url) = try open(text)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let regex = try TextSearch.replacementRegex(SearchOptions(query: "x", caseSensitive: true))
+        let edits = TextSearch.replacements(in: text, regex: regex, template: "xyz")
+        #expect(edits.count > 20_000)
+        var storageEdits = 0
+        let observer = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification,
+                                                              object: document.textStorage, queue: nil) { _ in storageEdits += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        let version = document.editVersion
+        let clock = ContinuousClock()
+        let elapsed = try clock.measure { _ = try document.apply(edits, actionName: "Replace") }
+        // About 3 s in a debug build, most of it the document's own bookkeeping for each of the
+        // edits (they were half a minute for TextKit alone, one storage edit each).
+        #expect(elapsed < .seconds(6), "took \(elapsed)")
+        #expect(storageEdits == 1)
+        #expect(document.editVersion == version + edits.count)
+        #expect(document.textStorage.mutableString.isEqual(to: text.replacingOccurrences(of: "x", with: "xyz")))
+        #expect(document.lineIndex.lineStarts == LineIndex(string: document.textStorage.mutableString).lineStarts)
+        document.undoManager.undo()
+        #expect(document.textStorage.mutableString.isEqual(to: text))
+        #expect(document.lineIndex.lineStarts == LineIndex(string: document.textStorage.mutableString).lineStarts)
+        #expect(document.editVersion == version + 2 * edits.count)
+
+        let length = (text as NSString).length
+        let few = (0..<8).map { TextReplacement(range: NSRange(location: 10 + $0 * (length / 8), length: 0), text: "\n") }
+        _ = try document.apply(few, actionName: "Insert")
+        #expect(document.editVersion == version + 2 * edits.count + 8)
+        #expect(document.lineIndex.lineStarts == LineIndex(string: document.textStorage.mutableString).lineStarts)
+        withExtendedLifetime(window) {}
+    }
+
     /// The find bar's Replace All: through the document, as one undoable edit.
     @Test func findBarReplacesAllThroughTheDocument() async throws {
         let text = PerformanceBenchmarks.code(bytes: 300_000)

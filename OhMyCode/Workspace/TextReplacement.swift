@@ -69,12 +69,7 @@ extension EditorDocument {
         editor?.textView.breakUndoCoalescing()
         // The find bar searches the text in the background: it has to hear of this first.
         editors.forEach { $0.textWillChange() }
-        // Back to front, so earlier ranges stay valid. One storage edit each: the document's
-        // incremental line index, parser and LSP sync all see ordinary single edits.
-        for edit in effective.reversed() {
-            pendingReplacement = (edit.range, (edit.text as NSString).length)
-            textStorage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.text, attributes: EditorTheme.baseAttributes))
-        }
+        replaceCharacters(effective)
         for (textView, selection) in selections {
             textView.setSelectedRange(Self.adjust(selection, by: effective, length: textStorage.length))
         }
