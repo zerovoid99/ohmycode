@@ -371,6 +371,7 @@ final class EditorDocument: Identifiable {
 
         LocalHistory.shared.record(textStorage.mutableString as String, for: url, reason: .beforeReload)
         let selections = editors.map { ($0, $0.textView.selectedRange()) }
+        editors.forEach { $0.textWillChange() }
         textStorage.replaceCharacters(in: NSRange(location: 0, length: textStorage.length),
                                       with: NSAttributedString(string: text, attributes: EditorTheme.baseAttributes))
         isDirty = false

@@ -67,6 +67,8 @@ extension EditorDocument {
 
         let selections = editors.map { ($0.textView!, $0.textView.selectedRange()) }
         editor?.textView.breakUndoCoalescing()
+        // The find bar searches the text in the background: it has to hear of this first.
+        editors.forEach { $0.textWillChange() }
         // Back to front, so earlier ranges stay valid. One storage edit each: the document's
         // incremental line index, parser and LSP sync all see ordinary single edits.
         for edit in effective.reversed() {

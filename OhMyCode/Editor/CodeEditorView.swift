@@ -107,6 +107,13 @@ final class EditorController: NSObject {
         configure(textView)
         scrollView.documentView = textView
         self.textView = textView
+        textView.finder.client = textView
+        textView.finder.findBarContainer = scrollView
+        textView.finder.isIncrementalSearchingEnabled = true
+        textView.finder.incrementalSearchingShouldDimContentView = true
+        textView.onFinderReplace = { [weak self] edits in
+            (try? self?.document.apply(edits, actionName: "Replace")) ?? false
+        }
 
         let overlay = DiagnosticsOverlayView(textView: textView, document: document)
         textView.addSubview(overlay)
@@ -764,7 +771,14 @@ extension EditorController: NSTextViewDelegate {
         strippingInlayHint(newTypingAttributes)
     }
 
+    /// The text is about to change. The find bar searches it on a background thread: a change
+    /// it wasn't told about first crashed there (reading the string as it moved).
+    func textWillChange() {
+        textView?.finder.noteClientStringWillChange()
+    }
+
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
+        textWillChange()
         pendingTypedText = (replacementString?.isEmpty == false) ? replacementString : nil
         if let replacementString { document.pendingReplacement = (range, (replacementString as NSString).length) }
         return true
@@ -805,7 +819,57 @@ extension EditorController: NSTextViewDelegate {
 
 /// `NSTextView` that reports each layout pass (TextKit 2 lays out its viewport in `layout()`),
 /// so the gutter and syntax colors can follow the freshly laid-out viewport.
-final class CodeTextView: NSTextView {
+final class CodeTextView: NSTextView, @preconcurrency NSTextFinderClient {
+    /// The find bar's finder: the editor's own, not the text view's built-in one, which only
+    /// hears of changes made through the text view. Edits made straight to the text storage
+    /// (Replace in Files, rename, formatting, a reload) have to announce themselves too, and
+    /// there's no way to reach the built-in one for that (see `EditorController.textWillChange`).
+    let finder = NSTextFinder()
+
+    override func performTextFinderAction(_ sender: Any?) {
+        guard let tag = (sender as? NSValidatedUserInterfaceItem)?.tag ?? (sender as? NSControl)?.tag,
+              let action = NSTextFinder.Action(rawValue: tag), finder.validateAction(action) else { return }
+        finder.performAction(action)
+    }
+
+    /// The older action (same tags): not to the built-in finder either.
+    override func performFindPanelAction(_ sender: Any?) {
+        performTextFinderAction(sender)
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(performTextFinderAction(_:)) || item.action == #selector(performFindPanelAction(_:)) {
+            return NSTextFinder.Action(rawValue: item.tag).map(finder.validateAction) ?? false
+        }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    /// Makes the find bar's replacements (Replace, Replace All) as one edit; returns false when
+    /// nothing changed.
+    var onFinderReplace: (([TextReplacement]) -> Bool)?
+    private var finderReplaced = false
+
+    /// The find bar is about to replace these. `NSTextView` answers by working out the text
+    /// after the change, moving the rest of a copy of it for every replacement (61,000 in
+    /// 20 MB: 24 s); here they're made at once, through the document, and the calls to
+    /// `replaceCharacters(in:with:)` that follow a yes have nothing left to do.
+    func shouldReplaceCharacters(inRanges ranges: [NSValue], with strings: [String]) -> Bool {
+        guard isEditable, ranges.count == strings.count, let onFinderReplace else { return false }
+        finderReplaced = onFinderReplace(zip(ranges, strings).map { TextReplacement(range: $0.rangeValue, text: $1) })
+        // `didReplaceCharacters` ends it; should that not come, it doesn't outlive this event.
+        if finderReplaced { DispatchQueue.main.async { [weak self] in self?.finderReplaced = false } }
+        return finderReplaced
+    }
+
+    override func replaceCharacters(in range: NSRange, with string: String) {
+        if finderReplaced { return }
+        super.replaceCharacters(in: range, with: string)
+    }
+
+    func didReplaceCharacters() {
+        finderReplaced = false
+    }
+
     var onLayout: (() -> Void)?
     var onCommandClick: (() -> Void)?
     var onResignFocus: (() -> Void)?

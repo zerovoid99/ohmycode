@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Testing
 @testable import Oh_My_Code
 
@@ -178,5 +178,64 @@ struct SearchModelTests {
         model.options.query = ""
         #expect(model.results.isEmpty && model.errorMessage == nil)
         withExtendedLifetime(workspace) {}
+    }
+}
+
+/// Search paths that were slow or unsafe with big inputs.
+@MainActor
+struct SearchScaleTests {
+    private func open(_ text: String) throws -> (EditorDocument, EditorController, NSWindow, URL) {
+        let url = FileManager.default.temporaryDirectory.appending(path: "omc-search-scale-\(UUID().uuidString).swift")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        let document = try EditorDocument(url: url)
+        let controller = EditorController(document: document)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = controller.makeView()
+        window.layoutIfNeeded()
+        window.makeFirstResponder(controller.textView)
+        document.editor = controller
+        return (document, controller, window, url)
+    }
+
+    /// The find bar's Replace All: through the document, as one undoable edit.
+    @Test func findBarReplacesAllThroughTheDocument() async throws {
+        let text = PerformanceBenchmarks.code(bytes: 300_000)
+        let (document, controller, window, url) = try open(text)
+        defer { try? FileManager.default.removeItem(at: url) }
+        func perform(_ action: NSTextFinder.Action) {
+            let item = NSMenuItem()
+            item.tag = action.rawValue
+            controller.textView.performTextFinderAction(item)
+        }
+        func descendants(of view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants(of: $0) } }
+        perform(.showReplaceInterface)
+        window.layoutIfNeeded()
+        let bar = try #require(controller.textView.enclosingScrollView?.findBarView)
+        let fields = descendants(of: bar).compactMap { $0 as? NSTextField }.filter(\.isEditable)
+        try #require(fields.count >= 2)
+        fields[0].stringValue = "moved"
+        _ = fields[0].sendAction(fields[0].action, to: fields[0].target)
+        fields[1].stringValue = "shifted"
+        _ = fields[1].sendAction(fields[1].action, to: fields[1].target)
+
+        // An edit made straight to the storage while the bar searches in the background (it
+        // crashed there: the finder has to hear of it first).
+        _ = try document.apply([TextReplacement(range: NSRange(location: 0, length: 0), text: "// top\n")], actionName: "Insert")
+        let edited = "// top\n" + text
+        let version = document.editVersion
+        let replacing = edited.components(separatedBy: "moved").count - 1
+        #expect(replacing > 1)
+        perform(.replaceAll)
+        // Every replacement reached the document (one edit each, as `apply` makes them).
+        #expect(document.editVersion == version + replacing)
+        #expect(document.textStorage.mutableString.isEqual(to: edited.replacingOccurrences(of: "moved", with: "shifted")))
+        #expect(document.lineIndex.lineStarts == LineIndex(string: document.textStorage.mutableString).lineStarts)
+        // One step to undo (with the insert above, made in the same event).
+        document.undoManager.undo()
+        #expect(document.textStorage.mutableString.isEqual(to: text))
+        // The text view's own replacing works again after it.
+        controller.textView.replaceCharacters(in: NSRange(location: 0, length: 0), with: "##")
+        #expect(document.textStorage.mutableString.hasPrefix("##///"))
+        withExtendedLifetime(window) {}
     }
 }
