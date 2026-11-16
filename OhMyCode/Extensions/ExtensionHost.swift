@@ -965,20 +965,19 @@ enum ExtensionProcess {
             process.standardOutput = output
             process.standardError = errors
             process.standardInput = input == nil ? FileHandle.nullDevice : inputPipe
+            // Input is written on a thread of its own, as git's is: with as many programs
+            // running as there are cores, a dispatch queue had no thread left to write it,
+            // and every program waited for its input forever.
             if let input {
-                DispatchQueue.global().async {
+                Thread.detachNewThread {
                     try? inputPipe.fileHandleForWriting.write(contentsOf: Data(input.utf8))
                     try? inputPipe.fileHandleForWriting.close()
                 }
             }
-            nonisolated(unsafe) var didTimeOut = false
-            let timer = DispatchWorkItem {
-                if process.isRunning { didTimeOut = true; process.terminate() }
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer)
-            let result = try ProcessIO.run(process, output: output, error: errors)
-            timer.cancel()
-            if didTimeOut { throw Timeout(seconds: timeout) }
+            // Stopped by the wait itself, not a dispatch timer (which waits for a free thread too).
+            let started = ContinuousClock.now
+            let result = try ProcessIO.run(process, output: output, error: errors, timeout: .seconds(timeout))
+            if result.status == 128 + SIGKILL, ContinuousClock.now - started >= .seconds(timeout) { throw Timeout(seconds: timeout) }
             return JSONValue.object([
                 "code": .number(Double(result.status)),
                 "stdout": .string(String(decoding: result.output, as: UTF8.self)),

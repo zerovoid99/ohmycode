@@ -70,4 +70,29 @@ struct ProcessIOTests {
         }
         #expect(outputs.count == count && outputs.allSatisfy { $0?.count == 41 })
     }
+
+    /// Programs extensions run with input (`omc.process.run`): writing it must not wait for a
+    /// dispatch thread, or with as many running as there are cores none ever finishes.
+    @Test(.timeLimit(.minutes(1))) func manyExtensionProgramsWithInputAtOnceAllFinish() async throws {
+        let count = ProcessInfo.processInfo.activeProcessorCount * 4
+        let outputs = await withTaskGroup(of: String?.self) { group in
+            for index in 0..<count {
+                group.addTask(priority: .utility) {
+                    let result = try? await ExtensionProcess.run("cat", arguments: [], directory: nil,
+                                                                 input: "text \(index)\n", timeout: 30)
+                    return result?["stdout"]?.string
+                }
+            }
+            return await group.reduce(into: [String?]()) { $0.append($1) }
+        }
+        #expect(outputs.count == count)
+        #expect(Set(outputs.compactMap { $0 }) == Set((0..<count).map { "text \($0)\n" }))
+
+        // One that takes too long is stopped.
+        let started = ContinuousClock.now
+        await #expect(throws: ExtensionProcess.Timeout.self) {
+            try await ExtensionProcess.run("sleep", arguments: ["30"], directory: nil, input: nil, timeout: 0.3)
+        }
+        #expect(ContinuousClock.now - started < .seconds(5))
+    }
 }
