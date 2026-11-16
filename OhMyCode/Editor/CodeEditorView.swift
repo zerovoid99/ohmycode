@@ -69,6 +69,7 @@ final class EditorController: NSObject {
     private var pendingTypedText: String?
     /// Range that currently has highlight colors applied; scrolling inside it is free.
     private(set) var highlightedRange: NSRange?
+    private var textElementTrimTask: Task<Void, Never>?
 
     init(document: EditorDocument, group: EditorGroup? = nil) {
         self.document = document
@@ -707,6 +708,30 @@ final class EditorController: NSObject {
         gutterView.needsDisplay = true
         minimapView?.refresh()
         stickyView?.update()
+        scheduleTextElementTrim()
+    }
+
+    /// How long after the last scroll the text elements left behind are dropped.
+    nonisolated(unsafe) static var textElementTrimDelay: Duration = .seconds(1)
+
+    /// Once scrolling has stopped: has the document drop the text elements TextKit made at the
+    /// places the viewport passed (see `EditorDocument.trimTextElements`).
+    private func scheduleTextElementTrim() {
+        textElementTrimTask?.cancel()
+        textElementTrimTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.textElementTrimDelay)
+            guard !Task.isCancelled, let self else { return }
+            self.document.trimTextElements()
+        }
+    }
+
+    /// The text this editor needs its text elements for: what's laid out, with the lines around
+    /// it that have their syntax colors (those are rendering attributes of the laid-out text).
+    var textRangeInUse: NSRange? {
+        guard textView != nil, !textView.hasMarkedText(), var range = highlightRange else { return nil }
+        if let highlightedRange { range = NSUnionRange(range, highlightedRange) }
+        if let visible = visibleCharacterRange() { range = NSUnionRange(range, visible) }
+        return NSIntersectionRange(range, NSRange(location: 0, length: document.textStorage.length))
     }
 
     /// Asks for syntax colors when the viewport moved outside the highlighted range (or always,

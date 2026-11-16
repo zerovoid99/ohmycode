@@ -269,4 +269,88 @@ struct KeystrokeGuardTests {
         withExtendedLifetime(outlineWindow) {}
         withExtendedLifetime(workspace) {}
     }
+
+    // MARK: Text elements
+
+    /// TextKit keeps the text element of every line a viewport has laid out and moves the ones
+    /// after an edit on every edit: after the viewport had been to 400 places, a keystroke at
+    /// the top took 77 ms. The ones away from the viewport are dropped once scrolling stops.
+    @Test func textElementsLeftBehindAreDropped() async throws {
+        let (document, controller, window, url) = try open(bytes: 3_000_000)
+        defer { try? FileManager.default.removeItem(at: url) }
+        // Not while this measures the difference it makes.
+        let delay = EditorController.textElementTrimDelay
+        EditorController.textElementTrimDelay = .seconds(3600)
+        defer { EditorController.textElementTrimDelay = delay }
+        let view = controller.textView!
+        let lines = document.lineIndex.lineCount
+        for place in 0..<300 {
+            controller.reveal(NSRange(location: document.lineIndex.lineStarts[place * (lines - 1) / 300], length: 0))
+            view.layoutSubtreeIfNeeded()
+        }
+        controller.reveal(NSRange(location: 4, length: 0))
+        view.layoutSubtreeIfNeeded()
+        let before = typing(controller)
+        document.trimTextElements()
+        let after = typing(controller)
+        #expect(after * 2 < before, "a keystroke took \(before) before dropping the text elements, \(after) after")
+
+        // In the middle, colored: dropping them moves nothing, and what's in view keeps its colors.
+        for place in 0..<20 {
+            controller.reveal(NSRange(location: document.lineIndex.lineStarts[place * (lines - 1) / 20], length: 0))
+            view.layoutSubtreeIfNeeded()
+        }
+        controller.reveal(NSRange(location: document.lineIndex.lineStarts[lines / 2], length: 0))
+        view.layoutSubtreeIfNeeded()
+        var keyword = NSNotFound
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
+            view.layoutSubtreeIfNeeded()
+            if let visible = controller.visibleCharacterRange() {
+                keyword = document.textStorage.mutableString.range(of: "struct", options: [], range: visible).location
+                if keyword != NSNotFound, let color = controller.renderedColor(at: keyword), color != EditorTheme.current.foreground { break }
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let color = try #require(controller.renderedColor(at: keyword))
+        #expect(color != EditorTheme.current.foreground)
+        let top = controller.topVisibleLine, rect = view.visibleRect
+        document.trimTextElements()
+        view.layoutSubtreeIfNeeded()
+        #expect(controller.topVisibleLine == top && view.visibleRect == rect,
+                "top line \(top) -> \(controller.topVisibleLine), \(rect.minY) -> \(view.visibleRect.minY)")
+        #expect(controller.renderedColor(at: keyword) == color)
+        // The text is all there, wherever one goes next.
+        controller.reveal(NSRange(location: document.lineIndex.lineStarts[lines / 3], length: 0))
+        view.layoutSubtreeIfNeeded()
+        #expect(abs(controller.topVisibleLine - lines / 3) < 100)
+        withExtendedLifetime(window) {}
+    }
+
+    /// Scrolling schedules it.
+    @Test func scrollingDropsTextElementsAfterAPause() async throws {
+        let (document, controller, window, url) = try open(bytes: 2_000_000)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let delay = EditorController.textElementTrimDelay
+        EditorController.textElementTrimDelay = .milliseconds(20)
+        defer { EditorController.textElementTrimDelay = delay }
+        let view = controller.textView!
+        let lines = document.lineIndex.lineCount
+        for place in 0..<300 {
+            controller.reveal(NSRange(location: document.lineIndex.lineStarts[place * (lines - 1) / 300], length: 0))
+            view.layoutSubtreeIfNeeded()
+        }
+        controller.reveal(NSRange(location: 4, length: 0))
+        view.layoutSubtreeIfNeeded()
+        EditorController.textElementTrimDelay = .seconds(3600)
+        let before = typing(controller)
+        EditorController.textElementTrimDelay = .milliseconds(20)
+        view.enclosingScrollView?.contentView.scroll(to: NSPoint(x: 0, y: 40))
+        view.enclosingScrollView.map { $0.reflectScrolledClipView($0.contentView) }
+        try await Task.sleep(for: .milliseconds(300))
+        view.layoutSubtreeIfNeeded()
+        let after = typing(controller)
+        #expect(after * 2 < before, "a keystroke took \(before) before the pause, \(after) after")
+        withExtendedLifetime(window) {}
+    }
 }
