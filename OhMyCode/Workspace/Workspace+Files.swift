@@ -206,6 +206,7 @@ extension Workspace {
                 throw error
             }
             breakpoints.move(from: oldPath, to: FileWatcher.canonicalPath(destination))
+            moveViewers(from: oldPath, to: destination)
             // 3. Open documents at (or under) the old path follow, unsaved text and all.
             for (document, path) in affected {
                 let newURL = destination.appending(path: String(path.dropFirst(oldPath.count)))
@@ -260,6 +261,7 @@ extension Workspace {
                 let affected = documents.filter { $0.canonicalPath == path || $0.canonicalPath.hasPrefix(path + "/") }
                 try Self.moveToTrash(url)
                 affected.forEach(discardDocument)
+                discardViewers(at: path)
                 reloadTree(around: url)
             } catch {
                 errorMessage = error.localizedDescription

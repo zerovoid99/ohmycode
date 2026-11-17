@@ -51,12 +51,23 @@ struct EditorGroupView: View {
                                 // Left of the minimap (and the scroller), not on it.
                                 .padding(.trailing, 22 + (AppSettings.shared.showsMinimap ? MinimapView.width : 0))
                                 .padding(.top, 6)
+                            } else if FileKind.kind(forExtension: document.url.pathExtension) == .svg {
+                                Button { workspace.openPreview(of: document) } label: {
+                                    Image(systemName: "photo")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Open Preview")
+                                .padding(.trailing, 22 + (AppSettings.shared.showsMinimap ? MinimapView.width : 0))
+                                .padding(.top, 6)
                             }
                         }
                 }
             } else if let session = workspace.diffSession(id: group.activeDocumentID) {
                 DiffView(session: session, workspace: workspace)
                     .id(session.id)
+            } else if let viewer = workspace.viewer(id: group.activeDocumentID) {
+                FileViewerView(viewer: viewer, workspace: workspace)
+                    .id(viewer.id)
             } else {
                 StartPageView(workspace: workspace)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

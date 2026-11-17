@@ -191,14 +191,36 @@ final class EditorDocument: Identifiable {
     /// Whether the file starts with a UTF-8 byte order mark: reading drops it, saving puts it back.
     @ObservationIgnored private(set) var hasBOM = false
     private static let bom = Data([0xEF, 0xBB, 0xBF])
+    /// Set for a UTF-16 file (read by its byte order mark): saving writes UTF-16 again.
+    @ObservationIgnored private(set) var utf16Encoding: String.Encoding?
+
+    /// A file's text: UTF-8, or UTF-16 with a byte order mark. Nil for anything else (NUL bytes
+    /// in the first 8 KB mean binary).
+    nonisolated static func decode(_ data: Data) -> (text: String, utf16: String.Encoding?)? {
+        for (mark, encoding) in [([UInt8]([0xFF, 0xFE]), String.Encoding.utf16LittleEndian), ([0xFE, 0xFF], .utf16BigEndian)]
+        where data.starts(with: mark) {
+            return String(data: data.dropFirst(2), encoding: encoding).map { ($0, encoding) }
+        }
+        if data.prefix(FileKind.sniffLength).contains(0) { return nil }
+        return String(data: data, encoding: .utf8).map { ($0, nil) }
+    }
 
     var fileName: String { url.lastPathComponent }
 
-    init(url: URL) throws {
+    /// `allowingBinary` (Open as Text Anyway): what isn't text is read as UTF-8 with
+    /// replacement characters instead of failing.
+    init(url: URL, allowingBinary: Bool = false) throws {
         let signpost = Signposts.begin("Open Document"); defer { Signposts.end("Open Document", signpost) }
         let data = try Data(contentsOf: url)
-        if data.prefix(8192).contains(0) { throw EditorDocumentError.binaryFile(url) }
-        guard let text = String(data: data, encoding: .utf8) else {
+        let text: String
+        if let decoded = Self.decode(data) {
+            text = decoded.text
+            utf16Encoding = decoded.utf16
+        } else if allowingBinary {
+            text = String(decoding: data, as: UTF8.self)
+        } else if data.prefix(FileKind.sniffLength).contains(0) {
+            throw EditorDocumentError.binaryFile(url)
+        } else {
             throw EditorDocumentError.unsupportedEncoding(url)
         }
         hasBOM = data.starts(with: Self.bom)
@@ -267,8 +289,14 @@ final class EditorDocument: Identifiable {
     /// written through to the file it points at: replacing the link itself would turn it into a
     /// copy. (The atomic write keeps the file's permissions.)
     private func write(_ text: String) throws {
-        var data = hasBOM ? Self.bom : Data()
-        data.append(Data(text.utf8))
+        var data: Data
+        if let utf16Encoding {
+            data = Data(utf16Encoding == .utf16LittleEndian ? [0xFF, 0xFE] : [0xFE, 0xFF])
+            data.append(text.data(using: utf16Encoding) ?? Data())
+        } else {
+            data = hasBOM ? Self.bom : Data()
+            data.append(Data(text.utf8))
+        }
         try data.write(to: url.resolvingSymlinksInPath(), options: .atomic)
     }
 
@@ -406,8 +434,9 @@ final class EditorDocument: Identifiable {
     /// Replaces the text with the file's. With `force`, also when unchanged (dropping edits).
     private func reload(force: Bool) {
         let date = Self.modificationDate(of: url)
-        guard let data = try? Data(contentsOf: url), !data.prefix(8192).contains(0),
-              let text = String(data: data, encoding: .utf8) else { return }
+        guard let data = try? Data(contentsOf: url), let decoded = Self.decode(data) else { return }
+        let text = decoded.text
+        utf16Encoding = decoded.utf16
         diskModificationDate = date
         hasBOM = data.starts(with: Self.bom)
         // Literally: text that's only normalized differently is still a change.

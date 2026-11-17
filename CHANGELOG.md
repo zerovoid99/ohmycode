@@ -5,6 +5,16 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- Images, PDFs and binary files open in a viewer tab instead of an error. Images fit the window
+  and zoom with ⌘+, ⌘-, ⌘0, pinching or the footer's buttons, over a checkerboard where they're
+  transparent, and update when the file changes; the footer shows the size in pixels, the file
+  size and the format. SVG files show as a picture with *Open as Text* one click away. PDFs
+  scroll and zoom, with the page count in the footer. Other binary files show as a read-only hex
+  dump, read as you scroll so big files open at once, with *Open as Text Anyway*. Viewer tabs
+  split, move, close and come back with the session like other tabs.
+- UTF-16 text files (with a byte order mark) open in the editor and are saved as UTF-16.
+
 ## [0.1.9] - 2026-11-18
 
 ### Added

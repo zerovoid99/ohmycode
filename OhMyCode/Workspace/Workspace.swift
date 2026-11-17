@@ -89,6 +89,8 @@ final class Workspace {
     @ObservationIgnored private var notificationReplies: [UUID: (String?) -> Void] = [:]
     /// Open diff tabs (their ids are tab ids in the groups, like document ids).
     private(set) var diffSessions: [DiffSession] = []
+    /// Open viewer tabs: images, PDFs, binary files (see FileViewer.swift).
+    var viewers: [FileViewer] = []
     /// Split editor panes, left to right; there is always at least one.
     private(set) var groups: [EditorGroup]
     var activeGroupID: EditorGroup.ID {
@@ -343,6 +345,7 @@ final class Workspace {
         rootURL = url
         rootNode = FileNode(url: url, isDirectory: true)
         documents.removeAll()
+        viewers.removeAll()
         let group = EditorGroup()
         groups = [group]
         activeGroupID = group.id
@@ -484,6 +487,7 @@ final class Workspace {
                 document.reloadFromDiskIfChanged()
             }
         }
+        for viewer in viewers where rescanned || changedPaths.contains(viewer.canonicalPath) { viewer.reloadIfChanged() }
         if !changedRelativePaths.isEmpty {
             let changed = Array(changedRelativePaths)
             testing.filesChanged(changed)
@@ -2162,17 +2166,33 @@ final class Workspace {
             activeDocumentID = existing.id
             return
         }
+        if let viewer = viewer(matching: url) {
+            activeDocumentID = viewer.id
+            return
+        }
+        // Images, PDFs and binary files open in a viewer tab.
+        if let kind = FileViewer.Kind(FileKind.detect(url)) {
+            openViewer(for: url, kind: kind)
+            return
+        }
         do {
             let document = try EditorDocument(url: url)
-            let isFirst = documents.isEmpty
-            documents.append(document)
+            let isFirst = documents.isEmpty && viewers.isEmpty
+            addDocument(document)
             activeDocumentID = document.id
-            loadDiffBase(for: document)
-            attachLanguageServer(to: document)
             if isFirst, rootURL == nil { restoreFolderlessSession(firstFile: url) }
+        } catch is EditorDocumentError {
+            openViewer(for: url, kind: .hex) // not text after all (past the part looked at)
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// A document read from disk joins the open ones (no tab yet), with its git base and server.
+    func addDocument(_ document: EditorDocument) {
+        documents.append(document)
+        loadDiffBase(for: document)
+        attachLanguageServer(to: document)
     }
 
     /// Closes a document's tab in `group` (by default the active group, or wherever it is
@@ -2207,7 +2227,15 @@ final class Workspace {
             close(document, in: group)
         } else if let session = diffSession(id: id) {
             closeDiff(session, in: group)
+        } else if let viewer = viewer(id: id) {
+            closeViewer(viewer, in: group)
         }
+    }
+
+    /// After a tab closed in `group`: an emptied group goes, and the editor follows the active tab.
+    func tabClosed(in group: EditorGroup) {
+        if group.documentIDs.isEmpty { closeGroup(group) }
+        retargetEditor()
     }
 
     // MARK: Diff tabs
@@ -2221,6 +2249,7 @@ final class Workspace {
     func tabInfo(_ id: UUID) -> (title: String, help: String, isDirty: Bool, isDiff: Bool)? {
         if let document = document(id: id) { return (document.fileName, document.url.path, document.isDirty, false) }
         if let session = diffSession(id: id) { return (session.title, session.help, false, true) }
+        if let viewer = viewer(id: id) { return (viewer.fileName, viewer.url.path, false, false) }
         return nil
     }
 
@@ -2323,12 +2352,12 @@ final class Workspace {
 
     /// ⌘\: opens the active document in a new group to the right.
     func splitEditor() {
-        guard let document = activeDocument, groups.count < Self.maxGroups,
+        guard let id = activeDocument?.id ?? activeViewer?.id, groups.count < Self.maxGroups,
               let index = groups.firstIndex(where: { $0.id == activeGroupID }) else { NSSound.beep(); return }
-        document.editor(inGroup: activeGroup)?.saveViewState()
+        activeDocument?.editor(inGroup: activeGroup)?.saveViewState()
         let group = EditorGroup()
-        if let state = activeGroup.viewStates[document.id] { group.viewStates[document.id] = state }
-        group.show(document.id)
+        if let state = activeGroup.viewStates[id] { group.viewStates[id] = state }
+        group.show(id)
         groups.insert(group, at: index + 1)
         activeGroupID = group.id
     }
@@ -2336,7 +2365,8 @@ final class Workspace {
     /// Moves the active tab to the next group (`offset` 1) or previous (-1), creating a group
     /// at the edge if there is none.
     func moveActiveEditor(by offset: Int) {
-        guard let document = activeDocument, let index = groups.firstIndex(where: { $0.id == activeGroupID }) else { return }
+        guard let id = activeDocument?.id ?? activeViewer?.id,
+              let index = groups.firstIndex(where: { $0.id == activeGroupID }) else { return }
         let source = activeGroup
         let targetIndex = index + offset
         let target: EditorGroup
@@ -2347,10 +2377,10 @@ final class Workspace {
             target = EditorGroup()
             groups.insert(target, at: offset > 0 ? index + 1 : index)
         }
-        document.editor(inGroup: source)?.saveViewState()
-        if let state = source.viewStates[document.id] { target.viewStates[document.id] = state }
-        target.show(document.id)
-        source.remove(document.id)
+        activeDocument?.editor(inGroup: source)?.saveViewState()
+        if let state = source.viewStates[id] { target.viewStates[id] = state }
+        target.show(id)
+        source.remove(id)
         if source.documentIDs.isEmpty { closeGroup(source) }
         activeGroupID = target.id
         retargetEditor()

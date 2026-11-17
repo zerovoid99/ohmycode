@@ -54,6 +54,8 @@ struct WorkspaceCommands: Commands {
             Button("Close Tab") {
                 if let workspace, let doc = workspace.activeDocument {
                     workspace.close(doc)
+                } else if let workspace, let viewer = workspace.activeViewer {
+                    workspace.closeTab(viewer.id, in: workspace.activeGroup)
                 } else if workspace?.confirmClosingWindow() != false {
                     NSApp.keyWindow?.performClose(nil)
                 }
@@ -65,11 +67,11 @@ struct WorkspaceCommands: Commands {
         CommandGroup(replacing: .printItem) {}
 
         CommandGroup(after: .toolbar) {
-            Button("Zoom In") { AppSettings.shared.zoom(by: 1) }
+            Button("Zoom In") { Workspace.zoom(.zoomIn, in: workspace) }
                 .keyboardShortcut(keys.shortcut("view.zoomIn"))
-            Button("Zoom Out") { AppSettings.shared.zoom(by: -1) }
+            Button("Zoom Out") { Workspace.zoom(.zoomOut, in: workspace) }
                 .keyboardShortcut(keys.shortcut("view.zoomOut"))
-            Button("Reset Zoom") { AppSettings.shared.resetZoom() }
+            Button("Reset Zoom") { Workspace.zoom(.fit, in: workspace) }
                 .keyboardShortcut(keys.shortcut("view.resetZoom"))
             Divider()
         }

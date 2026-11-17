@@ -134,6 +134,23 @@ omc -n ~/code/other       # in a new window
 omc -r notes.md           # in the frontmost window
 ```
 
+## Images, PDFs and binary files
+Files that aren't text open in a viewer tab instead of the editor, from the Explorer, Quick Open or
+`omc`. Like other tabs they can be split, moved and closed, and they come back with the session.
+
+- **Images** (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP, ICO, ICNS and other formats macOS reads) fit
+  the window until you zoom: ⌘+, ⌘- and ⌘0 (fit), pinching, or the buttons in the footer, which
+  also shows the size in pixels, the file size and the format. Animated GIFs play, transparent
+  parts show a checkerboard, and the picture updates when the file changes on disk.
+- **SVG** shows as a picture. *Open as Text* in the footer edits its source in the editor, and the
+  editor's picture button brings the preview back beside it.
+- **PDF** scrolls page by page, zooms the same way, and shows the current page and page count.
+- **Other binary files** (NUL bytes near the start, or not valid UTF-8) show as a read-only hex
+  dump: offset, bytes and ASCII. Only the part on screen is read, so a large file opens at once.
+  *Open as Text Anyway* opens it in the editor; saving it from there can damage the file.
+
+UTF-16 text files with a byte order mark open in the editor and are saved as UTF-16 again.
+
 ## Quick fixes and parameter hints
 With a language server, a 💡 appears beside the cursor's line when there are fixes for a problem on
 it; ⌘. lists them with the server's refactorings and source actions (the preferred fix in bold).

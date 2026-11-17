@@ -16,6 +16,7 @@ struct TabBarView: View {
                     // Not the document itself: SwiftUI keeps a closed tab's closures (its menu)
                     // for a while, and they would keep the closed document.
                     let fileURL = workspace.document(id: tab.id)?.url
+                    let isViewer = workspace.viewer(id: tab.id) != nil
                     TabItemView(
                         title: tab.info.title, help: tab.info.help, isDirty: tab.info.isDirty, isDiff: tab.info.isDiff,
                         isActive: tab.id == group.activeDocumentID,
@@ -49,6 +50,8 @@ struct TabBarView: View {
                                 workspace.activeDocumentID = tab.id
                                 workspace.showFileHistory()
                             }
+                        }
+                        if fileURL != nil || isViewer {
                             Divider()
                             Button("Split Right") {
                                 workspace.activeGroupID = group.id

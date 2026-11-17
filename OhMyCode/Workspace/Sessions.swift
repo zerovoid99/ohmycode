@@ -170,10 +170,11 @@ extension Workspace {
                 texts[file] = document.textStorage.string
             }
         }
-        let files = groups.flatMap(\.documentIDs).compactMap { id in document(id: id)?.url.path }
+        // Viewer tabs too: opening their files again makes viewers of them.
+        let files = groups.flatMap(\.documentIDs).compactMap { id in (document(id: id)?.url ?? viewer(id: id)?.url)?.path }
         var seen = Set<String>()
         let session = WindowSession(root: rootURL?.path, files: files.filter { seen.insert($0).inserted },
-                                    activeFile: activeDocument?.url.path, unsaved: buffers, wasOpen: wasOpen)
+                                    activeFile: (activeDocument?.url ?? activeViewer?.url)?.path, unsaved: buffers, wasOpen: wasOpen)
         return (session, texts)
     }
 
@@ -183,7 +184,7 @@ extension Workspace {
 
     /// Writes the session if anything changed since the last write (or `force`).
     func keepSession(wasOpen: Bool = true, force: Bool = false, now: Date = Date()) {
-        guard rootURL != nil || !documents.isEmpty else { return }
+        guard rootURL != nil || !documents.isEmpty || !viewers.isEmpty else { return }
         let signature = documents.map { "\($0.id):\($0.editVersion):\($0.isDirty)" }.joined(separator: ",")
             + "|\(groups.flatMap(\.documentIDs))|\(activeDocumentID?.uuidString ?? "")|\(wasOpen)"
         guard force || signature != sessionSignature else { return }
