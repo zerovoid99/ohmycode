@@ -138,7 +138,13 @@ final class ClaudeCodeServer {
                                                     attributes: [.posixPermissions: 0o700])
             let data = try JSONSerialization.data(withJSONObject: lock, options: [.sortedKeys])
             let temporary = directory.appending(path: ".\(port).lock.\(UUID().uuidString)")
-            guard FileManager.default.createFile(atPath: temporary.path, contents: data, attributes: [.posixPermissions: 0o600]) else { return }
+            // Made 0600 from the start (FileManager sets the permissions after writing): the
+            // token is never readable by others, even for a moment.
+            let descriptor = open(temporary.path, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0o600)
+            guard descriptor >= 0 else { return }
+            let written = data.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
+            close(descriptor)
+            guard written == data.count else { try? FileManager.default.removeItem(at: temporary); return }
             if rename(temporary.path, url.path) != 0 { try? FileManager.default.removeItem(at: temporary) }
             lockURL = url
         } catch {
@@ -372,7 +378,10 @@ final class ClaudeCodeServer {
     /// Shows the change as a diff tab and waits: `FILE_SAVED` (and the text) when accepted —
     /// Claude Code writes the file itself — or `DIFF_REJECTED`.
     private func openDiff(old: URL, new: URL, contents: String, tabName: String, client: Client) async -> [String: Any] {
-        guard let workspace else { return ["content": [Self.text("DIFF_REJECTED"), Self.text(tabName)]] }
+        // A connection that went before this ran: nobody would answer its tab.
+        guard let workspace, clients[ObjectIdentifier(client.peer)] === client else {
+            return ["content": [Self.text("DIFF_REJECTED"), Self.text(tabName)]]
+        }
         // The same tab again replaces it (the earlier one is answered "rejected").
         for other in clients.values {
             if let previous = other.diffs.removeValue(forKey: tabName) { workspace.closeDiffSessions { $0 === previous } }

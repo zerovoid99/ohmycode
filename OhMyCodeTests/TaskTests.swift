@@ -196,4 +196,35 @@ struct TaskRunTests {
         #expect(run.lines.contains { $0.text == "hi from \(root.lastPathComponent)" })
         #expect(run.state == .failed(127))
     }
+
+    @Test func aQuotedFileNameReachesTheCommandIntact() async throws {
+        let root = try makeFolder(["it's $(touch pwned) a.txt": "inside\n"])
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: root.appending(path: "it's $(touch pwned) a.txt"))
+        let run = try #require(workspace.runTask(TaskDefinition(label: "Cat", command: "cat ${file}; cat \"${file}\"")))
+        await run.waitUntilEnded()
+        #expect(run.state == .succeeded && run.lines.filter { $0.text == "inside" }.count == 2)
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "pwned").path))
+    }
+
+    @Test func terminatingBeforeTheProcessStartsStopsIt() async throws {
+        let run = TaskRun(task: TaskDefinition(label: "Late", command: "echo should-not-run"))
+        run.terminate()
+        #expect(run.state == .terminated)
+        run.start(environment: ProcessInfo.processInfo.environment)
+        await run.waitUntilEnded()
+        #expect(run.state == .terminated && !run.lines.contains { $0.text == "should-not-run" })
+    }
+}
+
+struct TaskQuotingTests {
+    @Test func substitutedValuesStayOneShellWord() throws {
+        let task = TaskDefinition(label: "Q", command: #"cat ${file} "${fileBasename}" '${fileDirname}' ${workspaceFolder}/x \${file}"#)
+        let resolved = task.resolved(root: URL(filePath: "/r"), file: URL(filePath: "/r/a b/it's $(x).c"))
+        #expect(resolved.command == #"cat '/r/a b/it'\''s $(x).c' "it's \$(x).c" '/r/a b' /r/x \${file}"#)
+        // Plain values are left as they were.
+        let plain = TaskDefinition(label: "P", command: "swiftc ${file}").resolved(root: URL(filePath: "/r"), file: URL(filePath: "/r/a.swift"))
+        #expect(plain.command == "swiftc /r/a.swift")
+    }
 }

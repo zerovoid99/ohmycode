@@ -188,6 +188,9 @@ final class EditorDocument: Identifiable {
     @ObservationIgnored private var diffTask: Task<Void, Never>?
     /// Set when the file changed on disk while there were unsaved edits.
     private(set) var hasExternalChanges = false
+    /// Whether the file starts with a UTF-8 byte order mark: reading drops it, saving puts it back.
+    @ObservationIgnored private(set) var hasBOM = false
+    private static let bom = Data([0xEF, 0xBB, 0xBF])
 
     var fileName: String { url.lastPathComponent }
 
@@ -198,6 +201,7 @@ final class EditorDocument: Identifiable {
         guard let text = String(data: data, encoding: .utf8) else {
             throw EditorDocumentError.unsupportedEncoding(url)
         }
+        hasBOM = data.starts(with: Self.bom)
         self.url = url
         self.language = SourceLanguage(fileExtension: url.pathExtension)
         self.textStorage = NSTextStorage(string: text, attributes: EditorTheme.baseAttributes)
@@ -246,7 +250,7 @@ final class EditorDocument: Identifiable {
         if let previous = try? String(contentsOf: url, encoding: .utf8), previous != text {
             history.record(previous, for: url, reason: .beforeSave)
         }
-        try text.write(to: url, atomically: true, encoding: .utf8)
+        try write(text)
         history.record(text, for: url, reason: .saved)
         updateTabWidth() // the indentation may be clear now (a new file)
         let previousWidth = longestLineColumns
@@ -257,6 +261,21 @@ final class EditorDocument: Identifiable {
         hasExternalChanges = false
         languageClient?.didSave(url: url)
         onDidSave?()
+    }
+
+    /// Writes the file atomically, with its byte order mark if it had one. A symlink is
+    /// written through to the file it points at: replacing the link itself would turn it into a
+    /// copy. (The atomic write keeps the file's permissions.)
+    private func write(_ text: String) throws {
+        var data = hasBOM ? Self.bom : Data()
+        data.append(Data(text.utf8))
+        try data.write(to: url.resolvingSymlinksInPath(), options: .atomic)
+    }
+
+    /// Throws away unsaved edits for what's on disk now. They're kept in the local history;
+    /// the undo history goes (it refers to the old text).
+    func revertToSaved() {
+        reload(force: true)
     }
 
     // MARK: Language server coordinates
@@ -381,10 +400,24 @@ final class EditorDocument: Identifiable {
             hasExternalChanges = true
             return
         }
+        reload(force: false)
+    }
+
+    /// Replaces the text with the file's. With `force`, also when unchanged (dropping edits).
+    private func reload(force: Bool) {
+        let date = Self.modificationDate(of: url)
         guard let data = try? Data(contentsOf: url), !data.prefix(8192).contains(0),
               let text = String(data: data, encoding: .utf8) else { return }
         diskModificationDate = date
-        guard text != textStorage.mutableString as String else { return }
+        hasBOM = data.starts(with: Self.bom)
+        // Literally: text that's only normalized differently is still a change.
+        guard !textStorage.mutableString.isEqual(to: text) else {
+            if force {
+                isDirty = false
+                hasExternalChanges = false
+            }
+            return
+        }
 
         LocalHistory.shared.record(textStorage.mutableString as String, for: url, reason: .beforeReload)
         let selections = editors.map { ($0, $0.textView.selectedRange()) }
@@ -527,6 +560,7 @@ final class EditorDocument: Identifiable {
         let editedLines = NSRange(location: lineIndex.lineStarts[startLine],
                                   length: (newEndLine + 1 < lineIndex.lineCount ? lineIndex.lineStarts[newEndLine + 1] : textStorage.length)
                                       - lineIndex.lineStarts[startLine])
+        if !conflicts.isEmpty { conflictsEdited(start: start, oldEnd: oldEnd, delta: delta) }
         if mayHaveConflicts || ConflictParser.hasStart(in: textStorage.mutableString, range: editedLines) {
             scheduleConflictScan(after: .milliseconds(100))
         }
@@ -567,6 +601,17 @@ final class EditorDocument: Identifiable {
             guard !Task.isCancelled else { return }
             updateConflicts()
         }
+    }
+
+    /// Until the scan after an edit: conflicts after it move, ones it touched are dropped (their
+    /// ranges would be wrong, or past the end of the text, for drawing and resolving).
+    private func conflictsEdited(start: Int, oldEnd: Int, delta: Int) {
+        conflicts = conflicts.compactMap { conflict in
+            if start >= NSMaxRange(conflict.range) && start > conflict.range.location { return conflict }
+            if oldEnd < conflict.range.location { return delta == 0 ? conflict : conflict.shifted(by: delta) }
+            return nil
+        }
+        for editor in editors { editor.diagnosticsOverlay?.needsDisplay = true }
     }
 
     private func updateConflicts() {

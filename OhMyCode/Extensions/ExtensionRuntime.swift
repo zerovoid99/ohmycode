@@ -190,7 +190,9 @@ final class ExtensionRuntime: @unchecked Sendable {
             self.reportException()
         }
         timers[id] = item
-        queue.asyncAfter(deadline: .now() + .milliseconds(Int(max(milliseconds, repeats ? 1 : 0))), execute: item)
+        // Pulled into a day (NaN counts as 0) first: `Int(_:)` traps on NaN or a huge delay.
+        let delay = milliseconds.isNaN ? 0 : min(max(milliseconds, repeats ? 1 : 0), 86_400_000)
+        queue.asyncAfter(deadline: .now() + .milliseconds(Int(delay)), execute: item)
     }
 
     /// Logs an exception the script left uncaught.

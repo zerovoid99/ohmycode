@@ -465,3 +465,39 @@ struct TerminalSplitTests {
         #expect(session.customName == nil)
     }
 }
+
+struct PTYProcessTests {
+    /// Starts `arguments`, terminates it, and waits for it to be gone. A zombie still answers
+    /// kill(pid, 0); only once reaped (by the process object, not here) is it gone.
+    private func terminateAndWait(_ arguments: [String]) async throws -> pid_t {
+        let process = try PTYProcess(executable: arguments[0], arguments: arguments, environment: [:],
+                                     directory: "/", size: PTYProcess.Size(columns: 80, rows: 24))
+        let pid = process.pid
+        try await Task.sleep(for: .milliseconds(200)) // started (and set up its traps)
+        #expect(kill(pid, 0) == 0)
+        process.terminate()
+        process.write(Data("ignored after close\n".utf8)) // the fd is gone: nothing written, no crash
+        process.resize(PTYProcess.Size(columns: 100, rows: 30))
+        let deadline = ContinuousClock.now + .seconds(10)
+        while kill(pid, 0) == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        return pid
+    }
+
+    private func isReaped(_ pid: pid_t) -> Bool {
+        var status: Int32 = 0
+        guard kill(pid, 0) == -1, errno == ESRCH else { return false }
+        return waitpid(pid, &status, WNOHANG) == -1 && errno == ECHILD
+    }
+
+    /// Closing a terminal hangs up its shell and reaps it: no zombie left behind.
+    @Test func terminateReapsTheChild() async throws {
+        #expect(isReaped(try await terminateAndWait(["/bin/sleep", "30"])))
+    }
+
+    /// One that ignores the hangup is killed after a while, and reaped too.
+    @Test func terminateKillsAChildIgnoringTheHangup() async throws {
+        #expect(isReaped(try await terminateAndWait(["/bin/sh", "-c", "trap '' HUP; exec /bin/sleep 30"])))
+    }
+}

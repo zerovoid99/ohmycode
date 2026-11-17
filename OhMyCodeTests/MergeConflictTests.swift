@@ -116,6 +116,34 @@ struct MergeConflictEditorTests {
         #expect(try await eventually { document.conflicts.count == 2 })
     }
 
+    /// Regression: conflicts are scanned again a moment after an edit; until then drawing and
+    /// resolving used the old ranges, past the end of the text after deleting it (a crash).
+    @Test func conflictsFollowEditsBeforeTheScan() throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "omc-conflict-\(UUID().uuidString).txt")
+        try "a\n<<<<<<< HEAD\nmine\n=======\nyours\n>>>>>>> other\n".write(to: url, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let document = try EditorDocument(url: url)
+        let (controller, window) = show(document)
+        let storage = document.textStorage
+
+        // An edit before it moves it at once.
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "top\n")
+        #expect(document.conflicts == ConflictParser.conflicts(in: storage.mutableString))
+        #expect(controller.conflictBands().count == 5)
+
+        // Deleting its end drops it at once; an old copy of it can't be drawn or resolved.
+        let stale = try #require(document.conflicts.first)
+        let yours = storage.mutableString.range(of: "yours").location
+        storage.replaceCharacters(in: NSRange(location: yours, length: storage.length - yours), with: "")
+        #expect(document.conflicts.isEmpty)
+        #expect(controller.conflictBands().isEmpty)
+        #expect(controller.conflictActionRects().isEmpty)
+        #expect(!document.resolve([stale], with: .incoming))
+        #expect(stale.text(for: .incoming, in: storage.mutableString) == "")
+        #expect(document.conflict(at: storage.length) == nil)
+        withExtendedLifetime(window) {}
+    }
+
     @Test func clickingAnActionResolvesAndUndoBringsItBack() async throws {
         let url = FileManager.default.temporaryDirectory.appending(path: "omc-conflict-\(UUID().uuidString).txt")
         let original = "a\n<<<<<<< HEAD\nmine\n=======\nyours\n>>>>>>> other\nb\n<<<<<<< HEAD\n1\n=======\n2\n>>>>>>> other\n"

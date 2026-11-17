@@ -32,6 +32,26 @@ struct LanguageClientTests {
         try Self.makeWorkspace(text: text, files: files)
     }
 
+    /// Writing to a server that exited fails quietly (SIGPIPE would kill the app).
+    @Test func writingToAnExitedServerDoesNotKillTheApp() async throws {
+        var action = sigaction()
+        sigaction(SIGPIPE, nil, &action)
+        #expect(unsafeBitCast(action.__sigaction_u.__sa_handler, to: Int.self) == unsafeBitCast(SIG_IGN, to: Int.self))
+        let connection = try LanguageServerConnection(command: ["/usr/bin/true"], directory: FileManager.default.temporaryDirectory,
+                                                      environment: [:])
+        var exited = false
+        connection.onExit = { _ in exited = true }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !exited, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(exited)
+        for _ in 0..<5 { connection.send(Data(String(repeating: "x", count: 100_000).utf8)) }
+        // Past the writes above (they're in order on one queue).
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            connection.send { continuation.resume(); return nil }
+        }
+        #expect(!connection.isRunning)
+    }
+
     /// A folder with main.swift (opened in an editor in a window) plus `files`.
     static func makeWorkspace(text: String, files: [String: String] = [:],
                               server: LanguageServerConfig = fakeServer) throws -> (Workspace, EditorDocument, EditorController, NSWindow) {
@@ -222,6 +242,119 @@ struct LanguageClientTests {
         workspace.goToDefinition()
         #expect(try await eventually { controller.textView.selectedRange() == NSRange(location: 4, length: 6) })
         withExtendedLifetime((workspace, window)) {}
+    }
+
+    /// A server that crashes comes back with the open files (as they are now); one that keeps
+    /// crashing is left alone after a few tries.
+    @Test func crashedServerRestartsWithTheOpenFiles() async throws {
+        let (workspace, document, _, window) = try makeWorkspace(text: "let a = 1\n")
+        workspace.languageServerRestartDelay = .milliseconds(10)
+        #expect(try await eventually { document.languageClient?.state == .ready })
+        var client = try #require(document.languageClient)
+        for crash in 1...4 {
+            let crashed = client
+            Task { _ = try? await crashed.request("omc/crash", params: nil) }
+            #expect(try await eventually { if case .failed = crashed.state { true } else { false } })
+            // Typed while it's down: the new server gets this text, not the old one.
+            document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "// \(crash)\n")
+            if crash == 4 {
+                try await Task.sleep(for: .milliseconds(300))
+                #expect(document.languageClient === crashed, "restarted more than 3 times")
+                break
+            }
+            #expect(try await eventually { document.languageClient !== crashed && document.languageClient?.state == .ready })
+            client = try #require(document.languageClient)
+            #expect(workspace.languageClients["Fake LSP"] === client)
+            let text = try await client.request("omc/text", params: ["uri": document.url.absoluteString]) as? String
+            #expect(text == document.textStorage.string)
+        }
+        withExtendedLifetime((workspace, window)) {}
+    }
+
+    /// Requests sent while the server starts wait for it, and end with its error when it can't
+    /// start; nothing is queued after that.
+    @Test func requestsEndWhenInitializeFails() async throws {
+        let server = Self.fakeServer
+        let root = FileManager.default.temporaryDirectory
+        let client = try LanguageClient(name: "Failing", command: server.command + ["--fail-initialize"], rootURL: root, environment: [:])
+        // Sent while it starts: queued, then ended with initialize's error (it used to wait forever).
+        let early = Task { () -> String in
+            do { _ = try await client.request("omc/text", params: ["uri": "file:///x"]); return "answered" } catch { return error.localizedDescription }
+        }
+        #expect(client.state == .starting)
+        #expect(await early.value == "fake can't start")
+        #expect(try await eventually { if case .failed = client.state { true } else { false } })
+        await #expect(throws: LanguageServerError.self) { _ = try await client.request("omc/text", params: nil) }
+        client.shutdown()
+        #expect(client.state == .stopped)
+        await #expect(throws: LanguageServerError.self) { _ = try await client.request("omc/text", params: nil) }
+    }
+
+    /// Edits for another version of an open file than the one open are refused.
+    @Test func editsForAnotherVersionAreStale() async throws {
+        let (workspace, document, _, window) = try makeWorkspace(text: "let a = 1\n")
+        #expect(try await eventually { document.languageClient?.state == .ready })
+        let client = try #require(document.languageClient)
+        func edit(_ version: Any) -> WorkspaceEdit? {
+            WorkspaceEdit(json: ["documentChanges": [["textDocument": ["uri": document.url.absoluteString, "version": version],
+                                                      "edits": [["range": ["start": ["line": 0, "character": 0],
+                                                                           "end": ["line": 0, "character": 0]], "newText": "x"]]]]])
+        }
+        #expect(client.staleFile(in: try #require(edit(1))) == nil)
+        #expect(client.staleFile(in: try #require(edit(NSNull()))) == nil)
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "// hi\n")
+        #expect(client.staleFile(in: try #require(edit(1))) == document.url)
+        #expect(client.staleFile(in: try #require(edit(2))) == nil)
+        withExtendedLifetime((workspace, window)) {}
+    }
+
+    /// A completion's import comes along with it: given with the item, or when it's resolved.
+    @Test func completionMakesItsAdditionalEdits() async throws {
+        let (workspace, document, controller, window) = try makeWorkspace(text: "// WITH_IMPORTS\nlet x = ")
+        #expect(try await eventually { document.languageClient?.state == .ready })
+        let textView = controller.textView!
+        let undo = document.undoManager
+        undo.groupsByEvent = false
+        func event(_ action: () -> Void) { undo.beginUndoGrouping(); action(); undo.endUndoGrouping() }
+        func type(_ text: String) { for character in text { event { textView.insertText(String(character), replacementRange: textView.selectedRange()) } } }
+
+        textView.setSelectedRange(NSRange(location: document.textStorage.length, length: 0))
+        type("fooImp")
+        #expect(try await eventually { controller.completion.visibleItems.map(\.label) == ["fooImported"] })
+        event { _ = controller.completion.handle(#selector(NSResponder.insertNewline(_:))) }
+        #expect(document.textStorage.string == "import Foo\n// WITH_IMPORTS\nlet x = fooImported")
+
+        event { textView.insertText("\nlet y = ", replacementRange: textView.selectedRange()) }
+        type("fooLa")
+        #expect(try await eventually { controller.completion.visibleItems.map(\.label) == ["fooLazy"] })
+        event { _ = controller.completion.handle(#selector(NSResponder.insertNewline(_:))) }
+        #expect(try await eventually { document.textStorage.string.hasPrefix("import Lazy\nimport Foo\n") })
+        #expect(document.textStorage.string.hasSuffix("let y = fooLazy"))
+        withExtendedLifetime((workspace, window)) {}
+    }
+
+    /// A server's edit range is used whole (what's after the cursor too), its end moved by what
+    /// was typed since the request.
+    @Test func completionReplacesTheWholeEditRange() {
+        // "foo|Tail": asked at 3, the server replaces 0..<7; two more letters typed since.
+        #expect(CompletionController.replacementRange(NSRange(location: 0, length: 7), requestedAt: 3, cursor: 5, length: 9)
+                == NSRange(location: 0, length: 9))
+        // An insert-only range (ending at the request) still covers what was typed.
+        #expect(CompletionController.replacementRange(NSRange(location: 0, length: 3), requestedAt: 3, cursor: 5, length: 9)
+                == NSRange(location: 0, length: 5))
+        // Never past the text.
+        #expect(CompletionController.replacementRange(NSRange(location: 0, length: 40), requestedAt: 3, cursor: 5, length: 9)
+                == NSRange(location: 0, length: 9))
+    }
+
+    /// Signature label offsets out of range (or backwards) are clamped, as is the active signature.
+    @Test func parsesServerValuesSafely() throws {
+        let help = try #require(SignatureHelp(json: ["activeSignature": -3, "signatures": [[
+            "label": "f(a)", "parameters": [["label": [3, 1]], ["label": [2, 99]], ["label": [-5, 2]]],
+        ]]]))
+        #expect(help.activeSignature == 0)
+        #expect(help.signatures[0].parameters.map(\.range) == [NSRange(location: 3, length: 0), NSRange(location: 2, length: 2),
+                                                               NSRange(location: 0, length: 2)])
     }
 }
 

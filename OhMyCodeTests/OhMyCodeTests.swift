@@ -58,6 +58,39 @@ struct EditorDocumentTests {
         #expect(try String(contentsOf: url, encoding: .utf8) == "let a = 1\nlet b = 2\n")
     }
 
+    /// Regression: reading dropped a UTF-8 byte order mark, and saving didn't write it back.
+    @Test func savingKeepsTheByteOrderMark() throws {
+        let url = try makeFile("")
+        try Data([0xEF, 0xBB, 0xBF] + Array("a\n".utf8)).write(to: url)
+        let document = try EditorDocument(url: url)
+        #expect(document.textStorage.string == "a\n" && document.hasBOM)
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 1), with: "b")
+        try document.save()
+        #expect(try Data(contentsOf: url) == Data([0xEF, 0xBB, 0xBF] + Array("b\n".utf8)))
+
+        let plain = try EditorDocument(url: try makeFile("c\n"))
+        plain.textStorage.replaceCharacters(in: NSRange(location: 0, length: 1), with: "d")
+        try plain.save()
+        #expect(try Data(contentsOf: plain.url) == Data("d\n".utf8))
+    }
+
+    /// Regression: the atomic save replaced a symlink with a regular file of its own.
+    @Test func savingWritesThroughASymlinkAndKeepsPermissions() throws {
+        let target = try makeFile("one\n")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.path)
+        let link = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).swift")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        defer { try? FileManager.default.removeItem(at: link) }
+
+        let document = try EditorDocument(url: link)
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 3), with: "two")
+        try document.save()
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == target.path)
+        #expect(try String(contentsOf: target, encoding: .utf8) == "two\n")
+        let permissions = try FileManager.default.attributesOfItem(atPath: target.path)[.posixPermissions] as? Int
+        #expect(permissions == 0o755)
+    }
+
     @Test func attributeOnlyEditsDoNotDirty() throws {
         let document = try EditorDocument(url: try makeFile("hello"))
         document.textStorage.addAttribute(.foregroundColor, value: NSColor.red, range: NSRange(location: 0, length: 5))

@@ -196,6 +196,16 @@ enum JSONValue: Codable, Sendable, Equatable {
     var string: String? { if case .string(let value) = self { value } else { nil } }
     var bool: Bool? { if case .bool(let value) = self { value } else { nil } }
     var number: Double? { if case .number(let value) = self { value } else { nil } }
+    /// The number as a whole number, nil when it has none: `Int(_:)` traps on NaN, infinity
+    /// and anything past Int's range, all of which an extension can send.
+    var integer: Int? { number.flatMap { Int(exactly: $0.rounded(.towardZero)) } }
+    /// The number as a line or column, pulled into ±Int32.max so huge values clamp instead of
+    /// trapping (and offsets built from them can't overflow); nil for NaN.
+    var position: Int? {
+        guard let value = number, !value.isNaN else { return nil }
+        let limit = Double(Int32.max)
+        return Int(min(max(value, -limit), limit).rounded(.towardZero))
+    }
     var array: [JSONValue]? { if case .array(let value) = self { value } else { nil } }
     var object: [String: JSONValue]? { if case .object(let value) = self { value } else { nil } }
     subscript(key: String) -> JSONValue? { object?[key] }

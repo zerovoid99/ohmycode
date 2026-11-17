@@ -70,6 +70,18 @@ struct AutoEditTests {
         withExtendedLifetime(window) {}
     }
 
+    /// Regression: Enter typed "\n" into a "\r\n" file, mixing line endings.
+    @Test func enterUsesTheFilesLineBreak() throws {
+        let (_, controller, window) = try makeEditor("    let x = 1\r\nfunc f() ")
+        controller.textView.setSelectedRange(NSRange(location: 13, length: 0))
+        type(controller, "\n")
+        #expect(state(controller) == "    let x = 1\r\n    |\r\nfunc f() ")
+        controller.textView.setSelectedRange(NSRange(location: controller.document.textStorage.length, length: 0))
+        type(controller, "{\n")
+        #expect(state(controller) == "    let x = 1\r\n    \r\nfunc f() {\r\n    |\r\n}")
+        withExtendedLifetime(window) {}
+    }
+
     @Test func indentationFollowsTheFileAndLanguage() throws {
         let (_, tabs, tabWindow) = try makeEditor("struct A {\n\tvar a = 1\n\tfunc f() {")
         tabs.textView.setSelectedRange(NSRange(location: tabs.document.textStorage.length, length: 0))

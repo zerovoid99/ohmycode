@@ -20,10 +20,11 @@ struct ParsedSnippet: Equatable {
     var stops: [Stop]
 
     /// How text is laid out when inserted: lines after the first get `indent`, tabs become
-    /// `indentUnit`.
+    /// `indentUnit`, line breaks become the document's `lineBreak`.
     struct Layout {
         var indent = ""
         var indentUnit = "\t"
+        var lineBreak = "\n"
     }
 
     init(text: String, stops: [Stop]) {
@@ -251,7 +252,11 @@ struct ParsedSnippet: Equatable {
         private func append(_ text: String) {
             var text = text
             if text.contains("\t") { text = text.replacingOccurrences(of: "\t", with: layout.indentUnit) }
-            if text.contains("\n"), !layout.indent.isEmpty { text = text.replacingOccurrences(of: "\n", with: "\n" + layout.indent) }
+            // By UTF-16 unit: as Characters, "\r\n" is one, neither "\r" nor "\n".
+            if text.utf16.contains(0x0D) { text = text.replacingOccurrences(of: "\r\n", with: "\n") }
+            if text.utf16.contains(0x0A), !layout.indent.isEmpty || layout.lineBreak != "\n" {
+                text = text.replacingOccurrences(of: "\n", with: layout.lineBreak + layout.indent)
+            }
             output.append(text)
         }
     }
@@ -392,7 +397,7 @@ extension EditorController {
             indentEnd += 1
         }
         let layout = ParsedSnippet.Layout(indent: text.substring(with: NSRange(location: lineStart, length: indentEnd - lineStart)),
-                                          indentUnit: indentUnit)
+                                          indentUnit: indentUnit, lineBreak: document.lineEnding.characters)
         let snippet = ParsedSnippet(body, layout: layout, variables: ParsedSnippet.variables(for: document, replacing: range))
 
         snippetSession = nil

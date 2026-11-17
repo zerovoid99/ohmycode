@@ -37,6 +37,13 @@ struct SnippetParserTests {
         let block = ParsedSnippet("if ${1:c} {\n\t${2:body}\n}", layout: layout)
         #expect(block.text == "if c {\n      body\n    }")
         #expect(ranges(block)[2] == ["body"])
+
+        // In a "\r\n" file, every line break is one (also ones already written "\r\n").
+        let crlf = ParsedSnippet.Layout(indent: "  ", indentUnit: "  ", lineBreak: "\r\n")
+        let windows = ParsedSnippet("a {\n\t${1:b}\r\n}", layout: crlf)
+        #expect(windows.text == "a {\r\n    b\r\n  }")
+        #expect(ranges(windows)[1] == ["b"])
+        #expect(ParsedSnippet("x\ny", layout: ParsedSnippet.Layout(lineBreak: "\r\n")).text == "x\r\ny")
     }
 
     @Test func lspSnippetExpansionStillWorks() {
@@ -79,6 +86,14 @@ struct SnippetEditorTests {
     private func selected(_ controller: EditorController) -> [String] {
         let text = controller.document.textStorage.string as NSString
         return controller.allSelections.sorted { $0.location < $1.location }.map { text.substring(with: $0) }
+    }
+
+    @Test func snippetsUseTheFilesLineBreak() throws {
+        let (document, controller, window) = try makeEditor("x\r\n")
+        controller.insertSnippet("if ${1:c} {\n\t$0\n}", replacing: NSRange(location: 3, length: 0))
+        #expect(document.textStorage.string == "x\r\nif c {\r\n    \r\n}")
+        #expect(selected(controller) == ["c"])
+        withExtendedLifetime(window) {}
     }
 
     @Test func tabStepsThroughStopsThatFollowTyping() throws {

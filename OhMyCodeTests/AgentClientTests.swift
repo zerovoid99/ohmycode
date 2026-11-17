@@ -83,6 +83,76 @@ struct AgentClientTests {
         #expect(messages(client).last?.contains("outside the workspace") == true)
     }
 
+    @Test func readsLineRangesWhateverTheNumbers() async throws {
+        let (workspace, root) = try makeWorkspace(["lines.txt": "a\nb\nc\n"])
+        let path = root.appending(path: "lines.txt").path
+        let client = try await start(workspace, root: root)
+        defer { client.stop() }
+        await client.send("readlines \(path) 2 1")
+        #expect(messages(client).last == "lines: b")
+        // Extremes the agent may send: clamped, never an overflow.
+        await client.send("readlines \(path) \(Int.min) 2")
+        #expect(messages(client).last == "lines: a|b")
+        await client.send("readlines \(path) 2 \(Int.max)")
+        #expect(messages(client).last == "lines: b|c|")
+        await client.send("readlines \(path) \(Int.max) \(Int.max)")
+        #expect(messages(client).last == "lines: ")
+        await client.send("readlines \(path) 1 \(Int.min)")
+        #expect(messages(client).last == "lines: ")
+    }
+
+    @Test func aLinkInsideToOutsideIsOutside() async throws {
+        let (workspace, root) = try makeWorkspace()
+        let outside = FileManager.default.temporaryDirectory.appending(path: "omc-agent-outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        try FileManager.default.createSymbolicLink(at: root.appending(path: "link"), withDestinationURL: outside)
+        // To a file that isn't there yet: where a write would make it.
+        try FileManager.default.createSymbolicLink(at: root.appending(path: "dangling"), withDestinationURL: outside.appending(path: "new.txt"))
+        let client = try await start(workspace, root: root)
+        defer { client.stop() }
+        for path in ["link/new.txt", "link/dir/new.txt", "dangling"] {
+            await client.send("read \(root.path)/\(path)")
+            #expect(messages(client).last?.contains("outside the workspace") == true, "\(path)")
+        }
+        #expect(root.appending(path: "link/new.txt").isWithin(root) == false)
+        #expect(root.appending(path: "dir/new.txt").isWithin(root))
+        #expect(root.isWithin(root) && !outside.isWithin(root))
+    }
+
+    @Test func stoppingAnswersWhatWaits() async throws {
+        let (workspace, root) = try makeWorkspace()
+        let client = try await start(workspace, root: root)
+        let turn = Task { await client.send("wait") }
+        #expect(try await eventually { messages(client).last == "waiting" })
+        client.stop()
+        // The prompt's request is answered (failed), not left waiting forever.
+        await turn.value
+        #expect(client.state == .stopped)
+    }
+
+    @Test func stoppingKillsWhatCommandsStarted() async throws {
+        let directory = FileManager.default.temporaryDirectory
+        // The command starts one in the background, which would outlive it.
+        let terminal = try AgentTerminal(id: "t", command: "/bin/sh", arguments: ["-c", "sleep 60 & echo $!; wait"],
+                                         environment: ProcessInfo.processInfo.environment, directory: directory, byteLimit: nil)
+        #expect(try await eventually { terminal.output.hasSuffix("\n") })
+        let child = try #require(Int32(terminal.output.trimmingCharacters(in: .whitespacesAndNewlines)))
+        #expect(kill(child, 0) == 0)
+        AgentTerminal.terminateAll([terminal])
+        #expect(try await eventually { kill(child, 0) != 0 })
+        #expect(await terminal.waitForExit().signal == "SIGTERM")
+    }
+
+    @Test func onlyWebAndMailLinksOpen() {
+        #expect(AgentMarkdown.opensLink(URL(string: "https://example.com")!))
+        #expect(AgentMarkdown.opensLink(URL(string: "HTTP://example.com")!))
+        #expect(AgentMarkdown.opensLink(URL(string: "mailto:a@example.com")!))
+        #expect(!AgentMarkdown.opensLink(URL(string: "file:///Applications/Calculator.app")!))
+        #expect(!AgentMarkdown.opensLink(URL(string: "x-apple.systempreferences:com.apple.preference")!))
+        #expect(!AgentMarkdown.opensLink(URL(string: "relative/path")!))
+    }
+
     @Test func writesOnlyWhenAllowed() async throws {
         let (workspace, root) = try makeWorkspace(["b.txt": "old\n"])
         let open = root.appending(path: "b.txt"), new = root.appending(path: "dir/new.txt")

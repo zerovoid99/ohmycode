@@ -98,7 +98,7 @@ final class AgentClient {
 
     isolated deinit {
         connection?.terminate()
-        terminals.values.forEach { $0.kill() }
+        AgentTerminal.terminateAll(Array(terminals.values) + Array(releasedTerminals.values))
     }
 
     // MARK: Lifecycle
@@ -225,6 +225,7 @@ final class AgentClient {
             if result["configOptions"] != nil { setConfigOptions(result["configOptions"]) }
             state = .ready
         } catch {
+            guard state == .starting else { return } // stopped meanwhile
             sessionID = previous
             state = .ready
             addNotice("Couldn't reopen \"\(session.title)\": \(error.localizedDescription)")
@@ -246,26 +247,36 @@ final class AgentClient {
         cancelPermissions()
         connection?.terminate()
         connection = nil
-        terminals.values.forEach { $0.kill() }
+        // Its exit is never heard of now: what waits on an answer is told here.
+        failPending("\(definition.name) stopped")
+        AgentTerminal.terminateAll(Array(terminals.values) + Array(releasedTerminals.values))
         state = .stopped
     }
 
     private func fail(_ message: String) {
+        // Stopped meanwhile: a request it cut short isn't a failure.
+        guard state != .stopped else { return }
         state = .failed(message)
         connection?.terminate()
         connection = nil
+        failPending(message)
     }
 
     private func agentDidExit(_ status: Int32) {
-        for answer in pending.values {
-            answer(.failure(AgentError(code: -1, message: "\(definition.name) exited")))
-        }
-        pending.removeAll()
-        cancelPermissions()
+        // First: nothing more is written to its closed stdin (the questions it asked included).
+        connection = nil
+        failPending("\(definition.name) exited")
+        permissions = []
         guard state != .stopped, !isFailed else { return }
         let lastLine = log.split(separator: "\n").last.map(String.init)
         state = .failed("\(definition.name) exited (\(status))" + (lastLine.map { ": \($0)" } ?? ""))
-        connection = nil
+    }
+
+    /// Answers every request still waiting with an error (the agent won't).
+    private func failPending(_ message: String) {
+        let answers = pending.values
+        pending.removeAll()
+        for answer in answers { answer(.failure(AgentError(code: -1, message: message))) }
     }
 
     private var isFailed: Bool { if case .failed = state { true } else { false } }
@@ -588,8 +599,9 @@ final class AgentClient {
             let line = params["line"] as? Int, limit = params["limit"] as? Int
             guard line != nil || limit != nil else { return ["content": text] }
             let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-            let start = min(max((line ?? 1) - 1, 0), lines.count)
-            let end = limit.map { min(lines.count, start + max(0, $0)) } ?? lines.count
+            // Any numbers the agent sends: none of this may overflow.
+            let start = line.map { $0 <= 1 ? 0 : min($0 - 1, lines.count) } ?? 0
+            let end = limit.map { start + min(max(0, $0), lines.count - start) } ?? lines.count
             return ["content": lines[start..<end].joined(separator: "\n")]
         case "fs/write_text_file":
             let url = try fileURL(params["path"])
@@ -654,10 +666,9 @@ final class AgentClient {
         guard let path = value as? String, path.hasPrefix("/") else { throw AgentError(code: -32602, message: "The path must be absolute") }
         let url = URL(filePath: path).standardizedFileURL
         let root = rootURL.standardizedFileURL.path
-        let resolved = url.resolvingSymlinksInPath().path, resolvedRoot = rootURL.resolvingSymlinksInPath().path
-        func inside(_ path: String, _ folder: String) -> Bool { path == folder || path.hasPrefix(folder + "/") }
-        // Both as given and with links followed: a link inside pointing outside doesn't count.
-        guard inside(url.path, root), inside(resolved, resolvedRoot) else {
+        // Both as given and with links followed (also in a new file's folders): a link inside
+        // pointing outside doesn't count.
+        guard url.path == root || url.path.hasPrefix(root + "/"), url.isWithin(rootURL) else {
             throw AgentError(code: -32602, message: "\(path) is outside the workspace")
         }
         return url

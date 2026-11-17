@@ -58,6 +58,8 @@ final class LanguageServerConnection: @unchecked Sendable {
         process.currentDirectoryURL = directory
         process.environment = environment
         process.standardInput = stdin
+        // Writing to a process that exited fails (EPIPE) instead of killing the app with SIGPIPE.
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         process.standardOutput = stdout
         if let stderr {
             process.standardError = stderr
@@ -150,15 +152,23 @@ final class LanguageServerConnection: @unchecked Sendable {
             deliver(messages)
             return
         }
+        deliver(Self.takeContentLengthMessages(from: &buffer))
+    }
+
+    /// The whole `Content-Length` framed messages at the start of `buffer`, removed from it (a
+    /// partial one stays for more data).
+    static func takeContentLengthMessages(from buffer: inout Data) -> [Data] {
+        var messages: [Data] = []
         let separator = Data("\r\n\r\n".utf8)
         while let headerEnd = buffer.range(of: separator) {
             let header = String(decoding: buffer[buffer.startIndex..<headerEnd.lowerBound], as: UTF8.self)
+            // A negative length is malformed too: it made the body's end come before its start (a trap).
             guard let length = header.split(separator: "\r\n").lazy
                 .compactMap({ line -> Int? in
                     let parts = line.split(separator: ":", maxSplits: 1)
                     guard parts.count == 2, parts[0].lowercased() == "content-length" else { return nil }
                     return Int(parts[1].trimmingCharacters(in: .whitespaces))
-                }).first
+                }).first, length >= 0
             else {
                 buffer.removeSubrange(buffer.startIndex..<headerEnd.upperBound) // malformed header
                 continue
@@ -169,7 +179,7 @@ final class LanguageServerConnection: @unchecked Sendable {
             messages.append(Data(buffer[bodyStart..<bodyEnd]))
             buffer.removeSubrange(buffer.startIndex..<bodyEnd)
         }
-        deliver(messages)
+        return messages
     }
 
     private func deliver(_ messages: [Data]) {

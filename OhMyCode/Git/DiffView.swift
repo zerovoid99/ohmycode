@@ -548,7 +548,10 @@ private struct DiffRowView: View {
     }
 
     private func text(_ line: Int?, _ lines: [Substring]) -> String? {
-        line.flatMap { lines.indices.contains($0) ? String(lines[$0]) : nil }
+        guard let line, lines.indices.contains(line) else { return nil }
+        // A CRLF line keeps its "\r" (see `LineDiff.lines`); shown, it would break the row.
+        let scalars = lines[line].unicodeScalars
+        return String(Substring(scalars.last == "\r" ? scalars.dropLast() : scalars[...]))
     }
 
     private func side(line: Int?, text: String?, spans: [[LineSpan]]?, words: [NSRange], tint: Color?) -> some View {

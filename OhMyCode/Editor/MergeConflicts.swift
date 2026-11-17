@@ -48,17 +48,32 @@ struct MergeConflict: Equatable {
 
     /// Its two sides, for a diff tab.
     func comparison(in string: NSString) -> ConflictComparison {
-        ConflictComparison(current: string.substring(with: current), incoming: string.substring(with: incoming),
+        ConflictComparison(current: Self.substring(of: string, current), incoming: Self.substring(of: string, incoming),
                            currentLabel: currentLabel, incomingLabel: incomingLabel)
     }
 
     /// The text that replaces the conflict.
     func text(for resolution: Resolution, in string: NSString) -> String {
         switch resolution {
-        case .current: string.substring(with: current)
-        case .incoming: string.substring(with: incoming)
-        case .both: string.substring(with: current) + string.substring(with: incoming)
+        case .current: Self.substring(of: string, current)
+        case .incoming: Self.substring(of: string, incoming)
+        case .both: Self.substring(of: string, current) + Self.substring(of: string, incoming)
         }
+    }
+
+    /// Whether it still lies within a text `length` long (a scan is made a moment after edits).
+    func fits(in length: Int) -> Bool { NSMaxRange(range) <= length }
+
+    /// Moved by `delta` (an edit before it).
+    func shifted(by delta: Int) -> MergeConflict {
+        func move(_ range: NSRange) -> NSRange { NSRange(location: range.location + delta, length: range.length) }
+        return MergeConflict(range: move(range), current: move(current), base: base.map(move), incoming: move(incoming),
+                             startMarker: move(startMarker), currentLabel: currentLabel, incomingLabel: incomingLabel)
+    }
+
+    /// Out of bounds reads as nothing rather than raising.
+    private static func substring(of string: NSString, _ range: NSRange) -> String {
+        NSMaxRange(range) <= string.length ? string.substring(with: range) : ""
     }
 }
 
@@ -140,8 +155,9 @@ extension EditorDocument {
     /// Replaces conflicts with one of their sides, as one undoable edit.
     @discardableResult
     func resolve(_ conflicts: [MergeConflict], with resolution: MergeConflict.Resolution) -> Bool {
-        guard !conflicts.isEmpty else { return false }
         let text = textStorage.mutableString
+        let conflicts = conflicts.filter { $0.fits(in: text.length) }
+        guard !conflicts.isEmpty else { return false }
         let edits = conflicts.map { TextReplacement(range: $0.range, text: $0.text(for: resolution, in: text)) }
         let name = conflicts.count == 1 ? resolution.rawValue : "\(resolution.rawValue) (All)"
         return (try? apply(edits, actionName: name)) ?? false
@@ -149,7 +165,10 @@ extension EditorDocument {
 
     /// The conflict containing `location` (a cursor on its markers counts).
     func conflict(at location: Int) -> MergeConflict? {
-        conflicts.first { NSLocationInRange(location, $0.range) || NSMaxRange($0.range) == location && location == textStorage.length }
+        conflicts.first {
+            $0.fits(in: textStorage.length)
+                && (NSLocationInRange(location, $0.range) || NSMaxRange($0.range) == location && location == textStorage.length)
+        }
     }
 }
 
@@ -207,7 +226,8 @@ extension EditorController {
     /// far away on every redraw.
     private func visibleConflicts() -> [MergeConflict] {
         guard !document.conflicts.isEmpty, let near = highlightRange else { return [] }
-        return document.conflicts.filter { NSIntersectionRange($0.range, near).length > 0 }
+        let length = document.textStorage.length
+        return document.conflicts.filter { $0.fits(in: length) && NSIntersectionRange($0.range, near).length > 0 }
     }
 
     static var conflictActionFont: NSFont {

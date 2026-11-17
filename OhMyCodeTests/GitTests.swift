@@ -51,6 +51,22 @@ struct GitStatusParserTests {
         #expect(status.status(forRelativePath: "src/main.swift", isDirectory: false) == .modified)
         #expect(status.changedFileCount == 1) // other/ is outside the opened folder
     }
+
+    /// `git add -N` leaves a file "added" in the worktree only (".A").
+    @Test func intentToAddIsAdded() {
+        let status = GitStatus.parse(porcelain(["1 .A N... 000000 000000 100644 0 0 later.swift"]), prefix: "")
+        #expect(status.status(forRelativePath: "later.swift", isDirectory: false) == .added)
+        #expect(status.changes.first?.unstagedStatus == .added)
+    }
+
+    /// A rename's original path is relative to the folder too, and gone when it was outside it.
+    @Test func renameOriginalPathOutsideTheFolder() {
+        let status = GitStatus.parse(porcelain([
+            "2 R. N... 100644 100644 100644 a a R100 app/inside.txt", "app/before.txt",
+            "2 R. N... 100644 100644 100644 a a R100 app/moved-in.txt", "other/before.txt",
+        ]), prefix: "app/")
+        #expect(status.changes.map(\.originalPath) == ["before.txt", nil])
+    }
 }
 
 struct LineDiffTests {
@@ -87,6 +103,28 @@ struct LineDiffTests {
         let elapsed = clock.measure { result = markers(base, current) }
         #expect(result.count == 15_000 && result.values.allSatisfy { $0 == .modified })
         #expect(elapsed < .seconds(1))
+    }
+
+    /// Lines split on "\n" alone, as the editor numbers them: "\r\n" is one Character, so a
+    /// split on Characters made a CRLF file one line.
+    @Test func crlfFilesSplitIntoLines() {
+        let base = "one\r\ntwo\r\nthree\r\n", current = "one\r\nTWO\r\nthree\r\nfour\r\n"
+        #expect(LineDiff.lines(base) == ["one\r", "two\r", "three\r", ""])
+        #expect(LineDiff.lines("a\nb\r\nc") == ["a", "b\r", "c"])
+        #expect(LineDiff.lines("") == [""])
+        #expect(markers(base, current) == [1: .modified, 3: .added])
+
+        // Staging one change and reverting both give back CRLF text, line for line.
+        let old = LineDiff.lines(base), new = LineDiff.lines(current)
+        let hunks = LineDiff.hunks(base: old, current: new)
+        #expect(hunks.count == 2)
+        #expect(LineDiff.applying(hunks[0], old: old, new: new) == "one\r\nTWO\r\nthree\r\n")
+        let text = NSMutableString(string: current)
+        for hunk in hunks.reversed() {
+            let edit = LineDiff.revertEdit(for: hunk, base: old, text: text, lineStarts: LineIndex(string: text).lineStarts.array)
+            text.replaceCharacters(in: edit.range, with: edit.replacement)
+        }
+        #expect(text as String == base)
     }
 }
 
@@ -320,6 +358,108 @@ struct GitStageTwoTests {
         #expect(try String(contentsOf: root.appending(path: "README.md"), encoding: .utf8) == "keep\n")
 
         #expect(throws: Git.CommandError.self) { try Git.commit(message: "nothing staged", in: repository) }
+    }
+
+    private func output(_ arguments: [String], in directory: URL) throws -> Data {
+        let process = Process(), pipe = Pipe()
+        process.executableURL = URL(filePath: "/usr/bin/git")
+        process.arguments = ["-C", directory.path] + arguments
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return data
+    }
+
+    private func makeRepository() throws -> (URL, Git.Repository) {
+        let root = try GitRepositoryTests.makeRepository()
+        try git(["init", "-q", "-b", "main"], in: root)
+        try git(["config", "user.name", "OMC Test"], in: root)
+        try git(["config", "user.email", "omc@example.invalid"], in: root)
+        try git(["config", "commit.gpgsign", "false"], in: root)
+        return (root, try #require(Git.repository(at: root)))
+    }
+
+    /// Paths are matched as they are: "[id]" isn't a glob matching "d".
+    @Test func pathsWithGlobCharactersMatchOnlyThemselves() throws {
+        let (root, repository) = try makeRepository()
+        try FileManager.default.createDirectory(at: root.appending(path: "app"), withIntermediateDirectories: true)
+        try "a\n".write(to: root.appending(path: "app/[id].tsx"), atomically: true, encoding: .utf8)
+        try "d\n".write(to: root.appending(path: "app/d.tsx"), atomically: true, encoding: .utf8)
+
+        try Git.stage(["app/[id].tsx"], in: repository)
+        #expect(Git.status(of: repository)?.stagedChanges.map(\.path) == ["app/[id].tsx"])
+        try Git.unstage(["app/[id].tsx"], in: repository) // no commit yet: `rm --cached`
+        #expect(Git.status(of: repository)?.stagedChanges.isEmpty == true)
+        try Git.stage(["app/[id].tsx", "app/d.tsx", "README.md", "src/main.txt"], in: repository)
+        try Git.commit(message: "first", in: repository)
+
+        try "a2\n".write(to: root.appending(path: "app/[id].tsx"), atomically: true, encoding: .utf8)
+        try "d2\n".write(to: root.appending(path: "app/d.tsx"), atomically: true, encoding: .utf8)
+        try Git.stage(["app/[id].tsx"], in: repository)
+        #expect(Git.status(of: repository)?.stagedChanges.map(\.path) == ["app/[id].tsx"])
+        try Git.unstage(["app/[id].tsx"], in: repository)
+        #expect(Git.status(of: repository)?.stagedChanges.isEmpty == true)
+        try Git.discard(["app/[id].tsx"], in: repository)
+        #expect(try String(contentsOf: root.appending(path: "app/[id].tsx"), encoding: .utf8) == "a\n")
+        #expect(try String(contentsOf: root.appending(path: "app/d.tsx"), encoding: .utf8) == "d2\n")
+
+        try Git.setIndexContent("a3\n", expected: "a\n", relativePath: "app/[id].tsx", in: repository)
+        #expect(Git.indexContent(ofRelativePath: "app/[id].tsx", in: repository) == "a3\n")
+        try Git.stage(["app/d.tsx"], in: repository)
+        try Git.commit(message: "second", in: repository)
+        try "d3\n".write(to: root.appending(path: "app/d.tsx"), atomically: true, encoding: .utf8)
+        try Git.stage(["app/d.tsx"], in: repository)
+        try Git.commit(message: "only d", in: repository)
+        #expect(Git.history(ofRelativePath: "app/[id].tsx", in: repository)?.map(\.summary) == ["second", "first"])
+    }
+
+    @Test func intentToAddShowsAsAdded() throws {
+        let (root, repository) = try makeRepository()
+        try "later\n".write(to: root.appending(path: "later.txt"), atomically: true, encoding: .utf8)
+        try git(["add", "-N", "later.txt"], in: root)
+        let change = try #require(Git.status(of: repository)?.changes.first { $0.path == "later.txt" })
+        #expect(change.unstagedStatus == .added && !change.isStaged)
+    }
+
+    /// Staging part of a file that starts with a byte order mark keeps the mark.
+    @Test func partialStagingKeepsTheByteOrderMark() throws {
+        let (root, repository) = try makeRepository()
+        try Data([0xEF, 0xBB, 0xBF] + Array("one\ntwo\n".utf8)).write(to: root.appending(path: "bom.txt"))
+        try Git.stage(["bom.txt"], in: repository)
+        let staged = try #require(Git.indexContent(ofRelativePath: "bom.txt", in: repository))
+        #expect(staged == "one\ntwo\n") // read without the mark, like the editor
+        try Git.setIndexContent("one\nTWO\n", expected: staged, relativePath: "bom.txt", in: repository)
+        #expect(try output(["show", ":bom.txt"], in: root) == Data([0xEF, 0xBB, 0xBF] + Array("one\nTWO\n".utf8)))
+    }
+
+    @Test func removesARemoteWhoseNameLooksLikeAnOption() throws {
+        let (root, repository) = try makeRepository()
+        try git(["remote", "add", "--", "-x", "https://example.invalid/x.git"], in: root)
+        #expect(Git.remotes(in: repository) == ["-x"])
+        try Git.removeRemote("-x", in: repository)
+        #expect(Git.remotes(in: repository).isEmpty)
+    }
+
+    /// A repository's config can name an fsmonitor hook; the app's own status refreshes don't
+    /// run it.
+    @Test func statusDoesNotRunAnFsmonitorHook() throws {
+        let (root, repository) = try makeRepository()
+        let marker = root.appending(path: "fsmonitor-ran")
+        let hook = root.appending(path: "hook.sh")
+        try "#!/bin/sh\ntouch '\(marker.path)'\nexit 1\n".write(to: hook, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
+        try git(["config", "core.fsmonitor", hook.path], in: root)
+        try git(["add", "README.md"], in: root) // an index for the hook to be asked about
+
+        // Plain git runs it (else this test proves nothing).
+        _ = try output(["status", "--porcelain"], in: root)
+        try #require(FileManager.default.fileExists(atPath: marker.path))
+        try FileManager.default.removeItem(at: marker)
+
+        #expect(Git.status(of: repository) != nil)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 }
 

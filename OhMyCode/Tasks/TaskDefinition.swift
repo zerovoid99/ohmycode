@@ -77,21 +77,72 @@ struct TaskDefinition: Codable, Equatable, Identifiable, Sendable {
 
     /// With `${…}` variables filled in (as in launch.json).
     func resolved(root: URL, file: URL?) -> TaskDefinition {
+        var values = ["workspaceFolder": root.path]
+        if let file {
+            values["file"] = file.path
+            values["fileDirname"] = file.deletingLastPathComponent().path
+            values["fileBasenameNoExtension"] = file.deletingPathExtension().lastPathComponent
+            values["fileBasename"] = file.lastPathComponent
+        }
         func fill(_ text: String) -> String {
-            var text = text.replacingOccurrences(of: "${workspaceFolder}", with: root.path)
-            if let file {
-                text = text.replacingOccurrences(of: "${file}", with: file.path)
-                    .replacingOccurrences(of: "${fileDirname}", with: file.deletingLastPathComponent().path)
-                    .replacingOccurrences(of: "${fileBasenameNoExtension}", with: file.deletingPathExtension().lastPathComponent)
-                    .replacingOccurrences(of: "${fileBasename}", with: file.lastPathComponent)
-            }
-            return text
+            values.reduce(text) { text, entry in text.replacingOccurrences(of: "${\(entry.key)}", with: entry.value) }
         }
         var copy = self
-        copy.command = fill(command)
+        // The command goes to `sh -c`: a file named `a b.c` or `$(rm x).c` must stay one word.
+        copy.command = Self.fillQuoted(command, values)
         copy.cwd = fill(cwd ?? "${workspaceFolder}")
         copy.env = env?.mapValues(fill)
         return copy
+    }
+
+    /// `command` with its `${…}` variables replaced by values quoted for where they stand
+    /// (bare, inside "…" or inside '…'), so a command that already quotes them still works.
+    static func fillQuoted(_ command: String, _ values: [String: String]) -> String {
+        enum Quote { case none, single, double }
+        var result = ""
+        var quote = Quote.none
+        var index = command.startIndex
+        while index < command.endIndex {
+            let rest = command[index...]
+            if rest.hasPrefix("${"), let close = rest.firstIndex(of: "}"),
+               let value = values[String(command[command.index(index, offsetBy: 2)..<close])] {
+                switch quote {
+                case .none: result += shellQuoted(value)
+                case .single: result += value.replacingOccurrences(of: "'", with: #"'\''"#)
+                case .double:
+                    for character in value {
+                        if #"\"$`"#.contains(character) { result.append("\\") }
+                        result.append(character)
+                    }
+                }
+                index = command.index(after: close)
+                continue
+            }
+            let character = command[index]
+            result.append(character)
+            switch (quote, character) {
+            case (.none, "'"): quote = .single
+            case (.none, "\""): quote = .double
+            case (.single, "'"), (.double, "\""): quote = .none
+            case (.none, "\\"), (.double, "\\"):
+                // An escaped character is taken as it is.
+                let next = command.index(after: index)
+                if next < command.endIndex {
+                    result.append(command[next])
+                    index = next
+                }
+            default: break
+            }
+            index = command.index(after: index)
+        }
+        return result
+    }
+
+    /// One shell word: as it is when it's plain, else in '…'.
+    static func shellQuoted(_ value: String) -> String {
+        let plain = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-./+:@,=%")
+        if !value.isEmpty, value.unicodeScalars.allSatisfy(plain.contains) { return value }
+        return "'" + value.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
     // MARK: Found tasks

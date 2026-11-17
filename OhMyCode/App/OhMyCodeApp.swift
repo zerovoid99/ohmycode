@@ -6,6 +6,9 @@ struct OhMyCodeApp: App {
 
     init() {
         LaunchTrace.mark("app.init")
+        // A write to a pipe or socket whose other end is gone (an exited language server, agent
+        // or program) fails with EPIPE where it's made, instead of killing the app.
+        signal(SIGPIPE, SIG_IGN)
         GrammarRegistry.warmUp()
         DispatchQueue.main.async {
             AppSettings.shared.applyAppearance() // once NSApp exists

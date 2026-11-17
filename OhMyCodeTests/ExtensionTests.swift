@@ -136,6 +136,15 @@ struct ExtensionHostTests {
       register('basic.require', () => require('fs'));
       register('basic.throw', () => { throw new Error('boom'); });
       register('basic.outside', () => omc.workspace.fs.readFile('/etc/hosts'));
+      register('basic.throughLink', () => omc.workspace.fs.writeFile('link/escaped.txt', 'escaped'));
+      register('basic.gitConfig', () => omc.workspace.fs.writeFile('.git/config', '[core]\\n\\tfsmonitor = /tmp/evil'));
+      register('basic.gitHook', () => omc.workspace.fs.writeFile('sub/../.GIT/hooks/pre-commit', 'evil'));
+      register('basic.gitRead', () => omc.workspace.fs.readFile('.git/HEAD'));
+      register('basic.hugeEdit', async () => {
+        const editor = omc.window.activeTextEditor;
+        await editor.edit((b) => b.replace(new omc.Range(-5, -1e300, 1e300, 1e300), 'X'));
+        return editor.document.getText();
+      });
       register('basic.files', async () => {
         await omc.workspace.fs.writeFile('made.txt', 'made');
         const names = (await omc.workspace.fs.readDirectory('.')).map((e) => e.name);
@@ -272,6 +281,48 @@ struct ExtensionHostTests {
         // Still running after all that.
         #expect(workspace.extensions.extensions.first?.state == .active)
         #expect(try await run(workspace, "basic.timer") == .string("fired"))
+        withExtendedLifetime(window) {}
+    }
+
+    /// A link in the folder to a folder outside: a new file through it is outside too.
+    @Test func aLinkToOutsideIsOutside() async throws {
+        let (workspace, root, _, _, window) = try await makeBasic()
+        let outside = FileManager.default.temporaryDirectory.appending(path: "omc-ext-outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outside) }
+        try FileManager.default.createSymbolicLink(at: root.appending(path: "link"), withDestinationURL: outside)
+        #expect(await failure(workspace, "basic.throughLink")?.contains("outside the open folder") == true)
+        #expect(!FileManager.default.fileExists(atPath: outside.appending(path: "escaped.txt").path))
+        withExtendedLifetime(window) {}
+    }
+
+    /// .git/config and .git/hooks name programs git runs: writing them without the fileSystem
+    /// permission would let any extension run code, though they're inside the open folder.
+    @Test func gitFolderNeedsTheFileSystemPermission() async throws {
+        let (workspace, root, _, _, window) = try await makeBasic()
+        let git = root.appending(path: ".git")
+        try FileManager.default.createDirectory(at: git.appending(path: "hooks"), withIntermediateDirectories: true)
+        try "ref: refs/heads/main\n".write(to: git.appending(path: "HEAD"), atomically: true, encoding: .utf8)
+        #expect(await failure(workspace, "basic.gitConfig")?.contains("inside .git") == true)
+        #expect(await failure(workspace, "basic.gitHook")?.contains("inside .git") == true)
+        #expect(!FileManager.default.fileExists(atPath: git.appending(path: "config").path))
+        #expect(!FileManager.default.fileExists(atPath: git.appending(path: "hooks/pre-commit").path))
+        // Reading is still fine.
+        #expect(try await run(workspace, "basic.gitRead") == .string("ref: refs/heads/main\n"))
+        // With the permission, the extension may.
+        #expect(throws: Never.self) { try ExtensionHost.checkGitWrite(git.appending(path: "config"), permissions: [.fileSystem]) }
+        #expect(throws: ExtensionHost.APIError.self) { try ExtensionHost.checkGitWrite(git.appending(path: "config"), permissions: []) }
+        withExtendedLifetime(window) {}
+    }
+
+    /// Positions far outside the document (or past Int's range) clamp instead of trapping.
+    @Test func hugePositionsClamp() async throws {
+        let (workspace, _, document, _, window) = try await makeBasic()
+        #expect(try await run(workspace, "basic.hugeEdit") == .string("X"))
+        #expect(document.textStorage.string == "X")
+        #expect(JSONValue.number(1e300).integer == nil && JSONValue.number(.nan).position == nil)
+        #expect(JSONValue.number(1e300).position == Int(Int32.max) && JSONValue.number(-1e300).position == -Int(Int32.max))
+        #expect(JSONValue.number(3.7).integer == 3 && JSONValue.number(.infinity).integer == nil)
         withExtendedLifetime(window) {}
     }
 

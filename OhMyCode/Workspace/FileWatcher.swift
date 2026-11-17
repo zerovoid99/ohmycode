@@ -64,3 +64,38 @@ final class FileWatcher: @unchecked Sendable {
         return String(cString: resolved)
     }
 }
+
+extension URL {
+    /// The path with every link in it followed, also when its end doesn't exist yet: the
+    /// deepest part that exists through realpath(3), the rest appended. (`resolvingSymlinksInPath()`
+    /// leaves a path that doesn't exist as it is, so `folder/link/new`, the link pointing
+    /// outside, looked inside.) A link to something missing is followed to where it points.
+    var pathFollowingLinks: String {
+        var path = standardizedFileURL.path
+        var missing: [String] = []
+        for _ in 0..<64 {
+            if let resolved = realpath(path, nil) {
+                defer { free(resolved) }
+                return missing.reversed().reduce(String(cString: resolved)) { ($0 as NSString).appendingPathComponent($1) }
+            }
+            if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: path) {
+                let parent = (path as NSString).deletingLastPathComponent
+                let target = destination.hasPrefix("/") ? destination : (parent as NSString).appendingPathComponent(destination)
+                path = URL(filePath: target).standardizedFileURL.path
+                continue
+            }
+            let parent = (path as NSString).deletingLastPathComponent
+            guard parent != path, !parent.isEmpty else { break }
+            missing.append((path as NSString).lastPathComponent)
+            path = parent
+        }
+        return standardizedFileURL.path
+    }
+
+    /// This path is `folder` or inside it, with the links in both followed (a link inside
+    /// pointing outside is outside).
+    func isWithin(_ folder: URL) -> Bool {
+        let path = pathFollowingLinks, root = folder.pathFollowingLinks
+        return path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+    }
+}

@@ -48,7 +48,7 @@ final class DAPClient {
         guard let message = try? JSONDecoder().decode(JSONValue.self, from: data) else { return }
         switch message["type"]?.string {
         case "response":
-            guard let seq = message["request_seq"]?.number.map(Int.init), let continuation = pending.removeValue(forKey: seq) else { return }
+            guard let seq = message["request_seq"]?.integer, let continuation = pending.removeValue(forKey: seq) else { return }
             if message["success"]?.bool == true {
                 continuation.resume(returning: message["body"] ?? .null)
             } else {

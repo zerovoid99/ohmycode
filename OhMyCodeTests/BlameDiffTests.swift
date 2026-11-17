@@ -32,6 +32,17 @@ struct BlameParserTests {
         #expect(lines[2]?.isUncommitted == true && lines[0]?.isUncommitted == false)
     }
 
+    /// CRLF content: "\r\n" is one Character, so splitting on Characters ran each line's
+    /// content into the next entry's header.
+    @Test func parsesCRLFContent() {
+        let a = String(repeating: "a", count: 40)
+        let output = "\(a) 1 1 3\nauthor Alice\nauthor-time 1700000000\nsummary First\nfilename f.txt\n\tone\r\n"
+            + "\(a) 2 2\n\ttwo\r\n\(a) 3 3\n\tthree\r\n"
+        let lines = BlameLine.parse(Data(output.utf8))
+        #expect(lines.count == 3)
+        #expect(lines.allSatisfy { $0?.author == "Alice" && $0?.summary == "First" })
+    }
+
     @Test func describesTheChange() {
         let now = Date(timeIntervalSince1970: 1_700_000_000 + 3 * 86_400)
         let blame = BlameLine(commit: String(repeating: "a", count: 40), author: "Alice",

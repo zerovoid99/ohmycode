@@ -207,7 +207,19 @@ enum VSCodeTheme {
             if c == "," {
                 // Drop a comma followed only by whitespace/comments and a closing bracket.
                 var j = i + 1
-                while j < chars.count, chars[j].properties.isWhitespace { j += 1 }
+                while j < chars.count {
+                    if chars[j].properties.isWhitespace {
+                        j += 1
+                    } else if chars[j] == "/", j + 1 < chars.count, chars[j + 1] == "/" {
+                        while j < chars.count, chars[j] != "\n" { j += 1 }
+                    } else if chars[j] == "/", j + 1 < chars.count, chars[j + 1] == "*" {
+                        j += 2
+                        while j + 1 < chars.count, !(chars[j] == "*" && chars[j + 1] == "/") { j += 1 }
+                        j += 2
+                    } else {
+                        break
+                    }
+                }
                 if j < chars.count, chars[j] == "}" || chars[j] == "]" { i += 1; continue }
             }
             output.unicodeScalars.append(c)

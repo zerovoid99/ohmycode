@@ -91,4 +91,41 @@ struct ProfileTests {
         macB.setSyncFolder(nil)
         #expect(macB.syncFolder == nil && FileManager.default.fileExists(atPath: macB.url(for: "Default").path))
     }
+
+    @Test func choosingASyncFolderUsesTheProfileAlreadyThere() throws {
+        let shared = FileManager.default.temporaryDirectory.appending(path: "omc-sync-\(UUID().uuidString)")
+        let (macA, partsA) = makeMac(syncFolder: shared)
+        partsA.settings.editorFontSize = 19
+        macA.saveNow()
+
+        // A Mac already running picks the folder: the synced profile is applied, not replaced.
+        let (macB, partsB) = makeMac()
+        partsB.settings.editorFontSize = 11
+        macB.saveNow()
+        macB.setSyncFolder(shared)
+        #expect(partsB.settings.editorFontSize == 19)
+        #expect(try SettingsProfile.read(from: shared.appending(path: "Default.omcprofile")).settings["editorFontSize"] == .number(19))
+    }
+
+    @Test func renamingAndSwitchingNeverLoseAProfile() throws {
+        let (manager, _) = makeMac()
+        manager.switchTo("Work")
+        manager.switchTo("Default")
+
+        // Only the case differs: on a case-insensitive disk that's the same file.
+        manager.rename("Default", to: "work")
+        #expect(manager.current == "Default" && manager.names == ["Default", "Work"])
+        manager.rename("Default", to: "Other")
+        #expect(manager.current == "Other")
+        // A rename that can't move the file changes nothing.
+        manager.rename("Missing", to: "Renamed")
+        #expect(manager.lastError != nil && !manager.names.contains("Renamed"))
+
+        // A profile that's there but can't be read isn't switched to, or written over.
+        let broken = manager.url(for: "Broken")
+        try "{ not a profile".write(to: broken, atomically: true, encoding: .utf8)
+        manager.switchTo("Broken")
+        #expect(manager.current == "Other" && manager.lastError != nil)
+        #expect(try String(contentsOf: broken, encoding: .utf8) == "{ not a profile")
+    }
 }

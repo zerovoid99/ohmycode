@@ -54,7 +54,9 @@ struct LineIndex: Equatable {
     /// UTF-16 offset for an LSP position (line, UTF-16 column), clamped to its line and the text.
     func offset(for position: LSPPosition, length: Int) -> Int {
         guard position.line < lineCount else { return length }
-        let lineStart = lineStarts[max(0, position.line)]
+        // Before the first line is the start of the text (servers and extensions can send any line).
+        guard position.line >= 0 else { return 0 }
+        let lineStart = lineStarts[position.line]
         let lineEnd = position.line + 1 < lineCount ? lineStarts[position.line + 1] - 1 : length
         return min(lineStart + max(0, position.character), max(lineStart, lineEnd))
     }

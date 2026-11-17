@@ -63,9 +63,25 @@ final class SessionStore {
         return "folder-" + digest.prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func folder(_ key: String) -> URL { directory.appending(path: key) }
+    func folder(_ key: String) -> URL { directory.appending(path: key) }
 
-    func write(_ session: WindowSession, texts: [String: String], key: String) {
+    /// The unsaved files each window of this run keeps under a key, and whether it's still
+    /// open: two windows on one folder share its key, and neither drops the other's backups.
+    private var claims: [String: [UUID: (buffers: [WindowSession.Buffer], isOpen: Bool)]] = [:]
+    /// Backups no window took back (their file is gone): kept until one can.
+    private var kept: [String: [WindowSession.Buffer]] = [:]
+
+    /// Writes a window's session (`windowID`: whose it is), with the other windows' backups
+    /// under the same key, and those kept, still listed.
+    func write(_ session: WindowSession, texts: [String: String], key: String, windowID: UUID? = nil) {
+        var session = session
+        if let windowID { claims[key, default: [:]][windowID] = (session.unsaved, session.wasOpen) }
+        let others = (claims[key] ?? [:]).filter { $0.key != windowID }.map(\.value)
+        var listed = Set(session.unsaved.map(\.file))
+        for buffer in others.flatMap(\.buffers) + (kept[key] ?? []) where listed.insert(buffer.file).inserted {
+            session.unsaved.append(buffer)
+        }
+        session.wasOpen = session.wasOpen || others.contains(where: \.isOpen)
         let folder = folder(key)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -97,7 +113,38 @@ final class SessionStore {
     }
 
     func remove(_ key: String) {
+        claims[key] = nil
+        kept[key] = nil
         try? FileManager.default.removeItem(at: folder(key))
+    }
+
+    /// A window has nothing to keep under `key` any more: its backups go, other windows' (and
+    /// kept ones) stay.
+    func release(_ key: String, windowID: UUID) {
+        claims[key]?[windowID] = nil
+        guard !(claims[key] ?? [:]).isEmpty || !(kept[key] ?? []).isEmpty, var session = read(key) else {
+            remove(key)
+            return
+        }
+        session.unsaved = []
+        session.wasOpen = false
+        write(session, texts: [:], key: key)
+    }
+
+    /// Backups from another key's folder, kept under `key` (their files are gone).
+    func keep(_ buffers: [WindowSession.Buffer], from oldKey: String, in key: String) {
+        guard !buffers.isEmpty else { return }
+        try? FileManager.default.createDirectory(at: folder(key), withIntermediateDirectories: true)
+        for buffer in buffers {
+            try? FileManager.default.copyItem(at: folder(oldKey).appending(path: buffer.file), to: folder(key).appending(path: buffer.file))
+        }
+        kept[key, default: []] += buffers
+    }
+
+    /// A window restored `key`: closed windows' backups are its now, and only `missing` stay kept.
+    func takeOver(_ key: String, keeping missing: [WindowSession.Buffer]) {
+        claims[key] = claims[key]?.filter(\.value.isOpen)
+        kept[key] = missing.isEmpty ? nil : missing
     }
 
     /// Every kept session, by key.
@@ -147,17 +194,59 @@ extension Workspace {
         backedUpVersions = Dictionary(uniqueKeysWithValues: documents.filter(\.isDirty).map { ($0.id, $0.editVersion) })
         // Nothing worth keeping for a window that's going away.
         if !wasOpen, session.unsaved.isEmpty {
-            SessionStore.shared.remove(sessionKey)
+            SessionStore.shared.release(sessionKey, windowID: id)
             return
         }
-        SessionStore.shared.write(session, texts: texts, key: sessionKey)
+        SessionStore.shared.write(session, texts: texts, key: sessionKey, windowID: id)
     }
 
     /// The window closed: its unsaved changes stay (for when the folder is opened again).
+    /// Without a folder nothing would bring them back: they were asked about before it closed
+    /// (`confirmClosingWindow`); if that didn't happen, the window comes back at next launch.
     func windowClosed() {
         guard !SessionStore.shared.isTerminating else { return }
-        keepSession(wasOpen: false, force: true)
+        if rootURL == nil {
+            if Self.confirmedCloses.remove(id) != nil {
+                SessionStore.shared.release(sessionKey, windowID: id)
+            } else {
+                keepSession(wasOpen: documents.contains(where: \.isDirty), force: true)
+            }
+        } else {
+            keepSession(wasOpen: false, force: true)
+        }
+        stopEverything()
+    }
+
+    /// Windows without a folder whose unsaved files were asked about as they closed.
+    @MainActor static var confirmedCloses: Set<UUID> = []
+
+    /// Before a window without a folder closes: asks about each unsaved file (a folder's come
+    /// back when it's opened again). False cancels the close.
+    func confirmClosingWindow() -> Bool {
+        guard rootURL == nil, !SessionStore.shared.isTerminating else { return true }
+        for document in documents where document.isDirty {
+            guard confirmSaving(document) else { return false }
+        }
+        Self.confirmedCloses.insert(id)
+        return true
+    }
+
+    /// The window's close button asks `confirmClosingWindow` first.
+    func guardClosing(_ window: NSWindow) {
+        guard let button = window.standardWindowButton(.closeButton), !(button.target is WindowCloseGuard) else { return }
+        let closeGuard = WindowCloseGuard(workspace: self, target: button.target, action: button.action)
+        objc_setAssociatedObject(window, &WindowCloseGuard.key, closeGuard, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        button.target = closeGuard
+        button.action = #selector(WindowCloseGuard.close(_:))
+    }
+
+    /// The window (or the app) is going away: everything it started stops with it.
+    func stopEverything() {
         sessionLoop?.cancel()
+        taskRuns.forEach { $0.terminate() }
+        terminals.forEach { $0.terminate() }
+        if let session = debugSession { Task { await session.stop() } }
+        languageClients.values.forEach { $0.shutdown() }
         agentPanel.stop()
         claudeCode.stop()
     }
@@ -184,11 +273,14 @@ extension Workspace {
             open(fileAt: URL(fileURLWithPath: path))
         }
         var restored = 0, changedOnDisk = 0
+        // Backups of files that are gone: a document needs its file, so they're kept (not
+        // dropped by the next write) until the file is back, and the user is told where.
+        var missing: [WindowSession.Buffer] = []
         for buffer in session.unsaved {
             let url = URL(fileURLWithPath: buffer.path)
             guard let text = store.backup(buffer, key: key) else { continue }
             if document(matching: url) == nil {
-                guard FileManager.default.fileExists(atPath: url.path) else { continue }
+                guard FileManager.default.fileExists(atPath: url.path) else { missing.append(buffer); continue }
                 open(fileAt: url)
             }
             guard let document = document(matching: url), document.textStorage.string != text else { continue }
@@ -197,13 +289,28 @@ extension Workspace {
             restored += 1
             if let date = buffer.diskDate, let now = document.diskModificationDate, abs(date.timeIntervalSince(now)) > 0.01 { changedOnDisk += 1 }
         }
-        if let active = session.activeFile { open(fileAt: URL(fileURLWithPath: active)) }
+        store.takeOver(key, keeping: missing)
+        if let active = session.activeFile, FileManager.default.fileExists(atPath: active) { open(fileAt: URL(fileURLWithPath: active)) }
         if restored > 0 {
             let message = restored == 1 ? "Restored unsaved changes in 1 file." : "Restored unsaved changes in \(restored) files."
             let warning = changedOnDisk > 0 ? " \(changedOnDisk) of them changed on disk since: compare before saving." : ""
             Task { _ = await notify(changedOnDisk > 0 ? .warning : .info, message + warning, source: nil) }
         }
+        tellAboutMissingFiles(missing, key: key)
         sessionSignature = nil
+    }
+
+    /// Backups kept because their files are gone: says so, and where they are.
+    private func tellAboutMissingFiles(_ missing: [WindowSession.Buffer], key: String) {
+        guard !missing.isEmpty else { return }
+        let names = missing.map { URL(fileURLWithPath: $0.path).lastPathComponent }.joined(separator: ", ")
+        let message = "Unsaved changes to \(names) weren't restored: the file no longer exists. The backup is kept."
+        let folder = SessionStore.shared.folder(key)
+        Task {
+            if await notify(.warning, message, source: nil, items: ["Show Backup"]) == "Show Backup" {
+                NSWorkspace.shared.activateFileViewerSelecting(missing.map { folder.appending(path: $0.file) })
+            }
+        }
     }
 
     // MARK: Auto save
@@ -261,16 +368,23 @@ extension Workspace {
     func restoreFolderlessSession(firstFile: URL) {
         guard rootURL == nil, let key = Self.pendingFolderlessRestores.removeValue(forKey: firstFile.path),
               let session = SessionStore.shared.read(key) else { return }
+        var missing: [WindowSession.Buffer] = []
         for buffer in session.unsaved {
             let url = URL(fileURLWithPath: buffer.path)
             guard let text = SessionStore.shared.backup(buffer, key: key) else { continue }
-            if document(matching: url) == nil { open(fileAt: url) }
+            if document(matching: url) == nil {
+                guard FileManager.default.fileExists(atPath: url.path) else { missing.append(buffer); continue }
+                open(fileAt: url)
+            }
             if let document = document(matching: url), document.textStorage.string != text {
                 _ = try? document.apply([TextReplacement(range: NSRange(location: 0, length: document.textStorage.length), text: text)],
                                         actionName: "Restore Unsaved Changes")
             }
         }
+        // Those whose file is gone move to this window's session.
+        SessionStore.shared.keep(missing, from: key, in: sessionKey)
         SessionStore.shared.remove(key)
+        tellAboutMissingFiles(missing, key: sessionKey)
     }
 
     /// Quitting: every window's session is kept (hot exit), or, with hot exit off, unsaved
@@ -278,7 +392,11 @@ extension Workspace {
     static func prepareToQuit(_ workspaces: [Workspace]) -> Bool {
         if AppSettings.shared.hotExit {
             SessionStore.shared.isTerminating = true
-            for workspace in workspaces { workspace.keepSession(wasOpen: true, force: true) }
+            for workspace in workspaces {
+                workspace.keepSession(wasOpen: true, force: true)
+                // Closing windows skip this while quitting: what they started stops here.
+                workspace.stopEverything()
+            }
             return true
         }
         for workspace in workspaces {
@@ -287,7 +405,32 @@ extension Workspace {
             }
         }
         SessionStore.shared.isTerminating = true
-        for workspace in workspaces { SessionStore.shared.remove(workspace.sessionKey) }
+        for workspace in workspaces {
+            // Backups kept for files that are gone weren't asked about: they stay.
+            SessionStore.shared.release(workspace.sessionKey, windowID: workspace.id)
+            workspace.stopEverything()
+        }
         return true
+    }
+}
+
+/// Stands in for a window's close button: asks the workspace, then closes as the button would.
+@MainActor
+final class WindowCloseGuard: NSObject {
+    nonisolated(unsafe) static var key: UInt8 = 0
+    private weak var workspace: Workspace?
+    private weak var target: AnyObject?
+    private let action: Selector?
+
+    init(workspace: Workspace, target: AnyObject?, action: Selector?) {
+        self.workspace = workspace
+        self.target = target
+        self.action = action
+    }
+
+    @objc func close(_ sender: Any?) {
+        guard workspace?.confirmClosingWindow() != false else { return }
+        if let action, NSApp.sendAction(action, to: target, from: sender) { return }
+        (sender as? NSView)?.window?.performClose(sender)
     }
 }

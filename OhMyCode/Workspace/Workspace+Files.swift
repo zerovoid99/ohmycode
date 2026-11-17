@@ -124,11 +124,39 @@ extension Workspace {
         }
     }
 
-    /// Dropped on a folder in the Explorer: moves there (keeping the name).
+    /// Dropped on a folder in the Explorer: moves there (keeping the name). From outside the
+    /// folder (Finder, another window), it's copied: the original stays where it was.
     @discardableResult
     func move(_ url: URL, into folder: URL) async -> URL? {
         guard folder.standardizedFileURL != url.deletingLastPathComponent().standardizedFileURL else { return nil }
+        guard let root = rootURL else { return nil }
+        let rootPath = FileWatcher.canonicalPath(root)
+        let sourcePath = FileWatcher.canonicalPath(url)
+        guard sourcePath != rootPath else { return nil }
+        guard sourcePath.hasPrefix(rootPath + "/") else { return copy(url, into: folder) }
         return await move(url, to: folder.appending(path: url.lastPathComponent))
+    }
+
+    /// Copies a file or folder from elsewhere into one of the folder's.
+    @discardableResult
+    func copy(_ source: URL, into folder: URL) -> URL? {
+        do {
+            guard let root = rootURL else { throw FileOperationError.outsideFolder }
+            let folderPath = FileWatcher.canonicalPath(folder)
+            let rootPath = FileWatcher.canonicalPath(root)
+            guard folderPath == rootPath || folderPath.hasPrefix(rootPath + "/"),
+                  // Not a folder into itself.
+                  !(folderPath + "/").hasPrefix(FileWatcher.canonicalPath(source) + "/") else { throw FileOperationError.outsideFolder }
+            let destination = folder.appending(path: source.lastPathComponent)
+            guard !FileManager.default.fileExists(atPath: destination.path) else { throw FileOperationError.exists(destination.lastPathComponent) }
+            try FileManager.default.copyItem(at: source, to: destination)
+            reloadTree(around: destination)
+            refreshGit()
+            return destination
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
     }
 
     /// Moves or renames a file or folder. Language servers that want to are asked first for the
@@ -151,12 +179,18 @@ extension Workspace {
             FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory)
             let renames = [(old: source, new: destination)]
 
-            // 1. What the servers want changed first.
+            // 1. What the servers want changed first. Their edits name the files where they are
+            // now, so they go in before the move; what each touched is noted to put back if the
+            // move fails.
+            var edits: [WorkspaceEdit] = []
             for client in languageClients.values where client.state == .ready
                 && client.wantsRename(of: source, isFolder: isDirectory.boolValue, notification: false) {
-                if let edit = try? await client.willRenameFiles(renames), edit.editCount > 0 {
-                    applyServerEdit(edit, actionName: "Update References to \(source.lastPathComponent)")
-                }
+                if let edit = try? await client.willRenameFiles(renames), edit.editCount > 0 { edits.append(edit) }
+            }
+            let openBefore = Set(documents.map(\.id))
+            let textsBefore = Dictionary(documents.map { ($0.id, $0.textStorage.string) }, uniquingKeysWith: { a, _ in a })
+            for edit in edits {
+                applyServerEdit(edit, actionName: "Update References to \(source.lastPathComponent)")
             }
             // 2. The move. (The old path is resolved first: once it's gone, symlinks in it can't be.)
             // So are the open documents' paths (each resolves its own lazily).
@@ -165,7 +199,13 @@ extension Workspace {
                 let path = document.canonicalPath
                 return path == oldPath || path.hasPrefix(oldPath + "/") ? (document, path) : nil
             }
-            try FileManager.default.moveItem(at: source, to: destination)
+            do {
+                try FileManager.default.moveItem(at: source, to: destination)
+            } catch {
+                undoReferenceEdits(openBefore: openBefore, textsBefore: textsBefore)
+                throw error
+            }
+            breakpoints.move(from: oldPath, to: FileWatcher.canonicalPath(destination))
             // 3. Open documents at (or under) the old path follow, unsaved text and all.
             for (document, path) in affected {
                 let newURL = destination.appending(path: String(path.dropFirst(oldPath.count)))
@@ -191,6 +231,22 @@ extension Workspace {
         }
     }
 
+    /// The move failed: the reference edits made for it go (tabs they opened close).
+    private func undoReferenceEdits(openBefore: Set<EditorDocument.ID>, textsBefore: [EditorDocument.ID: String]) {
+        for document in documents {
+            guard let before = textsBefore[document.id] else {
+                if !openBefore.contains(document.id) { discardDocument(document) }
+                continue
+            }
+            guard document.textStorage.string != before else { continue }
+            if document.undoManager.canUndo { document.undoManager.undo() }
+            if document.textStorage.string != before {
+                _ = try? document.apply([TextReplacement(range: NSRange(location: 0, length: document.textStorage.length), text: before)],
+                                        actionName: "Undo Reference Updates")
+            }
+        }
+    }
+
     // MARK: Trash, Finder, paths
 
     /// Move to Trash: closes their tabs (unsaved changes are lost with the file; the Trash
@@ -199,11 +255,11 @@ extension Workspace {
         guard !urls.isEmpty, Self.confirmTrash(urls) else { return }
         for url in urls {
             do {
+                // Resolved while the file is there; its tabs close only once it's in the Trash.
                 let path = FileWatcher.canonicalPath(url)
-                for document in documents where document.canonicalPath == path || document.canonicalPath.hasPrefix(path + "/") {
-                    discardDocument(document)
-                }
+                let affected = documents.filter { $0.canonicalPath == path || $0.canonicalPath.hasPrefix(path + "/") }
                 try Self.moveToTrash(url)
+                affected.forEach(discardDocument)
                 reloadTree(around: url)
             } catch {
                 errorMessage = error.localizedDescription

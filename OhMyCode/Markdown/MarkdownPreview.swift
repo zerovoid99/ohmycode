@@ -86,6 +86,8 @@ final class MarkdownPreviewController: NSObject {
     private var ignoreEditorScrollUntil = Date.distantPast
     private var observers: [NSObjectProtocol] = []
     private var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    /// The base URL of the page `reload()` last loaded: the only main-frame load allowed.
+    private var pageURL: URL?
 
     init(document: EditorDocument) {
         self.document = document
@@ -139,6 +141,7 @@ final class MarkdownPreviewController: NSObject {
         isLoaded = false
         let page = Self.page(body: result.html, css: Self.css(appearance: webView.effectiveAppearance))
         let base = LocalFileSchemeHandler.url(for: folder.appending(path: "", directoryHint: .isDirectory))
+        pageURL = base
         webView.loadHTMLString(page, baseURL: base)
         highlight(result.codeBlocks)
     }
@@ -405,14 +408,39 @@ extension MarkdownPreviewController: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
-        guard action.navigationType == .linkActivated, let url = action.request.url else { return .allow }
-        if url.scheme == LocalFileSchemeHandler.scheme {
-            let file = LocalFileSchemeHandler.fileURL(for: url)
-            if FileManager.default.fileExists(atPath: file.path) { openFile(file, nil) }
-        } else {
+        switch Self.decision(for: action.request.url, type: action.navigationType,
+                             isMainFrame: action.targetFrame?.isMainFrame ?? false, page: pageURL) {
+        case .allow:
+            return .allow
+        case .cancel:
+            break
+        case .openInBrowser(let url):
             NSWorkspace.shared.open(url)
+        case .openFile(let file):
+            if FileManager.default.fileExists(atPath: file.path) { openFile(file, nil) }
         }
         return .cancel
+    }
+
+    enum NavigationDecision: Equatable {
+        case allow, cancel, openInBrowser(URL), openFile(URL)
+    }
+
+    /// Only the page this controller loads may load: anything else navigating the preview (a
+    /// <meta> refresh, a form, a frame) would show a page without its Content-Security-Policy,
+    /// where scripts run. Clicked links open elsewhere: web and mail ones in their apps, local
+    /// files in the editor, other schemes (file:, javascript:, app URLs) nowhere.
+    static func decision(for url: URL?, type: WKNavigationType, isMainFrame: Bool, page: URL?) -> NavigationDecision {
+        guard let url else { return .cancel }
+        if type == .linkActivated {
+            switch url.scheme?.lowercased() {
+            case "http", "https", "mailto": return .openInBrowser(url)
+            case LocalFileSchemeHandler.scheme: return .openFile(LocalFileSchemeHandler.fileURL(for: url))
+            default: return .cancel
+            }
+        }
+        guard isMainFrame, type == .other || type == .reload else { return .cancel }
+        return url == page || url.absoluteString == "about:blank" ? .allow : .cancel
     }
 }
 

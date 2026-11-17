@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Minimal LSP server for tests. Mirrors documents from incremental changes (UTF-16
 positions), reports a diagnostic for every "BAD", and answers completion/definition.
-With --full-sync it asks for the whole text on every change (textDocumentSync 1)."""
+With --full-sync it asks for the whole text on every change (textDocumentSync 1); with
+--fail-initialize it answers initialize (late) with an error; omc/crash makes it exit."""
 import json, os, re, sys
 from urllib.parse import unquote, urlparse, quote
 
@@ -146,10 +147,16 @@ while True:
     method, mid, params = msg.get("method"), msg.get("id"), msg.get("params", {})
     if method is None:
         continue  # the client answering our own request (workspace/applyEdit)
-    if method == "initialize":
+    if method == "initialize" and "--fail-initialize" in sys.argv:
+        import time
+        time.sleep(0.3)  # requests sent meanwhile wait for it
+        send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": "fake can't start"}})
+    elif method == "omc/crash":
+        sys.exit(3)
+    elif method == "initialize":
         root = path_of(params["rootUri"])
         send({"jsonrpc": "2.0", "id": mid, "result": {"capabilities": {
-            "textDocumentSync": 1 if full_sync else 2, "completionProvider": {"triggerCharacters": ["."]}, "definitionProvider": True,
+            "textDocumentSync": 1 if full_sync else 2, "completionProvider": {"triggerCharacters": ["."], "resolveProvider": True}, "definitionProvider": True,
             "hoverProvider": True, "referencesProvider": True, "renameProvider": {"prepareProvider": True},
             "documentFormattingProvider": True, "documentRangeFormattingProvider": True, "documentSymbolProvider": True,
             "implementationProvider": True, "typeDefinitionProvider": True, "callHierarchyProvider": True,
@@ -235,6 +242,26 @@ while True:
     elif method == "omc/stats":
         send({"jsonrpc": "2.0", "id": mid, "result": {"completions": completions_asked, "cancelled": len(cancelled),
             "changes": did_change_versions}})
+    elif method == "textDocument/completion" and "WITH_IMPORTS" in docs.get(params["textDocument"]["uri"], ""):
+        # fooImported brings its import along; fooLazy's comes when resolved. Their text edits
+        # replace the whole word around the position (what's after it too).
+        pos = params["position"]
+        line = docs[params["textDocument"]["uri"]].split("\n")[pos["line"]]
+        before = prefix(units(line), pos["character"])
+        start = len(units(before)) - len(units(re.search(r"\w*$", before).group()))
+        after = len(units(re.match(r"\w*", line[len(before):]).group()))
+        rng = {"start": {"line": pos["line"], "character": start}, "end": {"line": pos["line"], "character": pos["character"] + after}}
+        send({"jsonrpc": "2.0", "id": mid, "result": {"isIncomplete": False, "items": [
+            {"label": "fooImported", "kind": 3, "textEdit": {"range": rng, "newText": "fooImported"},
+             "additionalTextEdits": [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
+                                      "newText": "import Foo\n"}]},
+            {"label": "fooLazy", "kind": 3, "textEdit": {"range": rng, "newText": "fooLazy"}, "data": {"lazy": True}}]}})
+    elif method == "completionItem/resolve":
+        item = dict(params)
+        if (item.get("data") or {}).get("lazy"):
+            item["additionalTextEdits"] = [{"range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
+                                            "newText": "import Lazy\n"}]
+        send({"jsonrpc": "2.0", "id": mid, "result": item})
     elif method == "textDocument/completion":
         send({"jsonrpc": "2.0", "id": mid, "result": {"isIncomplete": False, "items": [
             {"label": "fooBar", "kind": 3, "detail": "(count: Int) -> Int", "insertTextFormat": 2,

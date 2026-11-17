@@ -155,4 +155,72 @@ struct MultiCursorTests {
         withExtendedLifetime(window) {}
     }
 
+    /// Regression: a column on another line could land inside an emoji's surrogate pair, or
+    /// between a "\r\n"'s two characters.
+    @Test func cursorPositionsKeepCharactersAndCRLFWhole() throws {
+        let (document, controller, window) = try makeEditor("abcd\r\na😀b\r\nxy")
+        #expect(controller.position(line: 1, column: 2) == 7)   // inside the emoji: before it
+        #expect(controller.position(line: 1, column: 3) == 9)   // after it
+        #expect(controller.position(line: 0, column: .max) == 4) // before "\r\n"
+        #expect(controller.position(line: 1, column: .max) == 10)
+        #expect(controller.position(line: 2, column: .max) == 14)
+
+        controller.textView.setSelectedRange(NSRange(location: 2, length: 0))
+        controller.addCursorVertically(1)
+        #expect(carets(controller) == [2, 7])
+        command(controller, #selector(NSResponder.moveToEndOfLine(_:)))
+        #expect(carets(controller) == [4, 10])
+        command(controller, #selector(NSResponder.moveDown(_:)))
+        #expect(carets(controller) == [10, 14])
+
+        // Enter at every cursor uses the file's line break.
+        controller.setSelections(main: NSRange(location: 4, length: 0), extras: [NSRange(location: 10, length: 0)])
+        command(controller, #selector(NSResponder.insertNewline(_:)))
+        #expect(document.textStorage.string == "abcd\r\n\r\na😀b\r\n\r\nxy")
+        withExtendedLifetime(window) {}
+    }
+
+    /// Regression: Backspace at a caret right after a selection made two edits of the same
+    /// character; they were refused together and the key did nothing.
+    @Test func overlappingDeletesAreMadeOne() throws {
+        let (document, controller, window) = try makeEditor("0123456789")
+        controller.setSelections(main: NSRange(location: 5, length: 1), extras: [NSRange(location: 6, length: 0)])
+        command(controller, #selector(NSResponder.deleteBackward(_:)))
+        #expect(document.textStorage.string == "012346789")
+        #expect(carets(controller) == [5])
+        #expect(!controller.hasExtraCursors)
+        document.undoManager.undo()
+        #expect(document.textStorage.string == "0123456789")
+        withExtendedLifetime(window) {}
+    }
+
+    /// Regression: extra cursors stayed where they were after an edit in the other half of a
+    /// split, or a reload from disk, pointing at the wrong text (or past its end).
+    @Test func editsInAnotherViewAndReloadsDropExtraCursors() throws {
+        let (document, controller, window) = try makeEditor("one\ntwo\nthree\n")
+        let other = EditorController(document: document)
+        let otherWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300), styleMask: [.titled],
+                                   backing: .buffered, defer: false)
+        otherWindow.contentView = other.makeView()
+        otherWindow.layoutIfNeeded()
+        document.attach(other)
+
+        controller.setSelections(main: NSRange(location: 0, length: 0), extras: [NSRange(location: 4, length: 0)])
+        let undo = document.undoManager
+        undo.beginUndoGrouping()
+        other.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        other.textView.insertText("zero\n", replacementRange: NSRange(location: NSNotFound, length: 0))
+        undo.endUndoGrouping()
+        #expect(document.textStorage.string == "zero\none\ntwo\nthree\n")
+        #expect(!controller.hasExtraCursors)
+
+        controller.setSelections(main: NSRange(location: 0, length: 0), extras: [NSRange(location: 18, length: 0)])
+        try "short\n".write(to: document.url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: document.url.path)
+        document.revertToSaved()
+        #expect(document.textStorage.string == "short\n")
+        #expect(!controller.hasExtraCursors)
+        withExtendedLifetime((window, otherWindow)) {}
+    }
+
 }

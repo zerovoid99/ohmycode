@@ -97,6 +97,32 @@ struct KeybindingTests {
         }
     }
 
+    @Test func savingOverAFileThatDidNotParseKeepsItAsABackup() throws {
+        try withBindings { bindings in
+            defer { try? FileManager.default.removeItem(at: bindings.backupFile) }
+            let broken = "[ { \"key\": \"cmd+k\" \"command\": \"view.problems\" } ]"
+            try broken.write(to: bindings.file, atomically: true, encoding: .utf8)
+            bindings.load()
+            #expect(bindings.loadError != nil)
+            bindings.set(try KeyChord(parsing: "cmd+shift+y"), for: "view.problems")
+            #expect(try String(contentsOf: bindings.backupFile, encoding: .utf8) == broken)
+            #expect(bindings.loadError?.contains(bindings.backupFile.lastPathComponent) == true)
+            let reread = Keybindings(file: bindings.file)
+            #expect(reread.display(for: "view.problems") == "⇧⌘Y" && reread.loadError == nil)
+
+            // A file that read fine is just saved over.
+            try FileManager.default.removeItem(at: bindings.backupFile)
+            bindings.reset("view.problems")
+            #expect(!FileManager.default.fileExists(atPath: bindings.backupFile.path) && bindings.loadError == nil)
+        }
+    }
+
+    @Test func aTrailingCommaBeforeACommentStillParses() throws {
+        let text = VSCodeTheme.stripJSONC("[\n  { \"a\": 1, /* x */ },\n  2, // last\n]\n")
+        let decoded = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [Any]
+        #expect(decoded?.count == 2)
+    }
+
     @Test func extensionCommandsHaveDefaultsUsersCanChange() throws {
         try withBindings { bindings in
             bindings.setExtensionCommands("x.tool", name: "Tool", commands: [("tool.go", "Tool: Go")], defaults: ["tool.go": "cmd+shift+u"])

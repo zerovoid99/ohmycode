@@ -43,7 +43,7 @@ enum GitFileStatus: Int, Sendable, Comparable {
         guard codes.count == 2 else { return nil }
         let (index, worktree) = (codes[0], codes[1])
         if index == "D" || worktree == "D" { self = .deleted }
-        else if index == "A" { self = .added }
+        else if index == "A" || worktree == "A" { self = .added } // ".A": added with `git add -N`
         else if index == "R" || index == "C" { self = .renamed }
         else if index == "M" || worktree == "M" || index == "T" || worktree == "T" { self = .modified }
         else { return nil }
@@ -144,7 +144,10 @@ struct GitStatus: Sendable, Equatable {
             let codes = Array(xy)
             if codes.count == 2 {
                 status.changes.append(GitChange(path: relative, index: codes[0], worktree: codes[1],
-                                                originalPath: original.map { String($0.dropFirst(prefix.count)) },
+                                                originalPath: original.flatMap { original in
+                                                    // Moved in from outside the folder: no path here to show.
+                                                    original.hasPrefix(prefix) ? String(original.dropFirst(prefix.count)) : nil
+                                                },
                                                 isSubmodule: submodule))
             }
             if relative.hasSuffix("/") {
@@ -461,7 +464,7 @@ enum Git {
 
     /// Removes the remote, its remote-tracking branches and the upstreams set to it.
     static func removeRemote(_ name: String, in repository: Repository) throws {
-        try check(["remote", "remove", name], in: repository.root)
+        try check(["remote", "remove", "--", name], in: repository.root)
     }
 
     static func renameRemote(_ name: String, to newName: String, in repository: Repository) throws {
@@ -490,21 +493,28 @@ enum Git {
     }
 
     static func stage(_ paths: [String], in repository: Repository) throws {
-        try check(["add", "--"] + paths, in: repository.root)
+        try check(["add", "--"] + literal(paths), in: repository.root)
     }
 
     static func unstage(_ paths: [String], in repository: Repository) throws {
         // `restore --staged` needs a commit to restore from; in a fresh repo, drop from the index.
         if (try? check(["rev-parse", "--verify", "HEAD"], in: repository.root)) != nil {
-            try check(["restore", "--staged", "--"] + paths, in: repository.root)
+            try check(["restore", "--staged", "--"] + literal(paths), in: repository.root)
         } else {
-            try check(["rm", "--cached", "--quiet", "--"] + paths, in: repository.root)
+            try check(["rm", "--cached", "--quiet", "--"] + literal(paths), in: repository.root)
         }
     }
 
     /// Discards unstaged changes to tracked files (back to the staged version).
     static func discard(_ paths: [String], in repository: Repository) throws {
-        try check(["restore", "--worktree", "--"] + paths, in: repository.root)
+        try check(["restore", "--worktree", "--"] + literal(paths), in: repository.root)
+    }
+
+    /// Paths as pathspecs that match only themselves: git reads "app/[id].tsx" as a glob that
+    /// also matches "app/d.tsx". Per path rather than GIT_LITERAL_PATHSPECS, which hooks run by
+    /// a commit would inherit.
+    static func literal(_ paths: [String]) -> [String] {
+        paths.map { ":(literal)" + $0 }
     }
 
     /// Replaces the last commit with one that also has what is staged; an empty message keeps
@@ -573,17 +583,23 @@ enum Git {
     /// computed against that text.
     static func setIndexContent(_ content: String, expected: String, relativePath path: String,
                                 in repository: Repository) throws {
-        let entry = String(decoding: try check(["ls-files", "-s", "--", path], in: repository.root), as: UTF8.self)
+        let entry = String(decoding: try check(["ls-files", "-s", "--"] + literal([path]), in: repository.root), as: UTF8.self)
         let fields = entry.split(separator: " ", maxSplits: 2)
         // "<mode> <sha> <stage>\t<path>": one entry at stage 0 (not a conflict).
         guard entry.split(separator: "\n").count == 1, fields.count == 3, fields[2].hasPrefix("0\t") else {
             throw CommandError(message: "\(path) can't be staged in parts (it isn't in the index, or has a conflict).")
         }
-        guard indexContent(ofRelativePath: path, in: repository) == expected else {
+        let staged = run(["show", ":./" + path], in: repository.root)
+        guard let staged, String(data: staged, encoding: .utf8) == expected else {
             throw CommandError(message: "The staged version of \(path) changed. Try again.")
         }
+        // The texts compared and combined come without a byte order mark (reading UTF-8 drops
+        // it); a staged file that had one keeps it.
+        let byteOrderMark = Data([0xEF, 0xBB, 0xBF])
+        var blob = Data(content.utf8)
+        if staged.starts(with: byteOrderMark) && !blob.starts(with: byteOrderMark) { blob = byteOrderMark + blob }
         let object = String(decoding: try check(["hash-object", "-w", "--stdin", "--no-filters"], in: repository.root,
-                                                input: Data(content.utf8)), as: UTF8.self)
+                                                input: blob), as: UTF8.self)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         // --cacheinfo paths are relative to the repository root, not the working directory.
         try check(["update-index", "--cacheinfo", "\(fields[0]),\(object),\(repository.prefix + path)"], in: repository.root)
@@ -593,7 +609,7 @@ enum Git {
     /// (not a repository); empty if the file has no history.
     static func history(ofRelativePath path: String, in repository: Repository, limit: Int = 300) -> [GitCommit]? {
         guard let output = run(["log", "--follow", "-M", "-n", String(limit), "--name-status",
-                                "--format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%s", "--", path], in: repository.root) else { return nil }
+                                "--format=%x1e%H%x1f%P%x1f%an%x1f%at%x1f%s", "--"] + literal([path]), in: repository.root) else { return nil }
         return GitCommit.parseLog(output, currentPath: repository.prefix + path)
     }
 
@@ -732,7 +748,10 @@ enum Git {
         -> (status: Int32, output: Data, error: Data) {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/git")
-        process.arguments = ["--no-optional-locks", "-c", "core.quotepath=off", "-C", directory.path] + arguments
+        // No fsmonitor: it's only a speed-up, and a hook named in a repository's config would
+        // otherwise run on every automatic status refresh of a folder just opened.
+        process.arguments = ["--no-optional-locks", "-c", "core.quotepath=off", "-c", "core.fsmonitor=false",
+                             "-C", directory.path] + arguments
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_OPTIONAL_LOCKS"] = "0"
         environment["LC_ALL"] = "C"
@@ -1011,7 +1030,9 @@ struct BlameLine: Sendable, Equatable {
         var infos: [String: Info] = [:]
         var result: [BlameLine?] = []
         var current: (commit: String, line: Int)?
-        for rawLine in String(decoding: data, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: false) {
+        // Split on "\n" alone: a CRLF line's content ends in "\r\n", which a Character split
+        // misses, swallowing the next entry's header into it.
+        for rawLine in LineDiff.lines(String(decoding: data, as: UTF8.self)) {
             if rawLine.hasPrefix("\t") {
                 // The line's content ends its entry.
                 guard let (commit, line) = current else { continue }

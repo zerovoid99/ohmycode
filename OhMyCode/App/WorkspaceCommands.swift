@@ -54,7 +54,7 @@ struct WorkspaceCommands: Commands {
             Button("Close Tab") {
                 if let workspace, let doc = workspace.activeDocument {
                     workspace.close(doc)
-                } else {
+                } else if workspace?.confirmClosingWindow() != false {
                     NSApp.keyWindow?.performClose(nil)
                 }
             }

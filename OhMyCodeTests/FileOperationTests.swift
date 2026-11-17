@@ -93,5 +93,43 @@ struct FileOperationTests {
         workspace.trash([root.appending(path: "a.txt")])
         trashed = sink
         #expect(trashed.map(\.lastPathComponent) == ["a.txt"] && workspace.documents.isEmpty)
+
+        // The Trash refused: the file and its tab stay.
+        workspace.open(fileAt: root.appending(path: "b.txt"))
+        Workspace.moveToTrash = { _ in throw CocoaError(.fileWriteNoPermission) }
+        workspace.trash([root.appending(path: "b.txt")])
+        #expect(workspace.documents.map(\.url.lastPathComponent) == ["b.txt"] && workspace.errorMessage != nil)
+    }
+
+    @Test func droppingFromOutsideTheFolderCopies() async throws {
+        let root = try makeFolder(["docs/keep.txt": "k"])
+        let outside = try makeFolder(["notes.txt": "from finder"])
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        let copied = await workspace.move(outside.appending(path: "notes.txt"), into: root.appending(path: "docs"))
+        #expect(copied?.lastPathComponent == "notes.txt")
+        #expect(try String(contentsOf: root.appending(path: "docs/notes.txt"), encoding: .utf8) == "from finder")
+        #expect(FileManager.default.fileExists(atPath: outside.appending(path: "notes.txt").path))
+        // Not over a file that's there.
+        #expect(await workspace.move(outside.appending(path: "notes.txt"), into: root.appending(path: "docs")) == nil)
+        // From inside, it still moves.
+        #expect(await workspace.move(root.appending(path: "docs/keep.txt"), into: root) != nil)
+        #expect(!FileManager.default.fileExists(atPath: root.appending(path: "docs/keep.txt").path))
+    }
+
+    @Test func aFailedMoveTakesBackTheReferenceUpdates() async throws {
+        let (workspace, document, _, window) = try LanguageClientTests.makeWorkspace(
+            text: "// include \"other.swift\"\n", files: ["other.swift": "let x = 1\n"])
+        #expect(try await LanguageClientTests.eventually { document.languageClient?.state == .ready })
+        let root = try #require(workspace.rootURL)
+        let locked = root.appending(path: "locked")
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+        let moved = await workspace.move(root.appending(path: "other.swift"), to: locked.appending(path: "renamed.swift"))
+        #expect(moved == nil && workspace.errorMessage != nil)
+        #expect(FileManager.default.fileExists(atPath: root.appending(path: "other.swift").path))
+        #expect(document.textStorage.string == "// include \"other.swift\"\n")
+        withExtendedLifetime((workspace, window)) {}
     }
 }

@@ -84,6 +84,51 @@ struct FileWatchingTests {
         #expect(document.isDirty)
     }
 
+    /// Regression: saving a file another program had changed overwrote its version silently.
+    /// Saving now asks: cancel keeps both, revert takes the disk's, overwrite takes ours.
+    @Test func savingOverExternalChangesAsks() throws {
+        let root = try makeFolder(["note.txt": "one\n"])
+        let url = root.appending(path: "note.txt")
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: url)
+        let document = try #require(workspace.activeDocument)
+        let original = Workspace.confirmOverwrite
+        defer { Workspace.confirmOverwrite = original }
+        func changeOnDisk(_ text: String) throws {
+            try text.write(to: url, atomically: false, encoding: .utf8)
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(.random(in: 10...1000))],
+                                                  ofItemAtPath: url.path)
+            document.reloadFromDiskIfChanged()
+        }
+
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "mine ")
+        try changeOnDisk("theirs\n")
+        #expect(document.hasExternalChanges)
+        var asked = 0
+        Workspace.confirmOverwrite = { _ in asked += 1; return .cancel }
+        #expect(!workspace.save(document))
+        #expect(asked == 1 && document.isDirty)
+        #expect(try String(contentsOf: url, encoding: .utf8) == "theirs\n")
+
+        Workspace.confirmOverwrite = { _ in .overwrite }
+        #expect(workspace.save(document))
+        #expect(try String(contentsOf: url, encoding: .utf8) == "mine one\n")
+        #expect(!document.isDirty && !document.hasExternalChanges)
+
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "more ")
+        try changeOnDisk("again\n")
+        Workspace.confirmOverwrite = { _ in .revert }
+        #expect(workspace.save(document))
+        #expect(document.textStorage.string == "again\n")
+        #expect(!document.isDirty && !document.hasExternalChanges)
+
+        // Without changes on disk, nothing is asked.
+        Workspace.confirmOverwrite = { _ in Issue.record("asked"); return .cancel }
+        document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "x")
+        #expect(workspace.save(document))
+    }
+
     @Test func ownSaveDoesNotReload() async throws {
         let root = try makeFolder(["note.txt": "one\n"])
         let workspace = Workspace()

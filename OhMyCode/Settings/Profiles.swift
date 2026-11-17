@@ -183,11 +183,21 @@ final class ProfileManager {
     func switchTo(_ name: String) {
         let name = name.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty, name != current, !name.contains("/") else { return }
+        let url = url(for: name)
+        // A profile that's there but can't be read isn't written over with this one's state.
+        var profile: SettingsProfile?
+        if FileManager.default.fileExists(atPath: url.path) {
+            do {
+                profile = try SettingsProfile.read(from: url)
+            } catch {
+                lastError = "\(url.lastPathComponent) can't be read: \(error.localizedDescription)"
+                return
+            }
+        }
         saveNow()
         current = name
         defaults.set(name, forKey: "profiles.current")
-        let url = url(for: name)
-        if let profile = try? SettingsProfile.read(from: url) {
+        if let profile {
             apply(profile)
             knownDate = Self.modificationDate(url)
         } else {
@@ -204,9 +214,16 @@ final class ProfileManager {
 
     func rename(_ name: String, to newName: String) {
         let newName = newName.trimmingCharacters(in: .whitespaces)
-        guard !newName.isEmpty, !newName.contains("/"), !names.contains(newName) else { return }
+        // Names differing only in case are one file on most Macs: renaming onto one would replace it.
+        guard !newName.isEmpty, newName != name, !newName.contains("/"),
+              !names.contains(where: { $0 != name && $0.caseInsensitiveCompare(newName) == .orderedSame }) else { return }
         if name == current { saveNow() }
-        try? FileManager.default.moveItem(at: url(for: name), to: url(for: newName))
+        do {
+            try FileManager.default.moveItem(at: url(for: name), to: url(for: newName))
+        } catch {
+            lastError = "Couldn't rename \(name): \(error.localizedDescription)"
+            return
+        }
         if var profile = try? SettingsProfile.read(from: url(for: newName)) {
             profile.name = newName
             try? profile.write(to: url(for: newName))
@@ -238,8 +255,15 @@ final class ProfileManager {
         saveNow()
         syncFolder = folder
         defaults.set(folder?.path, forKey: "profiles.syncFolder")
-        knownDate = nil
-        if FileManager.default.fileExists(atPath: url(for: current).path) { pullIfChanged() } else { saveNow() }
+        if FileManager.default.fileExists(atPath: url(for: current).path) {
+            // The folder's profile by this name is the one used: as if never seen, so it's
+            // applied now (or when the settings are attached), not written over.
+            knownDate = .distantPast
+            if parts != nil { pullIfChanged() }
+        } else {
+            knownDate = nil
+            saveNow()
+        }
         reloadNames()
     }
 }

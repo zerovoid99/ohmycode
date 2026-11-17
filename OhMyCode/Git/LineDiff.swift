@@ -196,7 +196,18 @@ enum LineDiff {
         }
     }
 
+    /// The lines of `text`, split on each "\n" like the editor's line index. A "\r" before it
+    /// stays in the line: splitting on Characters would treat "\r\n" as one character that
+    /// isn't "\n", and a CRLF file would come out as a single line.
     static func lines(_ text: String) -> [Substring] {
-        text.split(separator: "\n", omittingEmptySubsequences: false)
+        let utf8 = text.utf8
+        var lines: [Substring] = []
+        var start = utf8.startIndex
+        while let newline = utf8[start...].firstIndex(of: UInt8(ascii: "\n")) {
+            lines.append(Substring(text.unicodeScalars[start..<newline]))
+            start = utf8.index(after: newline)
+        }
+        lines.append(Substring(text.unicodeScalars[start...]))
+        return lines
     }
 }

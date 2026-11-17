@@ -607,6 +607,7 @@ final class EditorController: NSObject {
 
     /// The document's text was replaced from disk: keep the cursor near where it was.
     func documentDidReload(previousSelection: NSRange?) {
+        clearExtraCursors() // their offsets were in the old text
         let length = document.textStorage.length
         if let previous = previousSelection {
             textView.setSelectedRange(NSRange(location: min(previous.location, length), length: 0))
@@ -1026,7 +1027,10 @@ extension EditorController: NSTextViewDelegate {
         signatureHelp.textDidChange(typed: typed)
         minimapView?.refresh(textChanged: true)
         updateStickyAfterLayout()
-        for other in document.editors where other !== self { other.refreshAfterEdit() }
+        for other in document.editors where other !== self {
+            other.clearExtraCursors() // its cursors don't follow an edit made in this view
+            other.refreshAfterEdit()
+        }
     }
 
     func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String: Any] = [:],

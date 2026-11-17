@@ -45,6 +45,9 @@ final class Keybindings {
     /// Extensions' commands and default shortcuts, by extension id.
     private(set) var extensionCommands: [String: (name: String, commands: [Command], defaults: [String: String])] = [:]
     @ObservationIgnored private var fileDate: Date?
+    /// The file as read had text this can't write back (it didn't parse, or had rules that
+    /// didn't): saving keeps a copy of it first.
+    @ObservationIgnored private var fileHasUnreadText = false
 
     init(file: URL) {
         self.file = file
@@ -156,6 +159,7 @@ final class Keybindings {
 
     func load() {
         fileDate = Self.modificationDate(file)
+        fileHasUnreadText = false
         guard let data = try? Data(contentsOf: file) else { rules = []; loadError = nil; return }
         let text = VSCodeTheme.stripJSONC(String(decoding: data, as: UTF8.self))
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { rules = []; loadError = nil; return }
@@ -174,9 +178,11 @@ final class Keybindings {
                 return Rule(key: key, command: command, when: entry["when"]?.string)
             }
             loadError = problems.isEmpty ? nil : problems.joined(separator: "; ")
+            fileHasUnreadText = !problems.isEmpty
         } catch {
             rules = []
             loadError = "\(file.lastPathComponent) isn't a JSON list of rules."
+            fileHasUnreadText = true
         }
     }
 
@@ -185,9 +191,19 @@ final class Keybindings {
         if Self.modificationDate(file) != fileDate { load() }
     }
 
+    /// Where the file goes before a save would drop text it couldn't read.
+    var backupFile: URL { file.appendingPathExtension("bak") }
+
     func save() {
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // Hand edits that didn't parse aren't written over: they're kept beside it.
+            var keptBackup = false
+            if fileHasUnreadText, FileManager.default.fileExists(atPath: file.path) {
+                try? FileManager.default.removeItem(at: backupFile)
+                try FileManager.default.copyItem(at: file, to: backupFile)
+                keptBackup = true
+            }
             let lines = rules.map { rule -> String in
                 var parts = ["\"key\": \(Self.json(rule.key))", "\"command\": \(Self.json(rule.command))"]
                 if let when = rule.when { parts.append("\"when\": \(Self.json(when))") }
@@ -197,7 +213,8 @@ final class Keybindings {
                 + lines.joined(separator: ",\n") + (lines.isEmpty ? "" : "\n") + "]\n"
             try text.write(to: file, atomically: true, encoding: .utf8)
             fileDate = Self.modificationDate(file)
-            loadError = nil
+            fileHasUnreadText = false
+            loadError = keptBackup ? "\(file.lastPathComponent) had rules that couldn't be read: the old file is kept as \(backupFile.lastPathComponent)." : nil
             NotificationCenter.default.post(name: Self.didChange, object: self)
         } catch {
             loadError = error.localizedDescription

@@ -89,6 +89,12 @@ struct Diagnostic: Equatable, Sendable {
     }
 }
 
+/// A server's JSON kept as it came (immutable once parsed), to send back.
+final class RawJSON: @unchecked Sendable {
+    let value: Any
+    init(_ value: Any) { self.value = value }
+}
+
 struct CompletionItem: Identifiable, Sendable {
     let id: Int
     var label: String
@@ -101,6 +107,11 @@ struct CompletionItem: Identifiable, Sendable {
     var isSnippet: Bool
     /// Replacement range from the server, if it gave a text edit.
     var editRange: LSPRange?
+    /// Edits elsewhere made with it (an import for the completed name), in the text as it was
+    /// when completion was asked for; they don't overlap the replacement.
+    var additionalTextEdits: [LSPTextEdit] = []
+    /// The item as the server sent it, kept when it fills in details later (`completionItem/resolve`).
+    var raw: RawJSON?
 
     init(id: Int, label: String, detail: String?, kind: Int?, filterText: String? = nil, sortText: String? = nil,
          insertText: String, isSnippet: Bool) {
@@ -114,7 +125,7 @@ struct CompletionItem: Identifiable, Sendable {
         self.isSnippet = isSnippet
     }
 
-    init?(json: Any?, id: Int) {
+    init?(json: Any?, id: Int, keepingJSON: Bool = false) {
         guard let object = json as? NSDictionary, let label = object["label"] as? String else { return nil }
         self.id = id
         self.label = label
@@ -126,6 +137,8 @@ struct CompletionItem: Identifiable, Sendable {
         self.insertText = textEdit?["newText"] as? String ?? object["insertText"] as? String ?? label
         self.isSnippet = (object["insertTextFormat"] as? Int) == 2
         self.editRange = LSPRange(json: textEdit?["range"] ?? (textEdit?["replace"]))
+        self.additionalTextEdits = (object["additionalTextEdits"] as? [Any] ?? []).compactMap(LSPTextEdit.init(json:))
+        if keepingJSON { raw = RawJSON(object) }
     }
 
     /// SF Symbol for the LSP CompletionItemKind.
@@ -177,6 +190,9 @@ struct LSPTextEdit: Equatable, Sendable {
 /// Text edits per file. File create/rename/delete operations are not supported and skipped.
 struct WorkspaceEdit: Equatable, Sendable {
     var changes: [URL: [LSPTextEdit]] = [:]
+    /// The document versions `documentChanges` were computed against (null versions left out):
+    /// an edit for another version of an open file would land in the wrong places.
+    var versions: [URL: Int] = [:]
 
     init(changes: [URL: [LSPTextEdit]]) {
         self.changes = changes
@@ -191,6 +207,7 @@ struct WorkspaceEdit: Equatable, Sendable {
                       let uri = document["uri"] as? String, let url = URL(string: uri),
                       let edits = change["edits"] as? [Any] else { continue }
                 changes[url, default: []] += edits.compactMap(LSPTextEdit.init(json:))
+                if let version = document["version"] as? Int { versions[url] = version }
             }
         } else if let map = object["changes"] as? [String: Any] {
             for (uri, edits) in map {
@@ -408,7 +425,9 @@ struct SignatureHelp: Equatable, Sendable {
             let parameters: [(range: NSRange, documentation: String?)] = (entry["parameters"] as? [[String: Any]] ?? []).compactMap { parameter in
                 let documentation = HoverContent.markdown(from: parameter["documentation"])
                 if let offsets = parameter["label"] as? [Int], offsets.count == 2 {
-                    return (NSRange(location: offsets[0], length: offsets[1] - offsets[0]), documentation)
+                    // Clamped to the label: a server's bad offsets would otherwise crash highlighting it.
+                    let start = min(max(0, offsets[0]), text.length), end = min(max(start, offsets[1]), text.length)
+                    return (NSRange(location: start, length: end - start), documentation)
                 }
                 if let name = parameter["label"] as? String {
                     let range = text.range(of: name)
@@ -420,7 +439,7 @@ struct SignatureHelp: Equatable, Sendable {
                              parameters: parameters, activeParameter: entry["activeParameter"] as? Int)
         }
         guard !signatures.isEmpty else { return nil }
-        activeSignature = min(object["activeSignature"] as? Int ?? 0, signatures.count - 1)
+        activeSignature = max(0, min(object["activeSignature"] as? Int ?? 0, signatures.count - 1))
         activeParameter = object["activeParameter"] as? Int ?? 0
     }
 

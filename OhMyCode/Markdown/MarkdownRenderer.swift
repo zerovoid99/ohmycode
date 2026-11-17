@@ -193,7 +193,7 @@ struct MarkdownRenderer {
                     block.append(lines[index].text)
                     index += 1
                 }
-                html += block.joined(separator: "\n") + "\n"
+                html += Self.neutralizingUnsafeTags(block.joined(separator: "\n")) + "\n"
                 continue
             }
 
@@ -378,6 +378,18 @@ struct MarkdownRenderer {
         return plain.replacingOccurrences(of: " ", with: "-")
     }
 
+    /// Tags raw HTML may not use: a <meta http-equiv="refresh"> or a <form> navigates the preview
+    /// to a page without its Content-Security-Policy (where scripts run), <base> retargets its
+    /// links, and the rest load or run content. Their `<` becomes text, so they show as written.
+    private static let unsafeTag = try! NSRegularExpression(
+        pattern: #"<(/?(?:meta|base|form|script|iframe|frame|frameset|object|embed|link|portal)(?=[\s/>]|$))"#,
+        options: [.caseInsensitive])
+
+    static func neutralizingUnsafeTags(_ html: String) -> String {
+        guard html.contains("<") else { return html }
+        return unsafeTag.stringByReplacingMatches(in: html, range: NSRange(html.startIndex..., in: html), withTemplate: "&lt;$1")
+    }
+
     // MARK: Inline
 
     static func escape(_ text: String) -> String {
@@ -457,7 +469,7 @@ struct MarkdownRenderer {
                         continue
                     }
                     if inner.range(of: #"^(/?[A-Za-z][A-Za-z0-9-]*(\s[^<>]*)?/?|!--[\s\S]*--)$"#, options: .regularExpression) != nil {
-                        html += "<" + inner + ">" // inline HTML
+                        html += Self.neutralizingUnsafeTags("<" + inner + ">") // inline HTML
                         i = close + 1
                         continue
                     }

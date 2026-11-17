@@ -4,6 +4,7 @@
 What it does depends on the prompt's text:
   hello            replies "Hello there" in two chunks, with a plan
   read PATH        reads PATH through the editor and replies with its text
+  readlines PATH LINE LIMIT  reads some of PATH's lines ("|" for newlines)
   write PATH TEXT  asks permission to write TEXT to PATH; writes it if allowed
   run              runs a command through the editor and replies with its output
   wait             waits until the turn is cancelled
@@ -103,6 +104,14 @@ def prompt(session, blocks):
             say(session, "error: " + answer["error"]["message"])
         else:
             say(session, "read: " + answer["result"]["content"])
+        return "end_turn"
+    if words[0] == "readlines":
+        line, limit = (int(n) for n in words[2].split(" "))
+        answer = call("fs/read_text_file", {"sessionId": session, "path": words[1], "line": line, "limit": limit})
+        if "error" in answer:
+            say(session, "error: " + answer["error"]["message"])
+        else:
+            say(session, "lines: " + answer["result"]["content"].replace("\n", "|"))
         return "end_turn"
     if words[0] == "write":
         path, content = words[1], words[2]

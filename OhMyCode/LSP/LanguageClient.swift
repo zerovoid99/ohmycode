@@ -31,11 +31,16 @@ final class LanguageClient {
     /// Notifications sent before `initialized` are queued, preserving order.
     @ObservationIgnored private var queued: [Data] = []
     @ObservationIgnored private var versions: [URL: Int] = [:]
-    @ObservationIgnored private(set) var incrementalSync = true
+    /// The server's `TextDocumentSyncKind`: 0 no changes, 1 whole texts, 2 incremental. Until it
+    /// says (while starting), changes go as whole texts, which any server takes.
+    @ObservationIgnored private var syncKind = 1
+    var incrementalSync: Bool { syncKind == 2 }
     @ObservationIgnored private(set) var triggerCharacters: Set<String> = []
     /// The server's `capabilities` from `initialize`.
     @ObservationIgnored private var capabilities: [String: Any] = [:]
     @ObservationIgnored var onDiagnostics: ((URL, [Diagnostic]) -> Void)?
+    /// The server failed to start or exited (not after `shutdown`).
+    @ObservationIgnored var onFailure: (() -> Void)?
 
     init(name: String, command: [String], rootURL: URL, environment: [String: String]) throws {
         self.name = name
@@ -122,7 +127,7 @@ final class LanguageClient {
             self.capabilities = capabilities
             let sync = capabilities["textDocumentSync"]
             let kind = (sync as? Int) ?? ((sync as? [String: Any])?["change"] as? Int) ?? 2
-            incrementalSync = kind != 1
+            syncKind = (0...2).contains(kind) ? kind : 2
             let completion = capabilities["completionProvider"] as? [String: Any]
             triggerCharacters = Set(completion?["triggerCharacters"] as? [String] ?? ["."])
 
@@ -131,29 +136,51 @@ final class LanguageClient {
             queued.forEach(connection.send)
             queued.removeAll()
         } catch {
-            state = .failed(error.localizedDescription)
+            fail(error.localizedDescription)
         }
     }
 
+    /// Gives up: requests waiting for answers (or for `initialize`) end with the error, nothing
+    /// more is queued, and the server is stopped.
+    private func fail(_ message: String) {
+        guard state != .stopped else { return }
+        let wasFailed = if case .failed = state { true } else { false }
+        state = .failed(message)
+        failPending(message)
+        connection.terminate()
+        if !wasFailed { onFailure?() }
+    }
+
+    private func failPending(_ message: String) {
+        let waiting = pending.values
+        pending.removeAll()
+        queued.removeAll()
+        fullTextFlush?.cancel()
+        fullTextFlush = nil
+        pendingFullText.removeAll()
+        for continuation in waiting { continuation.resume(throwing: LanguageServerError(message: message)) }
+    }
+
     func shutdown() {
-        guard state == .ready else { connection.terminate(); return }
+        guard state == .ready else {
+            // Still starting (or failed): nothing to say goodbye to; what waits ends now.
+            state = .stopped
+            failPending("\(name) was stopped")
+            connection.terminate()
+            return
+        }
         Task {
             _ = try? await request("shutdown", params: nil)
             notify("exit", params: nil)
             connection.terminate()
             state = .stopped
+            failPending("\(name) was stopped")
         }
     }
 
     private func serverDidExit(_ status: Int32) {
-        if state != .stopped { state = .failed("\(name) exited (\(status))") }
-        for continuation in pending.values {
-            continuation.resume(throwing: LanguageServerError(message: "\(name) exited"))
-        }
-        pending.removeAll()
-        fullTextFlush?.cancel()
-        fullTextFlush = nil
-        pendingFullText.removeAll()
+        guard state != .stopped else { return failPending("\(name) exited") }
+        fail("\(name) exited (\(status))")
     }
 
     // MARK: Documents
@@ -175,9 +202,9 @@ final class LanguageClient {
 
     /// `range` is in pre-edit coordinates; `fullText` is used when the server wants full sync.
     func didChange(url: URL, range: LSPRange, text: String, fullText: @escaping () -> NSString) {
-        guard let version = versions[url] else { return }
+        guard let version = versions[url], syncKind != 0 else { return } // 0: the server doesn't want changes
         versions[url] = version + 1
-        guard incrementalSync else {
+        guard incrementalSync, state == .ready else {
             // The whole text per keystroke, encoded on the main thread, took 15 ms for 5 MB.
             pendingFullText[url] = (version + 1, fullText)
             if fullTextFlush == nil {
@@ -217,7 +244,7 @@ final class LanguageClient {
             }
             if state == .ready {
                 connection.send(encode)
-            } else if let data = encode() {
+            } else if state == .starting, let data = encode() {
                 queued.append(data)
             }
         }
@@ -261,7 +288,15 @@ final class LanguageClient {
         let result = try await request("workspace/willRenameFiles", params: [
             "files": renames.map { ["oldUri": $0.old.absoluteString, "newUri": $0.new.absoluteString] },
         ])
-        return WorkspaceEdit(json: result)
+        return try current(WorkspaceEdit(json: result))
+    }
+
+    /// `edit`, unless it's for an older version of an open file.
+    private func current(_ edit: WorkspaceEdit?) throws -> WorkspaceEdit? {
+        if let edit, let stale = staleFile(in: edit) {
+            throw LanguageServerError(message: "\(stale.lastPathComponent) changed since \(name) made the edit. Try again.")
+        }
+        return edit
     }
 
     func didRenameFiles(_ renames: [(old: URL, new: URL)]) {
@@ -275,15 +310,36 @@ final class LanguageClient {
     func completion(url: URL, position: LSPPosition, triggerCharacter: String?) async throws -> (items: [CompletionItem], isIncomplete: Bool) {
         var context: [String: Any] = ["triggerKind": triggerCharacter == nil ? 1 : 2]
         if let triggerCharacter { context["triggerCharacter"] = triggerCharacter }
+        let resolves = resolvesCompletionItems
         let result = try await request("textDocument/completion", params: [
             "textDocument": ["uri": url.absoluteString], "position": position.json, "context": context,
         ])
         return await decoding(result) { result in
             let list = result as? [String: Any]
             let rawItems = (list?["items"] as? [Any]) ?? (result as? [Any]) ?? []
-            let items = rawItems.enumerated().compactMap { CompletionItem(json: $1, id: $0) }
+            let items = rawItems.enumerated().compactMap { CompletionItem(json: $1, id: $0, keepingJSON: resolves) }
             return (items, list?["isIncomplete"] as? Bool ?? false)
         }
+    }
+
+    /// Whether the server fills in items' details (their additional edits) only when asked.
+    var resolvesCompletionItems: Bool {
+        (capabilities["completionProvider"] as? [String: Any])?["resolveProvider"] as? Bool ?? false
+    }
+
+    /// The item with what the server left out of the list (`completionItem/resolve`).
+    func resolve(_ item: CompletionItem) async throws -> CompletionItem {
+        guard let raw = item.raw?.value else { return item }
+        let result = try await request("completionItem/resolve", params: raw)
+        guard var resolved = CompletionItem(json: result, id: item.id) else { return item }
+        resolved.raw = item.raw
+        return resolved
+    }
+
+    /// The first open file `edit` was computed for at another version than the one open here
+    /// (the server answered about an older text): applying it would edit the wrong places.
+    func staleFile(in edit: WorkspaceEdit) -> URL? {
+        edit.versions.first { url, version in versions[url].map { $0 != version } ?? false }?.key
     }
 
     /// Decodes a big answer off the main thread.
@@ -533,7 +589,7 @@ final class LanguageClient {
         let result = try await request("textDocument/rename", params: [
             "textDocument": ["uri": url.absoluteString], "position": position.json, "newName": newName,
         ])
-        return WorkspaceEdit(json: result)
+        return try current(WorkspaceEdit(json: result))
     }
 
     func formatting(url: URL, tabSize: Int, insertSpaces: Bool, trimTrailingWhitespace: Bool = true,
@@ -557,8 +613,13 @@ final class LanguageClient {
 
     // MARK: JSON-RPC
 
+    /// While starting, requests wait for `initialize` (and end with its error if it fails).
     func request(_ method: String, params: Any?, beforeReady: Bool = false) async throws -> Any? {
-        if case .failed(let message) = state { throw LanguageServerError(message: message) }
+        switch state {
+        case .failed(let message): throw LanguageServerError(message: message)
+        case .stopped: throw LanguageServerError(message: "\(name) was stopped")
+        case .starting, .ready: break
+        }
         let id = nextID
         nextID += 1
         var message: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method]
@@ -597,8 +658,14 @@ final class LanguageClient {
         send(data, force: force)
     }
 
+    /// Queued while starting (sent once ready); dropped once failed or stopped, where nothing
+    /// would ever send them.
     private func send(_ data: Data, force: Bool) {
-        if force || state == .ready { connection.send(data) } else { queued.append(data) }
+        if force || state == .ready {
+            connection.send(data)
+        } else if state == .starting {
+            queued.append(data)
+        }
     }
 
     private func handle(_ incoming: IncomingMessage) {
@@ -640,8 +707,13 @@ final class LanguageClient {
             onSemanticTokensRefresh?()
         case "workspace/applyEdit":
             let object = params as? [String: Any]
-            let applied = WorkspaceEdit(json: object?["edit"]).map { onApplyEdit?($0, object?["label"] as? String) ?? false } ?? false
-            response["result"] = ["applied": applied]
+            let edit = WorkspaceEdit(json: object?["edit"])
+            if let edit, let stale = staleFile(in: edit) {
+                response["result"] = ["applied": false, "failureReason": "\(stale.lastPathComponent) has changed"] as [String: Any]
+            } else {
+                let applied = edit.map { onApplyEdit?($0, object?["label"] as? String) ?? false } ?? false
+                response["result"] = ["applied": applied]
+            }
         case "workspace/workspaceFolders":
             response["result"] = [["uri": rootURL.absoluteString, "name": rootURL.lastPathComponent]]
         case "window/workDoneProgress/create", "client/registerCapability", "client/unregisterCapability",

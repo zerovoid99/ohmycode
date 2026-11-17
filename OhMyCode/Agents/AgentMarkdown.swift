@@ -101,6 +101,11 @@ enum AgentMarkdown {
         (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
             ?? AttributedString(text)
     }
+
+    /// A link in a reply that may be opened: http, https and mailto only.
+    static func opensLink(_ url: URL) -> Bool {
+        ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "")
+    }
 }
 
 /// A reply, block by block.
@@ -115,6 +120,9 @@ struct AgentMarkdownView: View {
         }
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // The agent writes the links: only web and mail ones open (not file:, nor an app's own
+        // scheme, which could make another app act).
+        .environment(\.openURL, OpenURLAction { AgentMarkdown.opensLink($0) ? .systemAction : .discarded })
     }
 
     @ViewBuilder private func view(for block: AgentMarkdown.Block) -> some View {

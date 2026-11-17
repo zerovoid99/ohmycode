@@ -177,6 +177,22 @@ final class BreakpointStore {
         if moved != list { set(moved, for: path) }
     }
 
+    /// A file or folder moved (renamed): its breakpoints (those of files under it) go with it.
+    func move(from oldPath: String, to newPath: String) {
+        guard oldPath != newPath else { return }
+        let moving = byPath.keys.filter { $0 == oldPath || $0.hasPrefix(oldPath + "/") }
+        guard !moving.isEmpty else { return }
+        var changed: [String] = []
+        for path in moving {
+            let destination = newPath + path.dropFirst(oldPath.count)
+            byPath[destination] = byPath.removeValue(forKey: path)
+            verified?[path] = nil
+            changed += [path, destination]
+        }
+        save()
+        changed.forEach { onChange?($0) }
+    }
+
     /// What the debugger said about a file's breakpoints (one-based lines it placed).
     func setVerified(_ lines: Set<Int>, for path: String) {
         if verified == nil { verified = [:] }

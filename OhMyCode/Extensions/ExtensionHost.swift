@@ -370,7 +370,7 @@ final class ExtensionHost {
     /// A diagnostic from the API (severity numbered like VS Code's: 0 error … 3 hint).
     private static func diagnostic(_ value: JSONValue) -> Diagnostic? {
         guard let range = value["range"].flatMap(LSPRange.init(value:)), let message = value["message"]?.string else { return nil }
-        let severity: Diagnostic.Severity = switch Int(value["severity"]?.number ?? 0) {
+        let severity: Diagnostic.Severity = switch value["severity"]?.integer ?? 0 {
         case 1: .warning
         case 2: .information
         case 3: .hint
@@ -692,6 +692,7 @@ final class ExtensionHost {
         case notOpen(String)
         case permission(ExtensionManifest.Permission)
         case outsideWorkspace(String)
+        case gitDirectory(String)
 
         var errorDescription: String? {
             switch self {
@@ -701,6 +702,8 @@ final class ExtensionHost {
             case .permission(let permission):
                 "This extension didn't ask to \(permission.title.lowercased()): add \"\(permission.rawValue)\" to \"permissions\" in its extension.json."
             case .outsideWorkspace(let path): "\(path) is outside the open folder."
+            case .gitDirectory(let path):
+                "\(path) is inside .git: changing it needs the \"fileSystem\" permission in the extension's extension.json."
             }
         }
     }
@@ -733,7 +736,7 @@ final class ExtensionHost {
             return .string(text.substring(with: try nsRange(range, in: document, method: method)))
         case "document.getLine":
             let document = try openDocument(args)
-            guard let line = args["line"]?.number.map(Int.init), line >= 0, line < document.lineIndex.lineCount
+            guard let line = args["line"]?.integer, line >= 0, line < document.lineIndex.lineCount
             else { throw APIError.badArguments(method) }
             let starts = document.lineIndex.lineStarts
             let end = line + 1 < starts.count ? starts[line + 1] - 1 : document.textStorage.length
@@ -763,7 +766,7 @@ final class ExtensionHost {
             store.store(value == .null ? nil : value, for: key, of: id)
             return nil
         case "statusBar.update":
-            guard let item = args["id"]?.number.map(Int.init) else { throw APIError.badArguments(method) }
+            guard let item = args["id"]?.integer else { throw APIError.badArguments(method) }
             statusItems.removeAll { $0.extensionID == id && $0.itemID == item }
             if args["visible"]?.bool == true {
                 statusItems.append(ExtensionStatusItem(extensionID: id, itemID: item, text: args["text"]?.string ?? "",
@@ -774,7 +777,7 @@ final class ExtensionHost {
             }
             return nil
         case "languages.register":
-            guard let provider = args["id"]?.number.map(Int.init), let kind = args["kind"]?.string.flatMap(ProviderKind.init) else {
+            guard let provider = args["id"]?.integer, let kind = args["kind"]?.string.flatMap(ProviderKind.init) else {
                 throw APIError.badArguments(method)
             }
             providers.append(Provider(extensionID: id, id: provider, kind: kind,
@@ -782,10 +785,10 @@ final class ExtensionHost {
                                       triggerCharacters: args["triggerCharacters"]?.array?.compactMap(\.string) ?? []))
             return nil
         case "languages.unregister":
-            if let provider = args["id"]?.number.map(Int.init) { providers.removeAll { $0.extensionID == id && $0.id == provider } }
+            if let provider = args["id"]?.integer { providers.removeAll { $0.extensionID == id && $0.id == provider } }
             return nil
         case "diagnostics.set":
-            guard let collection = args["id"]?.number.map(Int.init), let path = args["path"]?.string else { throw APIError.badArguments(method) }
+            guard let collection = args["id"]?.integer, let path = args["path"]?.string else { throw APIError.badArguments(method) }
             let key = "\(id)#\(collection)"
             let url = (path.hasPrefix("/") ? URL(filePath: path) : workspace.rootURL?.appending(path: path) ?? URL(filePath: path)).standardizedFileURL
             let list = (args["diagnostics"]?.array ?? []).compactMap { Self.diagnostic($0) }
@@ -795,11 +798,11 @@ final class ExtensionHost {
             workspace.document(matching: url)?.setExtensionDiagnostics(list, collection: key)
             return nil
         case "diagnostics.clear":
-            guard let collection = args["id"]?.number.map(Int.init) else { throw APIError.badArguments(method) }
+            guard let collection = args["id"]?.integer else { throw APIError.badArguments(method) }
             clearDiagnostics(collection: "\(id)#\(collection)")
             return nil
         case "statusBar.remove":
-            if let item = args["id"]?.number.map(Int.init) { statusItems.removeAll { $0.extensionID == id && $0.itemID == item } }
+            if let item = args["id"]?.integer { statusItems.removeAll { $0.extensionID == id && $0.itemID == item } }
             return nil
         default:
             throw APIError.unknownMethod(method)
@@ -825,12 +828,15 @@ final class ExtensionHost {
             return await workspace.showQuickPick(items, placeholder: args["placeHolder"]?.string).map { .number(Double($0)) }
         case "editor.edit":
             let document = try openDocument(args)
+            try Self.checkGitWrite(document.url, permissions: permissions)
             let edits = try (args["edits"]?.array ?? []).map { edit in
                 TextReplacement(range: try nsRange(edit["range"] ?? .null, in: document, method: method), text: edit["text"]?.string ?? "")
             }
             return .bool(try document.apply(edits, actionName: instance.manifest.name))
         case "document.save":
-            return .bool(workspace.save(try openDocument(args)))
+            let document = try openDocument(args)
+            try Self.checkGitWrite(document.url, permissions: permissions)
+            return .bool(workspace.save(document))
         case "window.showTextDocument":
             let url = try resolve(args["path"]?.string, permissions: permissions, method: method)
             workspace.open(fileAt: url)
@@ -857,6 +863,7 @@ final class ExtensionHost {
             return .string(try await Task.detached { try String(contentsOf: url, encoding: .utf8) }.value)
         case "fs.writeFile":
             let url = try resolve(args["path"]?.string, permissions: permissions, method: method)
+            try Self.checkGitWrite(url, permissions: permissions)
             let text = args["text"]?.string ?? ""
             try await Task.detached { try text.write(to: url, atomically: true, encoding: .utf8) }.value
             return nil
@@ -878,7 +885,7 @@ final class ExtensionHost {
             let cwd = try args["cwd"]?.string.map { try resolve($0, permissions: permissions, method: method) } ?? workspace.rootURL
             return try await ExtensionProcess.run(command, arguments: args["args"]?.array?.compactMap(\.string) ?? [],
                                                   directory: cwd, input: args["input"]?.string,
-                                                  timeout: args["timeout"]?.number.map { $0 / 1000 } ?? 60)
+                                                  timeout: args["timeout"]?.number.flatMap { $0.isNaN ? nil : min(max($0 / 1000, 0), 86_400) } ?? 60)
         case "net.fetch":
             guard permissions.contains(.network) else { throw APIError.permission(.network) }
             guard let text = args["url"]?.string, let url = URL(string: text), url.scheme == "https" || url.scheme == "http"
@@ -908,13 +915,25 @@ final class ExtensionHost {
     /// A `{start, end}` range (line, UTF-16 character) as offsets in the document.
     private func nsRange(_ range: JSONValue, in document: EditorDocument, method: String) throws -> NSRange {
         func offset(_ position: JSONValue?) throws -> Int {
-            guard let line = position?["line"]?.number, let character = position?["character"]?.number else {
+            guard let line = position?["line"]?.position, let character = position?["character"]?.position else {
                 throw APIError.badArguments(method)
             }
-            return document.offset(for: LSPPosition(line: Int(line), character: Int(character)))
+            return document.offset(for: LSPPosition(line: line, character: character))
         }
         let start = try offset(range["start"]), end = try offset(range["end"])
         return NSRange(location: min(start, end), length: abs(end - start))
+    }
+
+    /// Refuses a change inside a .git folder (or to a worktree's .git file) without the fileSystem
+    /// permission: though inside the open folder, .git/config (core.fsmonitor) and .git/hooks
+    /// name programs git runs, so writing them would let any extension run code.
+    static func checkGitWrite(_ url: URL, permissions: Set<ExtensionManifest.Permission>) throws {
+        guard !permissions.contains(.fileSystem) else { return }
+        // Both spellings: a symlink in the folder can point into .git. Case-insensitive, as APFS is.
+        let components = url.standardizedFileURL.pathComponents + url.resolvingSymlinksInPath().pathComponents
+        if components.contains(where: { $0.caseInsensitiveCompare(".git") == .orderedSame }) {
+            throw APIError.gitDirectory(url.path)
+        }
     }
 
     /// A path (relative to the open folder, or absolute) the extension may use: outside the
@@ -923,11 +942,8 @@ final class ExtensionHost {
         guard let path, !path.isEmpty else { throw APIError.badArguments(method) }
         let root = workspace.rootURL
         let url = (path.hasPrefix("/") ? URL(filePath: path) : root.map { $0.appending(path: path) } ?? URL(filePath: path)).standardizedFileURL
-        let resolved = url.resolvingSymlinksInPath().path
-        let inside = root.map { root in
-            let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
-            return resolved == rootPath || resolved.hasPrefix(rootPath + "/")
-        } ?? false
+        // Links followed, also in a new file's folders.
+        let inside = root.map { url.isWithin($0) } ?? false
         if !inside && !permissions.contains(.fileSystem) { throw APIError.outsideWorkspace(path) }
         return url
     }
@@ -990,9 +1006,9 @@ extension LSPRange {
     /// From an API range: {start: {line, character}, end: {line, character}}.
     init?(value: JSONValue) {
         guard let start = value["start"], let end = value["end"],
-              let startLine = start["line"]?.number, let startCharacter = start["character"]?.number,
-              let endLine = end["line"]?.number, let endCharacter = end["character"]?.number else { return nil }
-        self.init(start: LSPPosition(line: Int(startLine), character: Int(startCharacter)),
-                  end: LSPPosition(line: Int(endLine), character: Int(endCharacter)))
+              let startLine = start["line"]?.position, let startCharacter = start["character"]?.position,
+              let endLine = end["line"]?.position, let endCharacter = end["character"]?.position else { return nil }
+        self.init(start: LSPPosition(line: startLine, character: startCharacter),
+                  end: LSPPosition(line: endLine, character: endCharacter))
     }
 }

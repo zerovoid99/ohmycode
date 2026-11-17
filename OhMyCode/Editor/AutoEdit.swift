@@ -101,11 +101,14 @@ extension EditorController {
         let after = character(at: NSMaxRange(selection))
         let opensBlock = opener.map { "{([".contains($0) || ($0 == ":" && document.language == .python) } ?? false
 
+        // The file's own line break: a "\n" typed into a "\r\n" file would mix the two.
+        let lineBreak = document.lineEnding.characters
         if opensBlock, let opener, let after, Self.pairs[opener] == after {
-            let text = "\n" + indent + indentUnit + "\n" + indent
-            replace(selection, with: text, select: NSRange(location: selection.location + 1 + (indent + indentUnit).utf16.count, length: 0))
+            let text = lineBreak + indent + indentUnit + lineBreak + indent
+            replace(selection, with: text,
+                    select: NSRange(location: selection.location + (lineBreak + indent + indentUnit).utf16.count, length: 0))
         } else {
-            let text = "\n" + indent + (opensBlock ? indentUnit : "")
+            let text = lineBreak + indent + (opensBlock ? indentUnit : "")
             replace(selection, with: text, select: NSRange(location: selection.location + text.utf16.count, length: 0))
         }
         return true

@@ -55,6 +55,38 @@ struct TextSearchTests {
         #expect(unicode["u.txt"]?.first?.column == 3)
     }
 
+    /// Whole word means the same to the search and to Replace: no letter, digit, mark or "_"
+    /// on either side. (`\\b` never matched "$x"; the byte search took any non-ASCII as a letter.)
+    @Test func wholeWordSearchAndReplaceAgree() async throws {
+        let text = "let $x = 1; a$x — $x—y; é$x\n"
+        let root = try makeFolder(["w.txt": text])
+        let options = SearchOptions(query: "$x", caseSensitive: true, wholeWord: true)
+        let found = try await search(options, in: root, files: ["w.txt"])["w.txt"]?.map(\.column)
+        #expect(found == [4, 18])
+        let regex = try TextSearch.replacementRegex(options)
+        let replaced = TextSearch.replacements(in: text, regex: regex, template: "y")
+        #expect(replaced.map(\.range.location) == [4, 18])
+
+        // An em dash is not part of a word.
+        let dash = try makeFolder(["d.txt": "foo—bar foobar\n"])
+        let word = SearchOptions(query: "foo", caseSensitive: true, wholeWord: true)
+        #expect(try await search(word, in: dash, files: ["d.txt"])["d.txt"]?.map(\.column) == [0])
+        #expect(TextSearch.replacements(in: "foo—bar foobar", regex: try TextSearch.replacementRegex(word), template: "x")
+            .map(\.range.location) == [0])
+    }
+
+    /// Columns on a file's first line count from after a byte order mark, which the editor
+    /// drops on reading.
+    @Test func byteOrderMarkIsNotAColumn() async throws {
+        let root = try makeFolder([:])
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data([0xEF, 0xBB, 0xBF] + Array("ab needle\n".utf8)).write(to: root.appending(path: "b.txt"))
+        let literal = try await search(SearchOptions(query: "needle", caseSensitive: true), in: root, files: ["b.txt"])
+        #expect(literal["b.txt"]?.map(\.column) == [3])
+        let regex = try await search(SearchOptions(query: "ne+dle", regex: true), in: root, files: ["b.txt"])
+        #expect(regex["b.txt"]?.map(\.column) == [3])
+    }
+
     @Test func invalidRegexThrows() async throws {
         await #expect(throws: TextSearch.SearchError.self) {
             try await TextSearch.search(SearchOptions(query: "(unclosed", regex: true), root: URL(filePath: "/tmp"),

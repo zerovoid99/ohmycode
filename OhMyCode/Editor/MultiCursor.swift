@@ -113,20 +113,31 @@ extension EditorController {
     /// Applies one edit per selection as a single undo step; each cursor ends after its edit.
     private func edit(actionName: String, _ make: (NSRange) -> TextReplacement?) {
         let main = textView.selectedRange()
-        let selections = merged(allSelections)
-        let edits = selections.compactMap { selection in make(selection).map { (selection, $0) } }
+        // Edits that overlap (Backspace at a caret right after a selection deletes the selection's
+        // last character too) are made one, or the whole keystroke would be refused.
+        var edits: [(selections: [NSRange], edit: TextReplacement)] = []
+        for selection in merged(allSelections) {
+            guard let edit = make(selection) else { continue }
+            if let last = edits.last, edit.range.location < NSMaxRange(last.edit.range)
+                || (edit.range == last.edit.range && edit.range.length > 0) {
+                edits[edits.count - 1] = (last.selections + [selection],
+                                          TextReplacement(range: NSUnionRange(last.edit.range, edit.range), text: last.edit.text))
+            } else {
+                edits.append(([selection], edit))
+            }
+        }
         guard !edits.isEmpty else { return }
         textView.breakUndoCoalescing()
-        guard (try? document.apply(edits.map(\.1), actionName: actionName)) == true else { return }
+        guard (try? document.apply(edits.map(\.edit), actionName: actionName)) == true else { return }
         // New cursor positions, in order: each edit shifts the ones after it.
         var shift = 0
-        var carets: [(selection: NSRange, caret: Int)] = []
-        for (selection, edit) in edits {
+        var carets: [(selections: [NSRange], caret: Int)] = []
+        for (selections, edit) in edits {
             let newLength = (edit.text as NSString).length
-            carets.append((selection, edit.range.location + shift + newLength))
+            carets.append((selections, edit.range.location + shift + newLength))
             shift += newLength - edit.range.length
         }
-        let mainCaret = carets.first { NSLocationInRange(main.location, $0.selection) || $0.selection.location == main.location }?.caret
+        let mainCaret = carets.first { $0.selections.contains { NSLocationInRange(main.location, $0) || $0.location == main.location } }?.caret
             ?? carets[0].caret
         var extras = carets.map { NSRange(location: $0.caret, length: 0) }
         if let index = extras.firstIndex(where: { $0.location == mainCaret }) { extras.remove(at: index) }
@@ -145,7 +156,7 @@ extension EditorController {
         switch selector {
         case #selector(NSResponder.deleteBackward(_:)): deleteAtAllCursors(forward: false)
         case #selector(NSResponder.deleteForward(_:)): deleteAtAllCursors(forward: true)
-        case #selector(NSResponder.insertNewline(_:)): insertAtAllCursors("\n")
+        case #selector(NSResponder.insertNewline(_:)): insertAtAllCursors(document.lineEnding.characters)
         case #selector(NSResponder.insertTab(_:)): insertAtAllCursors("\t")
         case #selector(NSResponder.moveLeft(_:)):
             move { $0.length > 0 ? $0.location : ($0.location > 0 ? string.rangeOfComposedCharacterSequence(at: $0.location - 1).location : 0) }
@@ -178,12 +189,19 @@ extension EditorController {
         setSelections(main: carets[0], extras: Array(carets.dropFirst()))
     }
 
-    /// Offset of `column` on `line`, clamped to the line's end (before its newline).
+    /// Offset of `column` on `line`, clamped to the line's end (before its line break, all of a
+    /// "\r\n"), and moved back to the start of a character it would split (an emoji's surrogate
+    /// pair, an accent and its letter).
     func position(line: Int, column: Int) -> Int {
         let index = document.lineIndex
+        let string = document.textStorage.mutableString
         let start = index.lineStarts[line]
-        let end = line + 1 < index.lineCount ? index.lineStarts[line + 1] - 1 : document.textStorage.length
-        return start + min(max(0, column), end - start)
+        var end = line + 1 < index.lineCount ? index.lineStarts[line + 1] : string.length
+        if end > start, string.character(at: end - 1) == 0x0A { end -= 1 }
+        if end > start, string.character(at: end - 1) == 0x0D { end -= 1 }
+        let location = start + min(max(0, column), end - start)
+        guard location > start, location < end else { return location }
+        return string.rangeOfComposedCharacterSequence(at: location).location
     }
 
     /// Sets the text view's selection and the extra cursors (duplicates and overlaps merged).

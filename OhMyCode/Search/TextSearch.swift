@@ -29,7 +29,7 @@ struct SearchFileResult: Sendable, Identifiable {
 }
 
 /// Workspace-wide text search. Files are searched in parallel across all cores; literal queries
-/// run as byte searches (memmem) over memory-mapped files, regex and non-ASCII case folding use
+/// run as byte searches (memmem) over each file's bytes, regex and non-ASCII case folding use
 /// NSRegularExpression. Results stream in batches.
 enum TextSearch {
     static let maxFileSize = 8 * 1024 * 1024
@@ -106,7 +106,9 @@ enum TextSearch {
     /// compute replacements (it finds exactly what the search finds).
     static func replacementRegex(_ options: SearchOptions) throws -> NSRegularExpression {
         var pattern = options.regex ? options.query : NSRegularExpression.escapedPattern(for: options.query)
-        if options.wholeWord { pattern = "\\b(?:" + pattern + ")\\b" }
+        // Not `\b`, which needs a word character on one side: "$x" would never match. The same
+        // test as the byte search's `isWordBoundary`: no letter, digit, mark or "_" next to it.
+        if options.wholeWord { pattern = "(?<!" + wordClass + ")(?:" + pattern + ")(?!" + wordClass + ")" }
         do {
             return try NSRegularExpression(pattern: pattern, options: options.caseSensitive
                                            ? [.anchorsMatchLines] : [.caseInsensitive, .anchorsMatchLines])
@@ -114,6 +116,9 @@ enum TextSearch {
             throw SearchError.invalidRegex(options.query)
         }
     }
+
+    /// What whole-word searches count as part of a word (see `Matcher.isWord`).
+    private static let wordClass = "[\\p{L}\\p{N}\\p{M}_]"
 
     /// NSRegularExpression template for the replace field: literal text, or for regex
     /// searches `$1`-style groups plus `\n` and `\t` escapes.
@@ -144,10 +149,30 @@ enum TextSearch {
         return result
     }
 
-    /// Memory-mapped contents, or nil for unreadable, huge or binary files.
+    /// The file's contents, or nil for unreadable, huge, binary or special files. Read into
+    /// memory, not mapped: a mapped file cut short while it's scanned (a build rewriting it)
+    /// crashes the app with SIGBUS on the first page past its new end.
     private static func read(_ url: URL) -> Data? {
-        guard let data = try? Data(contentsOf: url, options: .alwaysMapped),
-              data.count <= maxFileSize, !data.prefix(8192).contains(0) else { return nil }
+        // Non-blocking, so a FIFO among the files doesn't hang the search on open.
+        let descriptor = open(url.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= maxFileSize else { return nil }
+        var data = Data(count: Int(info.st_size))
+        let filled = data.withUnsafeMutableBytes { buffer -> Int in
+            guard let base = buffer.baseAddress else { return 0 }
+            var filled = 0
+            while filled < buffer.count {
+                let count = Darwin.read(descriptor, base + filled, buffer.count - filled)
+                if count < 0 && errno == EINTR { continue }
+                guard count > 0 else { break } // end of file (it shrank), or an error
+                filled += count
+            }
+            return filled
+        }
+        data.count = filled
+        guard !data.prefix(8192).contains(0) else { return nil }
         return data
     }
 }
@@ -223,8 +248,12 @@ private struct Matcher: Sendable {
 
     func matches(in data: Data) -> [SearchMatch] {
         switch mode {
-        case .bytes(let needle, let foldCase): byteMatches(data, needle: needle, foldCase: foldCase)
-        case .regex(let regex): regexMatches(data, regex: regex)
+        case .bytes(let needle, let foldCase):
+            // Columns count from after a UTF-8 byte order mark, as in the editor (and the regex
+            // search), which drop it on reading.
+            let text = data.starts(with: [0xEF, 0xBB, 0xBF]) ? data.dropFirst(3) : data
+            return byteMatches(text, needle: needle, foldCase: foldCase)
+        case .regex(let regex): return regexMatches(data, regex: regex)
         }
     }
 
@@ -289,11 +318,39 @@ private struct Matcher: Sendable {
         return units
     }
 
+    /// Whether the match has no word character right before or after it: the same test as the
+    /// whole-word regex `TextSearch.replacementRegex` builds, so replacing changes exactly what
+    /// the search found.
     private func isWordBoundary(_ bytes: UnsafePointer<UInt8>, count: Int, start: Int, end: Int) -> Bool {
-        func isWord(_ byte: UInt8) -> Bool {
-            (byte >= 48 && byte <= 57) || (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) || byte == 95 || byte >= 0x80
+        if start > 0 {
+            // The character before: back over continuation bytes to its first byte.
+            var first = start - 1
+            while first > 0, start - first < 4, bytes[first] & 0xC0 == 0x80 { first -= 1 }
+            if Self.isWord(Self.scalar(bytes, from: first, count: count)) { return false }
         }
-        return (start == 0 || !isWord(bytes[start - 1])) && (end >= count || !isWord(bytes[end]))
+        return end >= count || !Self.isWord(Self.scalar(bytes, from: end, count: count))
+    }
+
+    /// The scalar whose UTF-8 starts at `from` (nil for invalid bytes).
+    private static func scalar(_ bytes: UnsafePointer<UInt8>, from: Int, count: Int) -> Unicode.Scalar? {
+        let byte = bytes[from]
+        if byte < 0x80 { return Unicode.Scalar(byte) }
+        var iterator = UnsafeBufferPointer(start: bytes + from, count: min(4, count - from)).makeIterator()
+        var decoder = UTF8()
+        if case .scalarValue(let scalar) = decoder.decode(&iterator) { return scalar }
+        return nil
+    }
+
+    /// A letter, digit, mark or "_": `[\p{L}\p{N}\p{M}_]` in the whole-word regex.
+    static func isWord(_ scalar: Unicode.Scalar?) -> Bool {
+        guard let scalar else { return false }
+        if scalar == "_" { return true }
+        switch scalar.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
+             .decimalNumber, .letterNumber, .otherNumber,
+             .nonspacingMark, .spacingMark, .enclosingMark: return true
+        default: return false
+        }
     }
 
     private func regexMatches(_ data: Data, regex: NSRegularExpression) -> [SearchMatch] {

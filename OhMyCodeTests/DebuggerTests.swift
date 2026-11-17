@@ -68,6 +68,31 @@ struct BreakpointStoreTests {
         #expect(workspace.breakpoints.breakpoints(in: path).map(\.line) == [4])
         workspace.breakpoints.removeAll()
     }
+
+    /// Renaming a file (or a folder above it) takes its breakpoints along.
+    @Test func renamesTakeBreakpointsAlong() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-bp-move-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appending(path: "src"), withIntermediateDirectories: true)
+        try "a\nb\nc\n".write(to: root.appending(path: "src/f.c"), atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        workspace.open(fileAt: root.appending(path: "src/f.c"))
+        let document = try #require(workspace.activeDocument)
+        document.toggleBreakpointAction?(1)
+        let oldPath = FileWatcher.canonicalPath(document.url)
+
+        let renamed = try #require(await workspace.move(root.appending(path: "src/f.c"), to: root.appending(path: "src/g.c")))
+        let newPath = FileWatcher.canonicalPath(renamed)
+        #expect(workspace.breakpoints.breakpoints(in: oldPath).isEmpty)
+        #expect(workspace.breakpoints.breakpoints(in: newPath).map(\.line) == [2])
+        let moved = try #require(workspace.document(matching: renamed))
+        #expect(moved.breakpointMarks?().keys.sorted() == [1])
+
+        let folder = try #require(await workspace.move(root.appending(path: "src"), to: root.appending(path: "lib")))
+        #expect(workspace.breakpoints.breakpoints(in: FileWatcher.canonicalPath(folder.appending(path: "g.c"))).map(\.line) == [2])
+        #expect(workspace.breakpoints.byPath.count == 1)
+        workspace.breakpoints.removeAll()
+    }
 }
 
 struct LaunchConfigurationTests {
@@ -267,6 +292,43 @@ struct DebugSessionTests {
         #expect(workspace.activeDocument?.url.lastPathComponent == "launch.json")
         await workspace.loadLaunchConfigurations()
         #expect(workspace.launchConfigurations.first?.name == "Debug")
+    }
+
+    /// An adapter that refuses the launch and never says `initialized` (as lldb-dap does for a
+    /// missing program): the session ends with its error instead of starting forever.
+    @Test func failedLaunchEndsTheSession() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "omc-debug-fail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let adapter = folder.appending(path: "adapter.py")
+        try """
+        import json, sys
+        def send(message):
+            body = json.dumps(message).encode()
+            sys.stdout.buffer.write(b"Content-Length: %d\\r\\n\\r\\n" % len(body) + body)
+            sys.stdout.buffer.flush()
+        while True:
+            length = None
+            while True:
+                line = sys.stdin.buffer.readline()
+                if not line:
+                    sys.exit(0)
+                if not line.strip():
+                    break
+                if line.lower().startswith(b"content-length:"):
+                    length = int(line.split(b":")[1])
+            request = json.loads(sys.stdin.buffer.read(length))
+            reply = {"seq": 0, "type": "response", "request_seq": request["seq"], "command": request["command"], "success": True}
+            if request["command"] == "launch":
+                reply.update(success=False, message="no such program: /nope")
+            send(reply)
+        """.write(to: adapter, atomically: true, encoding: .utf8)
+        let session = DebugSession(configuration: LaunchConfiguration(name: "x", program: "/nope", cwd: folder.path),
+                                   adapter: ["/usr/bin/python3", adapter.path], environment: [:])
+        let outcome = try await ExtensionHost.within(.seconds(10)) { @MainActor in
+            do { try await session.start(); return "started" } catch { return error.localizedDescription }
+        }
+        #expect(outcome == "no such program: /nope")
+        #expect(session.state == .terminated)
     }
 }
 

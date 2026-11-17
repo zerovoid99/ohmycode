@@ -128,6 +128,96 @@ struct SessionTests {
         while a.isDirty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
         #expect(try !a.isDirty && String(contentsOf: a.url, encoding: .utf8) == "a!")
     }
+
+    @Test func aBackupWhoseFileIsGoneIsKept() async throws {
+        let root = try makeFolder(["a.txt": "a\n", "gone.txt": "g\n"])
+        let first = Workspace()
+        first.openFolder(root)
+        first.open(fileAt: root.appending(path: "a.txt"))
+        first.open(fileAt: root.appending(path: "gone.txt"))
+        first.activeDocument?.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "mine ")
+        first.windowClosed()
+        defer { SessionStore.shared.remove(first.sessionKey) }
+        try FileManager.default.removeItem(at: root.appending(path: "gone.txt"))
+
+        // Its file is gone: no tab, no error, a notice, and the backup stays through later writes.
+        let second = Workspace()
+        second.notificationDuration = .seconds(1)
+        second.openFolder(root)
+        #expect(second.errorMessage == nil && second.document(matching: root.appending(path: "gone.txt")) == nil)
+        second.keepSession(force: true)
+        let kept = try #require(SessionStore.shared.read(second.sessionKey)?.unsaved.first)
+        #expect(kept.path.hasSuffix("gone.txt") && SessionStore.shared.backup(kept, key: second.sessionKey) == "mine g\n")
+        let deadline = ContinuousClock.now + .seconds(2)
+        while second.notifications.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(second.notifications.first?.message.contains("gone.txt") == true)
+        // Even closing with nothing unsaved keeps it.
+        second.windowClosed()
+        #expect(SessionStore.shared.read(second.sessionKey)?.unsaved.count == 1)
+    }
+
+    @Test func twoWindowsOnOneFolderKeepEachOthersBackups() throws {
+        let root = try makeFolder(["a.txt": "a", "b.txt": "b"])
+        let first = Workspace(), second = Workspace()
+        first.openFolder(root)
+        second.openFolder(root)
+        defer { SessionStore.shared.remove(first.sessionKey) }
+        first.open(fileAt: root.appending(path: "a.txt"))
+        second.open(fileAt: root.appending(path: "b.txt"))
+        first.activeDocument?.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "1")
+        second.activeDocument?.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "2")
+        first.keepSession(force: true)
+        second.keepSession(force: true)
+        let session = try #require(SessionStore.shared.read(first.sessionKey))
+        #expect(Set(session.unsaved.map { URL(fileURLWithPath: $0.path).lastPathComponent }) == ["a.txt", "b.txt"])
+        #expect(session.unsaved.allSatisfy { SessionStore.shared.backup($0, key: first.sessionKey) != nil })
+        // One closes with nothing unsaved: the other's backup stays.
+        second.activeDocument.map { _ = second.save($0) }
+        second.windowClosed()
+        let after = try #require(SessionStore.shared.read(first.sessionKey))
+        #expect(after.unsaved.map { URL(fileURLWithPath: $0.path).lastPathComponent } == ["a.txt"] && after.wasOpen)
+        #expect(SessionStore.shared.backup(after.unsaved[0], key: first.sessionKey) == "1a")
+    }
+
+    @Test func aWindowWithoutAFolderAsksAndLeavesNothingBehind() throws {
+        let root = try makeFolder(["loose.txt": "l"])
+        let workspace = Workspace()
+        workspace.open(fileAt: root.appending(path: "loose.txt"))
+        workspace.keepSession(force: true)
+        #expect(SessionStore.shared.read(workspace.sessionKey) != nil)
+        // Nothing unsaved: nothing to ask; closing leaves no record.
+        #expect(workspace.confirmClosingWindow())
+        workspace.windowClosed()
+        #expect(SessionStore.shared.read(workspace.sessionKey) == nil)
+
+        // Closed without being asked (some other way): its unsaved file comes back at next launch.
+        let other = Workspace()
+        other.open(fileAt: root.appending(path: "loose.txt"))
+        other.activeDocument?.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "x")
+        defer { SessionStore.shared.remove(other.sessionKey) }
+        other.windowClosed()
+        let kept = try #require(SessionStore.shared.read(other.sessionKey))
+        #expect(kept.wasOpen && kept.unsaved.count == 1)
+    }
+
+    @Test func closingAWindowOrQuittingStopsWhatItStarted() async throws {
+        let root = try makeFolder(["a.txt": "a"])
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        let run = try #require(workspace.runTask(TaskDefinition(label: "Sleep", command: "sleep 60")))
+        workspace.windowClosed()
+        await run.waitUntilEnded()
+        #expect(run.state == .terminated)
+        defer { SessionStore.shared.remove(workspace.sessionKey) }
+
+        let quitting = Workspace()
+        quitting.openFolder(root)
+        let other = try #require(quitting.runTask(TaskDefinition(label: "Sleep", command: "sleep 60")))
+        defer { SessionStore.shared.isTerminating = false }
+        #expect(Workspace.prepareToQuit([quitting]))
+        await other.waitUntilEnded()
+        #expect(other.state == .terminated)
+    }
 }
 
 @MainActor

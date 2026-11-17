@@ -353,7 +353,7 @@ private struct SettingField: View {
         .font(.caption)
         .onAppear {
             let value = store.setting(key, of: manifest)
-            text = value?.string ?? value?.number.map { $0 == $0.rounded() ? String(Int($0)) : String($0) } ?? ""
+            text = value?.string ?? value?.number.map { Int(exactly: $0).map(String.init) ?? String($0) } ?? ""
         }
     }
 

@@ -158,7 +158,8 @@ final class PaletteModel {
         case .openSymbol(let url, let line, let column, let length):
             workspace.closePalette()
             workspace.open(fileAt: url)
-            if let document = workspace.activeDocument {
+            // Not if the file didn't open: the position is the symbol's file's, not the tab's.
+            if let document = workspace.activeDocument, workspace.document(matching: url) === document {
                 let start = document.offset(for: LSPPosition(line: line, character: column))
                 document.reveal(NSRange(location: start, length: min(length, document.textStorage.length - start)))
             }

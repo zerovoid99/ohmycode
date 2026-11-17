@@ -77,9 +77,12 @@ final class OpenRouter {
     /// Requests waiting for a window: a new window takes its own; any window takes the rest.
     private var pending: [OpenRequest] = []
     private var pendingForNewWindow: [String: OpenRequest] = [:]
+    /// A first window was asked for (several requests at launch make one, not one each).
+    private var awaitingFirstWindow = false
 
     func register(_ workspace: Workspace) {
         workspaces.add(workspace)
+        awaitingFirstWindow = false
         if !pending.isEmpty {
             let requests = pending
             pending = []
@@ -143,7 +146,10 @@ final class OpenRouter {
         if candidates.isEmpty, openWindow == nil {
             // Launched to open it: SwiftUI shows no window then. The first one takes it.
             pending.append(request)
-            Self.newWindowFromMenu()
+            if !awaitingFirstWindow {
+                awaitingFirstWindow = true
+                Self.newWindowFromMenu()
+            }
             return
         }
         switch Self.route(request, isDirectory: isDirectory, workspaces: candidates) {
@@ -151,9 +157,27 @@ final class OpenRouter {
             guard let workspace = candidates.first(where: { ObjectIdentifier($0) == id }) else { return }
             apply(request, isDirectory: isDirectory, in: workspace)
         case .newWindow:
+            guard let openWindow else { pending.append(request); return }
             pendingForNewWindow[request.url.path] = request
-            if let openWindow { openWindow(request.url) } else { pending.append(request) }
+            openWindow(request.url)
+            // A window already showing that URL is brought forward instead of a new one made:
+            // nothing takes the request then, so it goes to that window.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                MainActor.assumeIsolated { self?.settleUntaken(request) }
+            }
         }
+    }
+
+    /// A request for a new window that no window took (see above).
+    private func settleUntaken(_ request: OpenRequest) {
+        guard pendingForNewWindow[request.url.path] == request else { return }
+        var reused = request
+        reused.newWindow = false
+        let candidates = orderedWorkspaces
+        guard case .focus(let id) = Self.route(reused, isDirectory: request.isDirectory, workspaces: candidates),
+              let workspace = candidates.first(where: { ObjectIdentifier($0) == id }) else { return }
+        pendingForNewWindow[request.url.path] = nil
+        apply(request, in: workspace)
     }
 
     /// File → New (⌘N), as if chosen: a window when there's none to call `openWindow` from.
@@ -187,8 +211,10 @@ final class OpenRouter {
             }
             return
         }
-        workspace.open(fileAt: workspace.workspaceURL(for: request.url))
-        guard let document = workspace.activeDocument else { return }
+        let url = workspace.workspaceURL(for: request.url)
+        workspace.open(fileAt: url)
+        // Only the file just opened goes to the line (it may not have opened: not text, gone).
+        guard let document = workspace.activeDocument, workspace.document(matching: url) === document else { return }
         if let line = request.line {
             let index = min(max(line, 1), document.lineIndex.lineCount) - 1
             let start = document.lineIndex.lineStarts[index]

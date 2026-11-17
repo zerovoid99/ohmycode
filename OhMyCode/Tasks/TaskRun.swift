@@ -43,6 +43,8 @@ final class TaskRun: Identifiable {
     @ObservationIgnored private var matcher: ProblemMatcher
     @ObservationIgnored private var process: Process?
     @ObservationIgnored private var wasTerminated = false
+    /// Its process, for `deinit` (which can't reach main-actor state).
+    @ObservationIgnored private nonisolated(unsafe) var runningPID: pid_t = 0
     @ObservationIgnored private var endWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// `task` with its variables filled in.
@@ -54,6 +56,8 @@ final class TaskRun: Identifiable {
     var duration: TimeInterval { (ended ?? Date()).timeIntervalSince(started) }
 
     func start(environment: [String: String]) {
+        // Terminated while the environment was being read: it never starts.
+        guard state.isRunning, !wasTerminated else { return }
         let process = Process()
         process.executableURL = URL(filePath: "/bin/sh")
         process.arguments = ["-c", task.command]
@@ -77,6 +81,7 @@ final class TaskRun: Identifiable {
             return
         }
         self.process = process
+        runningPID = process.processIdentifier
         let descriptor = pipe.fileHandleForReading.fileDescriptor
         let pid = process.processIdentifier
         // Read as output comes, until the command exits. Not until the pipe closes: something
@@ -102,7 +107,15 @@ final class TaskRun: Identifiable {
 
     /// Stops the command and everything it started.
     func terminate() {
-        guard state.isRunning, let process, process.isRunning else { return }
+        guard state.isRunning else { return }
+        guard let process, process.isRunning else {
+            // Not started yet (it waits for the shell environment): it ends now instead.
+            if process == nil {
+                wasTerminated = true
+                finish(.terminated)
+            }
+            return
+        }
         wasTerminated = true
         let pids = Self.descendants(of: process.processIdentifier) + [process.processIdentifier]
         for pid in pids { kill(pid, SIGTERM) }
@@ -110,6 +123,13 @@ final class TaskRun: Identifiable {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             for pid in pids where kill(pid, 0) == 0 { kill(pid, SIGKILL) }
         }
+    }
+
+    /// A run let go of while its command still runs (its window closed) takes it along.
+    deinit {
+        let pid = runningPID
+        guard pid > 0, kill(pid, 0) == 0 else { return }
+        for child in Self.descendants(of: pid) + [pid] { kill(child, SIGTERM) }
     }
 
     /// Returns once the run has ended.
@@ -135,6 +155,7 @@ final class TaskRun: Identifiable {
         case .running: break
         }
         process = nil
+        runningPID = 0
         onEnd?(state)
         let waiters = endWaiters
         endWaiters = []

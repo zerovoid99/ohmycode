@@ -16,6 +16,9 @@ final class LocalWebSocketServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "omc.websocket")
     private let authorize: @Sendable ([(name: String, value: String)]) -> Bool
     private let subprotocols: [String]
+    /// Connections not closed yet (handshake or upgraded), cut when the server stops.
+    private var peers: [ObjectIdentifier: WebSocketPeer] = [:]
+    private var isStopped = false
 
     @MainActor var onReady: ((UInt16) -> Void)?
     @MainActor var onFailure: ((String) -> Void)?
@@ -43,31 +46,44 @@ final class LocalWebSocketServer: @unchecked Sendable {
             }
         }
         listener.newConnectionHandler = { [weak self] connection in
-            guard let self else { return connection.cancel() }
+            guard let self, !self.isStopped else { return connection.cancel() }
             let peer = WebSocketPeer(connection: connection, queue: self.queue, subprotocols: self.subprotocols,
-                                     authorize: self.authorize) { [weak self] peer in
+                                     authorize: self.authorize, upgraded: { [weak self] peer in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.onConnect?(peer) } }
-            }
+            }, ended: { [weak self] peer in
+                self?.peers[ObjectIdentifier(peer)] = nil
+            })
+            self.peers[ObjectIdentifier(peer)] = peer
             peer.start()
         }
     }
 
     func start() { listener.start(queue: queue) }
 
-    func stop() { listener.cancel() }
+    /// Stops listening, and cuts every connection.
+    func stop() {
+        listener.cancel()
+        queue.async {
+            self.isStopped = true
+            let peers = self.peers.values
+            self.peers = [:]
+            for peer in peers { peer.cancel() }
+        }
+    }
 }
 
 /// One connection to `LocalWebSocketServer`: the HTTP upgrade, then frames.
 final class WebSocketPeer: @unchecked Sendable {
-    // @unchecked Sendable: `buffer`, `fragments` and `isUpgraded` are only touched on `queue`;
+    // @unchecked Sendable: `buffer`, `fragments` and `phase` are only touched on `queue`;
     // the callbacks run on the main thread.
     private let connection: NWConnection
     private let queue: DispatchQueue
     private let authorize: @Sendable ([(name: String, value: String)]) -> Bool
     private let upgraded: @Sendable (WebSocketPeer) -> Void
+    private let ended: @Sendable (WebSocketPeer) -> Void
     private let subprotocols: [String]
     private var buffer = Data()
-    private var isUpgraded = false
+    private var phase = Phase.handshake
     /// A message arriving in several frames: its opcode and the payload so far.
     private var fragments: (opcode: UInt8, data: Data)?
 
@@ -75,19 +91,30 @@ final class WebSocketPeer: @unchecked Sendable {
     @MainActor var onClose: (() -> Void)?
     @MainActor private(set) var isOpen = true
 
+    private enum Phase {
+        case handshake, open
+        /// A close frame went or came, or the request was refused: what else comes is dropped
+        /// (it's never read as another request).
+        case closing
+    }
+
     /// Requests and messages bigger than these close the connection.
     private static let maxRequest = 16 * 1024
     private static let maxMessage = 64 * 1024 * 1024
     private static let guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+    /// A connection that hasn't upgraded within this long is closed (tests: shorter).
+    nonisolated(unsafe) static var handshakeTimeout: TimeInterval = 10
 
     fileprivate init(connection: NWConnection, queue: DispatchQueue, subprotocols: [String],
                      authorize: @escaping @Sendable ([(name: String, value: String)]) -> Bool,
-                     upgraded: @escaping @Sendable (WebSocketPeer) -> Void) {
+                     upgraded: @escaping @Sendable (WebSocketPeer) -> Void,
+                     ended: @escaping @Sendable (WebSocketPeer) -> Void) {
         self.connection = connection
         self.subprotocols = subprotocols
         self.queue = queue
         self.authorize = authorize
         self.upgraded = upgraded
+        self.ended = ended
     }
 
     fileprivate func start() {
@@ -99,6 +126,16 @@ final class WebSocketPeer: @unchecked Sendable {
         }
         connection.start(queue: queue)
         receive()
+        queue.asyncAfter(deadline: .now() + Self.handshakeTimeout) { [weak self] in
+            guard let self, self.phase == .handshake else { return }
+            self.cancel()
+        }
+    }
+
+    /// Cuts the connection at once (on `queue`).
+    fileprivate func cancel() {
+        phase = .closing
+        connection.cancel()
     }
 
     private func receive() {
@@ -107,7 +144,11 @@ final class WebSocketPeer: @unchecked Sendable {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { data, _, isComplete, error in
             if let data, !data.isEmpty {
                 self.buffer.append(data)
-                if self.isUpgraded { self.readFrames() } else { self.readRequest() }
+                switch self.phase {
+                case .handshake: self.readRequest()
+                case .open: self.readFrames()
+                case .closing: self.buffer.removeAll()
+                }
             }
             if isComplete || error != nil { return self.connection.cancel() }
             self.receive()
@@ -147,12 +188,14 @@ final class WebSocketPeer: @unchecked Sendable {
         if let subprotocol = offered.first(where: subprotocols.contains) { response += "Sec-WebSocket-Protocol: \(subprotocol)\r\n" }
         response += "\r\n"
         connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in })
-        isUpgraded = true
+        phase = .open
         upgraded(self)
         if !buffer.isEmpty { readFrames() }
     }
 
     private func refuse(_ status: String) {
+        phase = .closing
+        buffer.removeAll()
         let response = "HTTP/1.1 \(status)\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         connection.send(content: Data(response.utf8), completion: .contentProcessed { [connection] _ in connection.cancel() })
     }
@@ -177,6 +220,8 @@ final class WebSocketPeer: @unchecked Sendable {
             }
             // Clients mask every frame (RFC 6455 5.1); messages have a sane size.
             guard masked, length >= 0, length <= Self.maxMessage else { return close(code: 1002) }
+            // Control frames (close, ping, pong) come whole, and short (RFC 6455 5.5).
+            if opcode & 0x8 != 0, !final || length > 125 { return close(code: 1002) }
             guard buffer.count >= header + 4 + length else { return }
             let start = buffer.startIndex
             let mask = [UInt8](buffer[(start + header)..<(start + header + 4)])
@@ -184,13 +229,15 @@ final class WebSocketPeer: @unchecked Sendable {
             for index in payload.indices { payload[index] ^= mask[index % 4] }
             buffer.removeSubrange(start..<(start + header + 4 + length))
             handle(opcode: opcode, final: final, payload: Data(payload))
-            if !isUpgraded { return }
+            if phase != .open { return }
         }
     }
 
     private func handle(opcode: UInt8, final: Bool, payload: Data) {
         switch opcode {
         case 0x1, 0x2: // text, binary
+            // Not while another message is still arriving in pieces.
+            guard fragments == nil else { return close(code: 1002) }
             if final { deliver(payload) } else { fragments = (opcode, payload) }
         case 0x0: // continuation
             guard var message = fragments else { return close(code: 1002) }
@@ -199,7 +246,8 @@ final class WebSocketPeer: @unchecked Sendable {
             if final { fragments = nil; deliver(message.data) } else { fragments = message }
         case 0x8: // close: answered, then closed
             sendFrame(opcode: 0x8, payload: payload.prefix(2))
-            isUpgraded = false
+            phase = .closing
+            buffer.removeAll()
             connection.send(content: nil, isComplete: true, completion: .contentProcessed { [connection] _ in connection.cancel() })
         case 0x9: // ping
             sendFrame(opcode: 0xA, payload: payload)
@@ -212,13 +260,15 @@ final class WebSocketPeer: @unchecked Sendable {
         DispatchQueue.main.async { MainActor.assumeIsolated { self.onMessage?(message) } }
     }
 
+    /// Sends a close frame, then (once it's sent) closes the connection.
     private func close(code: UInt16) {
-        sendFrame(opcode: 0x8, payload: Data([UInt8(code >> 8), UInt8(code & 0xFF)]))
-        isUpgraded = false
-        connection.cancel()
+        guard phase != .closing else { return }
+        phase = .closing
+        buffer.removeAll()
+        sendFrame(opcode: 0x8, payload: Data([UInt8(code >> 8), UInt8(code & 0xFF)])) { [connection] in connection.cancel() }
     }
 
-    private func sendFrame(opcode: UInt8, payload: Data) {
+    private func sendFrame(opcode: UInt8, payload: Data, then sent: (@Sendable () -> Void)? = nil) {
         var frame = Data([0x80 | opcode])
         if payload.count < 126 {
             frame.append(UInt8(payload.count))
@@ -230,10 +280,12 @@ final class WebSocketPeer: @unchecked Sendable {
             frame.append(contentsOf: (0..<8).reversed().map { UInt8((payload.count >> ($0 * 8)) & 0xFF) })
         }
         frame.append(payload)
-        connection.send(content: frame, completion: .contentProcessed { _ in })
+        connection.send(content: frame, completion: .contentProcessed { _ in sent?() })
     }
 
     private func closed() {
+        phase = .closing
+        ended(self)
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
                 guard self.isOpen else { return }

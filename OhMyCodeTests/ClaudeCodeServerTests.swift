@@ -189,6 +189,96 @@ struct ClaudeCodeServerTests {
         #expect(refused.hasPrefix("HTTP/1.1 401"))
     }
 
+    /// A connection that passed the handshake, for writing frames by hand.
+    private func upgraded(port: UInt16, token: String) async throws -> NWConnection {
+        let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        connection.start(queue: .global())
+        let request = "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\n"
+            + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\(ClaudeCodeServer.headerName): \(token)\r\n\r\n"
+        connection.send(content: Data(request.utf8), completion: .contentProcessed { _ in })
+        let head: Data? = await withCheckedContinuation { continuation in
+            connection.receive(minimumIncompleteLength: 12, maximumLength: 4096) { data, _, _, _ in continuation.resume(returning: data) }
+        }
+        #expect(String(decoding: head ?? Data(), as: UTF8.self).hasPrefix("HTTP/1.1 101"))
+        return connection
+    }
+
+    /// A client's (masked) frame.
+    private func frame(_ opcode: UInt8, final: Bool = true, _ payload: [UInt8] = []) -> Data {
+        var bytes: [UInt8] = [(final ? 0x80 : 0) | opcode]
+        if payload.count < 126 { bytes.append(0x80 | UInt8(payload.count)) } else { bytes += [0x80 | 126, UInt8(payload.count >> 8), UInt8(payload.count & 0xFF)] }
+        let mask: [UInt8] = [1, 2, 3, 4]
+        return Data(bytes + mask + payload.enumerated().map { $0.element ^ mask[$0.offset % 4] })
+    }
+
+    /// Everything the server sends from now until it closes the connection (nil: it didn't).
+    private func untilClosed(_ connection: NWConnection, timeout: Duration = .seconds(5)) async -> Data? {
+        final class Box: @unchecked Sendable { var data = Data(); var closed = false }
+        let box = Box()
+        @Sendable func receive() {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+                DispatchQueue.main.async {
+                    if let data { box.data.append(data) }
+                    if isComplete || error != nil { box.closed = true } else { receive() }
+                }
+            }
+        }
+        receive()
+        let deadline = ContinuousClock.now + timeout
+        while !box.closed, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+        return box.closed ? box.data : nil
+    }
+
+    private static let protocolError = Data([0x88, 0x02, 0x03, 0xEA]) // close, 1002
+
+    @Test func breachesOfTheProtocolCloseTheConnection() async throws {
+        let fixture = try makeFixture()
+        defer { tearDown(fixture) }
+        let (port, lock) = try await lockFile(fixture)
+        let token = try #require(lock["authToken"] as? String)
+        let longPing = frame(0x9, Array(repeating: 0x61, count: 126))
+        let cases: [(String, Data)] = [
+            ("a fragmented ping", frame(0x9, final: false, [0x61])),
+            ("a ping over 125 bytes", longPing),
+            ("a new message during a fragmented one", frame(0x1, final: false, [0x61]) + frame(0x1, [0x62])),
+        ]
+        for (name, bytes) in cases {
+            let connection = try await upgraded(port: port, token: token)
+            defer { connection.cancel() }
+            connection.send(content: bytes, completion: .contentProcessed { _ in })
+            let received = await untilClosed(connection)
+            #expect(received == Self.protocolError, "\(name)")
+        }
+
+        // After a close frame, what comes is dropped: never read as another HTTP request.
+        let connection = try await upgraded(port: port, token: token)
+        defer { connection.cancel() }
+        let again = "GET / HTTP/1.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\n"
+            + "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\(ClaudeCodeServer.headerName): \(token)\r\n\r\n"
+        connection.send(content: frame(0x8, [0x03, 0xE8]) + Data(again.utf8), completion: .contentProcessed { _ in })
+        let received = try #require(await untilClosed(connection))
+        #expect(received == Data([0x88, 0x02, 0x03, 0xE8]))
+    }
+
+    @Test func aConnectionThatNeverUpgradesIsClosed() async throws {
+        let fixture = try makeFixture()
+        defer { tearDown(fixture) }
+        WebSocketPeer.handshakeTimeout = 0.3
+        defer { WebSocketPeer.handshakeTimeout = 10 }
+        let (port, lock) = try await lockFile(fixture)
+        let idle = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        defer { idle.cancel() }
+        idle.start(queue: .global())
+        idle.send(content: Data("GET / HTTP/1.1\r\n".utf8), completion: .contentProcessed { _ in })
+        #expect(await untilClosed(idle) == Data())
+
+        // Stopping the server cuts the connections it has.
+        let open = try await upgraded(port: port, token: try #require(lock["authToken"] as? String))
+        defer { open.cancel() }
+        fixture.workspace.claudeCode.stop()
+        #expect(await untilClosed(open) != nil)
+    }
+
     @Test func answersTheIDETools() async throws {
         let fixture = try makeFixture()
         defer { tearDown(fixture) }
@@ -313,6 +403,20 @@ struct ClaudeCodeServerTests {
         #expect(try await eventually { proposal("fourth") != nil })
         claude.close()
         #expect(try await eventually { proposal("fourth") == nil && workspace.claudeCode.connectedCount == 0 })
+    }
+
+    /// A diff asked for by a connection that goes at once: no tab is left waiting for it.
+    @Test func noDiffForAConnectionThatWent() async throws {
+        let fixture = try makeFixture()
+        defer { tearDown(fixture) }
+        let claude = try await connect(fixture)
+        let path = fixture.root.appending(path: "other.swift").path
+        _ = claude.send("tools/call", ["name": "openDiff", "arguments": [
+            "old_file_path": path, "new_file_path": path, "new_file_contents": "late\n", "tab_name": "late"]])
+        claude.close()
+        #expect(try await eventually { fixture.workspace.claudeCode.connectedCount == 0 })
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(fixture.workspace.diffSessions.isEmpty)
     }
 
     @Test func toldOfSelectionsAndMentions() async throws {

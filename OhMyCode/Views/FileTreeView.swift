@@ -11,7 +11,8 @@ struct FileTreeView: View {
             FileRow(node: node, status: workspace.gitStatus(for: node.url, isDirectory: node.isDirectory),
                     submodule: node.isDirectory ? workspace.submodule(at: node.url) : nil)
                 .draggable(node.url)
-                // Dropped on a folder: moved into it (a file's row takes it to the file's folder).
+                // Dropped on a folder: moved into it, or copied from outside the folder (a file's row
+                // takes it to the file's folder).
                 .dropDestination(for: URL.self) { urls, _ in
                     let folder = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
                     Task { for url in urls where url.isFileURL { await workspace.move(url, into: folder) } }

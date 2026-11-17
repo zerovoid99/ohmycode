@@ -27,7 +27,9 @@ enum FileIndexer {
     private static func gitFiles(root: URL) -> [String]? {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/git")
-        process.arguments = ["-C", root.path, "ls-files", "-z", "--cached", "--others", "--exclude-standard"]
+        // No fsmonitor hook from the folder's config runs just because the folder was opened.
+        process.arguments = ["-c", "core.fsmonitor=false", "-C", root.path,
+                             "ls-files", "-z", "--cached", "--others", "--exclude-standard"]
         let output = Pipe()
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice

@@ -33,6 +33,18 @@ struct LineIndexRandomTests {
             }
         }
     }
+
+    /// Lines before the first (servers and extensions send any number) are the start of the
+    /// text: line -2 used to read before the line starts and trap.
+    @Test func negativeLinesClampToTheStart() {
+        let text: NSString = "ab\ncd\n"
+        let index = LineIndex(string: text)
+        for line in [-1, -2, -100, Int(Int32.min)] {
+            #expect(index.offset(for: LSPPosition(line: line, character: 5), length: text.length) == 0)
+        }
+        #expect(index.offset(for: LSPPosition(line: 1, character: 1), length: text.length) == 4)
+        #expect(index.offset(for: LSPPosition(line: 99, character: 0), length: text.length) == text.length)
+    }
 }
 
 /// Deterministic random numbers (SplitMix64), for reproducible failures.

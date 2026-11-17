@@ -70,6 +70,14 @@ struct LSPPipelineTests {
         #expect(IncomingMessage(Data("not json".utf8)) == nil)
     }
 
+    /// A negative Content-Length is a malformed header (skipped), not a body ending before it starts.
+    @Test func negativeContentLengthIsSkipped() {
+        var buffer = Data("Content-Length: -5\r\n\r\nContent-Length: 2\r\n\r\n{}Content-Length: 4\r\n\r\n[".utf8)
+        let messages = LanguageServerConnection.takeContentLengthMessages(from: &buffer)
+        #expect(messages == [Data("{}".utf8)])
+        #expect(buffer == Data("Content-Length: 4\r\n\r\n[".utf8)) // waits for the rest
+    }
+
     /// A request whose task is cancelled (typing on) stops waiting, and the server is told.
     @Test func cancellingARequestTellsTheServer() async throws {
         let (workspace, document, _, window) = try LanguageClientTests.makeWorkspace(text: "let SLOW = 1\n")

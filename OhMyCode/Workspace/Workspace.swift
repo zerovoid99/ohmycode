@@ -56,6 +56,7 @@ final class Workspace {
             windowObservers.forEach(NotificationCenter.default.removeObserver)
             windowObservers = []
             guard let window else { return }
+            guardClosing(window)
             let center = NotificationCenter.default
             windowObservers.append(center.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.windowClosed() }
@@ -264,6 +265,11 @@ final class Workspace {
     @ObservationIgnored var languageServerOverrides: [SourceLanguage: LanguageServerConfig] = [:]
     /// One client per language server, shared by all documents it handles.
     private(set) var languageClients: [String: LanguageClient] = [:]
+    /// When each server was last restarted after failing (per server name), for the limit.
+    @ObservationIgnored private var languageServerRestarts: [String: [ContinuousClock.Instant]] = [:]
+    /// A failed server is restarted after this times the restarts in the window plus one.
+    @ObservationIgnored var languageServerRestartDelay: Duration = .seconds(1)
+    static let languageServerRestartLimit = (count: 3, window: Duration.seconds(180))
     private(set) var terminals: [TerminalSession] = []
     var activeTerminalID: TerminalSession.ID?
     /// The panel's terminal tabs: each a group of terminals shown side by side (split), in
@@ -555,49 +561,84 @@ final class Workspace {
             if let existing = languageClients[config.name] {
                 client = existing
             } else {
-                do {
-                    client = try LanguageClient(name: config.name, command: config.command, rootURL: rootURL,
-                                                environment: environment)
-                } catch {
-                    return // server missing or failed to launch: the editor works without it
-                }
-                client.onInlayHintRefresh = { [weak self, weak client] in
-                    self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshInlayHints() }
-                }
-                client.onCodeLensRefresh = { [weak self, weak client] in
-                    self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshCodeLenses() }
-                }
-                client.onSemanticTokensRefresh = { [weak self, weak client] in
-                    self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshSemanticTokens() }
-                }
-                client.onApplyEdit = { [weak self] edit, label in
-                    self?.applyServerEdit(edit, actionName: label ?? "\(config.name) Edit") ?? false
-                }
-                let source = "lsp:" + config.name
-                client.onDiagnostics = { [weak self] url, diagnostics in
-                    guard let self else { return }
-                    self.problems.set(diagnostics, for: self.workspaceURL(for: url), source: source)
-                    let document = self.document(matching: url)
-                    document?.setDiagnostics(diagnostics)
-                    // Diagnostics mean the server has analyzed the file: its tokens are ready
-                    // (sourcekit-lsp answers with none until then, and doesn't say when).
-                    document?.refreshSemanticTokens(after: .milliseconds(50))
-                }
-                languageClients[config.name] = client
+                // Server missing or failed to launch: the editor works without it.
+                guard let started = startLanguageClient(config, rootURL: rootURL, environment: environment) else { return }
+                client = started
             }
-            document.languageClient = client
-            client.didOpen(url: document.url, languageId: document.languageId,
-                           text: document.textStorage.mutableString as String)
-            // The server's symbols once it's ready (the syntax tree's until then).
-            Task { [weak document = document, weak client = client] in
-                while let client, client.state == .starting { try? await Task.sleep(for: .milliseconds(200)) }
-                document?.refreshSymbols()
-                document?.refreshInlayHints()
-                document?.refreshLinks()
-                document?.refreshSemanticTokens()
-                document?.refreshFoldRegions()
-                document?.refreshCodeLenses()
+            connect(document, to: client)
+        }
+    }
+
+    private func startLanguageClient(_ config: LanguageServerConfig, rootURL: URL, environment: [String: String]) -> LanguageClient? {
+        let client: LanguageClient
+        do {
+            client = try LanguageClient(name: config.name, command: config.command, rootURL: rootURL,
+                                        environment: environment)
+        } catch {
+            return nil
+        }
+        client.onFailure = { [weak self, weak client] in
+            guard let self, let client else { return }
+            self.restartLanguageServer(config, after: client, rootURL: rootURL, environment: environment)
+        }
+        client.onInlayHintRefresh = { [weak self, weak client] in
+            self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshInlayHints() }
+        }
+        client.onCodeLensRefresh = { [weak self, weak client] in
+            self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshCodeLenses() }
+        }
+        client.onSemanticTokensRefresh = { [weak self, weak client] in
+            self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshSemanticTokens() }
+        }
+        client.onApplyEdit = { [weak self] edit, label in
+            self?.applyServerEdit(edit, actionName: label ?? "\(config.name) Edit") ?? false
+        }
+        let source = "lsp:" + config.name
+        client.onDiagnostics = { [weak self] url, diagnostics in
+            guard let self else { return }
+            self.problems.set(diagnostics, for: self.workspaceURL(for: url), source: source)
+            let document = self.document(matching: url)
+            document?.setDiagnostics(diagnostics)
+            // Diagnostics mean the server has analyzed the file: its tokens are ready
+            // (sourcekit-lsp answers with none until then, and doesn't say when).
+            document?.refreshSemanticTokens(after: .milliseconds(50))
+        }
+        languageClients[config.name] = client
+        return client
+    }
+
+    /// A crashed server comes back (after a pause growing with each restart) with the files it
+    /// had open, at most `languageServerRestartLimit.count` times in its window: one that keeps
+    /// crashing is left failed.
+    private func restartLanguageServer(_ config: LanguageServerConfig, after failed: LanguageClient, rootURL: URL,
+                                       environment: [String: String]) {
+        let now = ContinuousClock.now
+        let recent = (languageServerRestarts[config.name] ?? []).filter { now - $0 < Self.languageServerRestartLimit.window }
+        guard recent.count < Self.languageServerRestartLimit.count else { return }
+        languageServerRestarts[config.name] = recent + [now]
+        Task { [weak self, delay = languageServerRestartDelay * (recent.count + 1)] in
+            try? await Task.sleep(for: delay)
+            guard let self, self.rootURL == rootURL, self.languageClients[config.name] === failed,
+                  let client = self.startLanguageClient(config, rootURL: rootURL, environment: environment) else { return }
+            for document in self.documents where document.languageClient === failed {
+                self.connect(document, to: client)
             }
+        }
+    }
+
+    private func connect(_ document: EditorDocument, to client: LanguageClient) {
+        document.languageClient = client
+        client.didOpen(url: document.url, languageId: document.languageId,
+                       text: document.textStorage.mutableString as String)
+        // The server's symbols once it's ready (the syntax tree's until then).
+        Task { [weak document = document, weak client = client] in
+            while let client, client.state == .starting { try? await Task.sleep(for: .milliseconds(200)) }
+            document?.refreshSymbols()
+            document?.refreshInlayHints()
+            document?.refreshLinks()
+            document?.refreshSemanticTokens()
+            document?.refreshFoldRegions()
+            document?.refreshCodeLenses()
         }
     }
 
@@ -2381,6 +2422,15 @@ final class Workspace {
 
     @discardableResult
     func save(_ document: EditorDocument) -> Bool {
+        // Another program changed the file since it was read: overwriting its version silently
+        // would lose it. (Auto save skips such files.)
+        if document.hasExternalChanges {
+            switch Self.confirmOverwrite(document) {
+            case .overwrite: break
+            case .revert: document.revertToSaved(); return !document.isDirty
+            case .cancel: return false
+            }
+        }
         do {
             try document.save()
             // Saved here: its files pick it up now, not when the file watcher reports it.
@@ -2391,6 +2441,23 @@ final class Workspace {
         } catch {
             errorMessage = error.localizedDescription
             return false
+        }
+    }
+
+    enum ExternalChangeChoice { case overwrite, revert, cancel }
+
+    /// Asks what to do when saving a file changed on disk; replaced in tests.
+    @ObservationIgnored nonisolated(unsafe) static var confirmOverwrite: @MainActor (EditorDocument) -> ExternalChangeChoice = { document in
+        let alert = NSAlert()
+        alert.messageText = "“\(document.fileName)” was changed by another program. Do you want to overwrite it?"
+        alert.informativeText = "Overwriting replaces the other program's changes with yours. Reverting discards your unsaved edits and loads the file from disk."
+        alert.addButton(withTitle: "Overwrite")
+        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Revert")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .overwrite
+        case .alertThirdButtonReturn: return .revert
+        default: return .cancel
         }
     }
 

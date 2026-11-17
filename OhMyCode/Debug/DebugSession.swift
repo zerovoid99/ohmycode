@@ -94,6 +94,8 @@ final class DebugSession: Identifiable {
     @ObservationIgnored private let environment: [String: String]
     @ObservationIgnored private var initialized: CheckedContinuation<Void, Never>?
     @ObservationIgnored private var didInitialize = false
+    /// The launch (or attach) failed before the adapter said `initialized`: ends that wait.
+    @ObservationIgnored private var launchError: Error?
     /// The next stop is ours (lldb-dap reports an interrupt as an "exception").
     @ObservationIgnored private var pauseRequested = false
 
@@ -152,7 +154,13 @@ final class DebugSession: Identifiable {
         })
         // The launch (or attach) answers once configuration is done: send it, then configure.
         let launched = Task { try await client.request(configuration.isAttach ? "attach" : "launch", .object(arguments)) }
+        // Adapters answer a launch that can't happen (no such program) at once, and may never
+        // say `initialized` then: the failure ends the wait instead of leaving it starting.
+        Task { [weak self] in
+            if case .failure(let error) = await launched.result { self?.launchFailed(error) }
+        }
         await waitForInitialized()
+        if let launchError { throw launchError }
         for path in (breakpoints?() ?? [:]).keys { await sendBreakpoints(for: path) }
         await sendExceptionBreakpoints()
         try await client.request("configurationDone")
@@ -161,8 +169,15 @@ final class DebugSession: Identifiable {
     }
 
     private func waitForInitialized() async {
-        guard !didInitialize else { return }
+        guard !didInitialize, launchError == nil else { return }
         await withCheckedContinuation { initialized = $0 }
+    }
+
+    private func launchFailed(_ error: Error) {
+        guard !didInitialize else { return } // the configuration steps report it
+        launchError = error
+        initialized?.resume()
+        initialized = nil
     }
 
     /// Ends the program (and the debugger).

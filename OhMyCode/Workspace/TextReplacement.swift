@@ -52,7 +52,9 @@ extension EditorDocument {
         let sorted = try TextReplacement.validated(edits, length: textStorage.length)
         let text = textStorage.mutableString
         let effective = sorted.filter { $0.range.length > 0 || !$0.text.isEmpty }
-            .filter { text.substring(with: $0.range) != $0.text }
+            // Literally, not as Swift strings: those are equal when canonically equivalent, which
+            // would drop an edit that only changes the normalization (NFD to NFC).
+            .filter { text.compare($0.text, options: .literal, range: $0.range) != .orderedSame }
         guard !effective.isEmpty else { return false }
 
         // Inverse edits, in post-edit coordinates: each edit moves by the length changes before it.

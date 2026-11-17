@@ -27,6 +27,9 @@ final class CompletionController {
     private var isIncomplete = false
     /// Where the word being completed starts (UTF-16 offset).
     private var wordStart = 0
+    /// Where the cursor was when the listed items were asked for: servers' edit ranges are in
+    /// the text as it was then, and typing since moved their ends.
+    private var itemsCursor = 0
     private var requestTask: Task<Void, Never>?
     private var isInserting = false
     private var windowObserver: NSObjectProtocol?
@@ -131,7 +134,7 @@ final class CompletionController {
                 server.cancel()
             }
             guard !Task.isCancelled else { return }
-            self?.finishRequest(server: result, extensions: fromExtensions, trigger: trigger)
+            self?.finishRequest(server: result, extensions: fromExtensions, trigger: trigger, cursor: cursor)
         }
     }
 
@@ -143,11 +146,13 @@ final class CompletionController {
     }
 
     private func finishRequest(server result: (items: [CompletionItem], isIncomplete: Bool)?,
-                               extensions fromExtensions: (items: [CompletionItem], isIncomplete: Bool)?, trigger: String?) {
+                               extensions fromExtensions: (items: [CompletionItem], isIncomplete: Bool)?, trigger: String?,
+                               cursor: Int) {
         // Snippets while typing a word (not after "." and other trigger characters).
         let snippets = trigger == nil ? snippetItems(firstID: 2_000_000) : []
         guard result != nil || fromExtensions?.items.isEmpty == false || !snippets.isEmpty else { return }
         items = (result?.items ?? []) + (fromExtensions?.items ?? []) + snippets
+        itemsCursor = cursor
         candidates = items.map { FuzzyCandidate($0.filterText) }
         isIncomplete = result?.isIncomplete == true || fromExtensions?.isIncomplete == true
         filter()
@@ -269,28 +274,73 @@ final class CompletionController {
     }
 
     /// Replaces the word being completed (or the server's edit range) with the item, through
-    /// the text view so it's a single undoable change.
+    /// the text view so it's a single undoable change; then makes its additional edits (asking
+    /// the server for them first when it sends them only on request).
     func insert(_ item: CompletionItem) {
         let document = editor.document
         let textView = editor.textView!
+        let text = document.textStorage.mutableString
         let cursor = textView.selectedRange().location
-        var start = wordStart
-        if let editRange = item.editRange { start = min(document.range(for: editRange).location, cursor) }
-        let replacement = NSRange(location: start, length: max(0, cursor - start))
+        var replacement = NSRange(location: wordStart, length: max(0, cursor - wordStart))
+        if let editRange = item.editRange {
+            replacement = Self.replacementRange(document.range(for: editRange), requestedAt: itemsCursor, cursor: cursor, length: text.length)
+        }
+        // In the text before the insertion, which moves those after it.
+        let additional = item.additionalTextEdits.map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) }
+        let resolving = additional.isEmpty && item.raw != nil ? client : nil
+        let lengthBefore = text.length
         dismiss()
+        isInserting = true
         if item.isSnippet {
             // Tab then steps through its placeholders.
-            isInserting = true
             editor.insertSnippet(item.insertText, replacing: replacement)
-            isInserting = false
-            return
+        } else {
+            // Defensive: keep the insertion a separate undo step from coalesced typing.
+            textView.breakUndoCoalescing()
+            textView.insertText(item.insertText, replacementRange: replacement)
+            textView.breakUndoCoalescing()
         }
-        isInserting = true
-        // Defensive: keep the insertion a separate undo step from coalesced typing.
-        textView.breakUndoCoalescing()
-        textView.insertText(item.insertText, replacementRange: replacement)
-        textView.breakUndoCoalescing()
         isInserting = false
+        let inserted = NSRange(location: replacement.location, length: replacement.length + text.length - lengthBefore)
+        if !additional.isEmpty {
+            applyAdditionalEdits(additional, around: replacement, inserted: inserted)
+        } else if let resolving, resolving.resolvesCompletionItems {
+            // Only edits before the insertion apply then (imports, mostly): the text there is
+            // checked unchanged when the answer comes, whatever was typed after it.
+            let before = text.substring(to: min(replacement.location, text.length))
+            Task { [weak self, weak document] in
+                guard let resolved = try? await resolving.resolve(item), !resolved.additionalTextEdits.isEmpty,
+                      let self, let document, document === self.editor.document else { return }
+                let current = document.textStorage.mutableString
+                guard current.length >= before.utf16.count, current.substring(to: before.utf16.count) == before else { return }
+                let edits = resolved.additionalTextEdits.map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) }
+                    .filter { NSMaxRange($0.range) <= replacement.location }
+                if !edits.isEmpty { _ = try? document.apply(edits, actionName: "Completion") }
+            }
+        }
+    }
+
+    /// `edits` (in the text before `replacement` became `inserted`) moved past the insertion;
+    /// any overlapping it are left out.
+    private func applyAdditionalEdits(_ edits: [TextReplacement], around replacement: NSRange, inserted: NSRange) {
+        let shift = inserted.length - replacement.length
+        let moved = edits.compactMap { edit -> TextReplacement? in
+            if NSMaxRange(edit.range) <= replacement.location { return edit }
+            guard edit.range.location >= NSMaxRange(replacement) else { return nil }
+            return TextReplacement(range: NSRange(location: edit.range.location + shift, length: edit.range.length), text: edit.text)
+        }
+        _ = try? editor.document.apply(moved, actionName: "Completion")
+    }
+
+    /// Where an item with a server's edit range goes: the range (asked for at `requestedAt`,
+    /// computed in the current text) from its start to its end moved by what was typed since,
+    /// and at least to the cursor.
+    static func replacementRange(_ edit: NSRange, requestedAt: Int, cursor: Int, length: Int) -> NSRange {
+        let start = min(edit.location, cursor)
+        var end = NSMaxRange(edit)
+        if end >= requestedAt { end += cursor - requestedAt }
+        end = min(max(end, cursor), length)
+        return NSRange(location: start, length: end - start)
     }
 
     // MARK: Words

@@ -5,11 +5,14 @@ import Foundation
 /// delivered to the main thread in coalesced chunks: one main-thread hop per burst instead of
 /// one per `read`, so `cat bigfile` doesn't flood the main queue.
 final class PTYProcess: @unchecked Sendable {
-    // @unchecked Sendable: `pending`/`flushScheduled` are only touched on `readQueue`;
-    // `onOutput`/`onExit` only on the main thread; the fd and pid are immutable after init.
+    // @unchecked Sendable: `pending`/`flushScheduled`/`closed` are only touched on `readQueue`;
+    // `onOutput`/`onExit` only on the main thread; the pid is immutable after init and the fd
+    // is used through `master`, which knows once it's closed.
     let pid: pid_t
     private let masterFD: Int32
+    private let master: Descriptor
     private let readQueue = DispatchQueue(label: "omc.pty.read", qos: .userInteractive)
+    private static let readQueueKey = DispatchSpecificKey<Void>()
     private let writeQueue = DispatchQueue(label: "omc.pty.write", qos: .userInteractive)
     private var readSource: DispatchSourceRead?
     private var pending = Data()
@@ -57,6 +60,14 @@ final class PTYProcess: @unchecked Sendable {
         let pid = forkpty(&master, nil, nil, &windowSize)
         if pid < 0 { throw SpawnError.forkFailed(errno) }
         if pid == 0 {
+            // Signals ignored or blocked here would stay so in the shell (exec keeps them): a
+            // shell ignoring SIGHUP outlives its closed terminal.
+            var defaultAction = sigaction()
+            defaultAction.__sigaction_u.__sa_handler = SIG_DFL
+            for signal in 1..<NSIG { _ = sigaction(signal, &defaultAction, nil) }
+            var noSignals = sigset_t()
+            sigemptyset(&noSignals)
+            _ = sigprocmask(SIG_SETMASK, &noSignals, nil)
             _ = chdir(cwd)
             execve(path, argv, envp)
             _exit(127)
@@ -64,7 +75,12 @@ final class PTYProcess: @unchecked Sendable {
 
         self.pid = pid
         self.masterFD = master
+        self.master = Descriptor(master)
+        // Not inherited by anything else the app starts (git, language servers, other
+        // terminals): one holding it open would keep this terminal's pty alive.
+        _ = fcntl(master, F_SETFD, fcntl(master, F_GETFD) | FD_CLOEXEC)
         _ = fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK)
+        readQueue.setSpecific(key: Self.readQueueKey, value: ())
         startReading()
     }
 
@@ -74,11 +90,13 @@ final class PTYProcess: @unchecked Sendable {
 
     func write(_ data: Data) {
         guard !data.isEmpty else { return }
-        writeQueue.async { [masterFD] in
+        writeQueue.async { [master] in
             data.withUnsafeBytes { buffer in
                 var offset = 0
                 while offset < buffer.count {
-                    let written = Darwin.write(masterFD, buffer.baseAddress! + offset, buffer.count - offset)
+                    // Once closed, the number may already belong to another file.
+                    guard let written = master.whileOpen({ Darwin.write($0, buffer.baseAddress! + offset, buffer.count - offset) })
+                    else { return }
                     if written > 0 {
                         offset += written
                     } else if written < 0 && (errno == EAGAIN || errno == EINTR) {
@@ -94,24 +112,48 @@ final class PTYProcess: @unchecked Sendable {
     func resize(_ size: Size) {
         var windowSize = winsize(ws_row: size.rows, ws_col: size.columns,
                                  ws_xpixel: size.columns * size.cellWidth, ws_ypixel: size.rows * size.cellHeight)
-        _ = ioctl(masterFD, TIOCSWINSZ, &windowSize)
+        _ = master.whileOpen { ioctl($0, TIOCSWINSZ, &windowSize) }
     }
 
-    /// Hangs up the child (as closing a terminal window does) and releases the pty.
+    /// Hangs up the child (as closing a terminal window does), releases the pty and reaps the
+    /// child once it exits, so it doesn't stay behind as a zombie.
     func terminate() {
-        readQueue.sync {
-            guard !closed else { return }
-            closed = true
-            readSource?.cancel()
-            readSource = nil
-            kill(pid, SIGHUP)
+        // The last reference can go while the read handler runs: deinit then runs on readQueue,
+        // where a sync onto it would deadlock.
+        if DispatchQueue.getSpecific(key: Self.readQueueKey) != nil {
+            hangUp()
+        } else {
+            readQueue.sync { hangUp() }
+        }
+    }
+
+    /// On readQueue.
+    private func hangUp() {
+        guard !closed else { return }
+        closed = true
+        readSource?.cancel()
+        readSource = nil
+        kill(pid, SIGHUP)
+        let pid = pid
+        DispatchQueue.global(qos: .utility).async {
+            // A child that ignores the hangup is killed after a while; until it's reaped the pid
+            // stays ours, so the kill can't reach another process.
+            var status: Int32 = 0
+            let deadline = DispatchTime.now() + .seconds(3)
+            while DispatchTime.now() < deadline {
+                let reaped = waitpid(pid, &status, WNOHANG)
+                if reaped == pid || (reaped < 0 && errno != EINTR) { return }
+                usleep(50_000)
+            }
+            kill(pid, SIGKILL)
+            while waitpid(pid, &status, 0) < 0 && errno == EINTR {}
         }
     }
 
     private func startReading() {
         let source = DispatchSource.makeReadSource(fileDescriptor: masterFD, queue: readQueue)
         source.setEventHandler { [weak self] in self?.readAvailable() }
-        source.setCancelHandler { [masterFD] in close(masterFD) }
+        source.setCancelHandler { [master] in master.close() }
         readSource = source
         source.resume()
     }
@@ -159,6 +201,29 @@ final class PTYProcess: @unchecked Sendable {
             DispatchQueue.main.async {
                 // Deliver after any output still queued for the main thread.
                 MainActor.assumeIsolated { self?.onExit?(code) }
+            }
+        }
+    }
+
+    /// The master fd and whether it's still open, so a write or resize racing the close
+    /// doesn't reach whatever file reuses the number next.
+    private final class Descriptor: @unchecked Sendable {
+        private let fd: Int32
+        private let lock = NSLock()
+        private var isOpen = true
+
+        init(_ fd: Int32) { self.fd = fd }
+
+        /// `body`'s result with the fd held open, or nil once it's closed.
+        func whileOpen<T>(_ body: (Int32) -> T) -> T? {
+            lock.withLock { isOpen ? body(fd) : nil }
+        }
+
+        func close() {
+            lock.withLock {
+                guard isOpen else { return }
+                isOpen = false
+                Darwin.close(fd)
             }
         }
     }

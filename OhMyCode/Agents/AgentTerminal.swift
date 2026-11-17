@@ -110,8 +110,26 @@ final class AgentTerminal: Identifiable {
         return await withCheckedContinuation { waiters.append($0) }
     }
 
+    /// Stops the command and what it started: Process puts the command in a process group of
+    /// its own, and the whole group gets SIGTERM, then SIGKILL if any of it is still there
+    /// after a moment. (The group outlives the command while something it started runs.)
     func kill() {
-        if process.isRunning { process.terminate() }
+        let group = process.processIdentifier
+        guard group > 0, Darwin.kill(-group, SIGTERM) == 0 else {
+            if process.isRunning { process.terminate() } // not a group of its own after all
+            return
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + Self.killGrace) {
+            if Darwin.kill(-group, 0) == 0 { Darwin.kill(-group, SIGKILL) }
+        }
+    }
+
+    /// How long a stopped command's group has to end before it's killed.
+    nonisolated static let killGrace = 2.0
+
+    /// Stops every one of these commands (the agent is stopped, or the app quits).
+    static func terminateAll(_ terminals: some Sequence<AgentTerminal>) {
+        for terminal in terminals { terminal.kill() }
     }
 
     var isRunning: Bool { exitStatus == nil }

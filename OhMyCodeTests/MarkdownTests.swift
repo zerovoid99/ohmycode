@@ -1,5 +1,6 @@
 import AppKit
 import Testing
+import WebKit
 @testable import Oh_My_Code
 
 struct MarkdownRendererTests {
@@ -68,6 +69,38 @@ struct MarkdownRendererTests {
         #expect(html("line  \nbreak<br/><span class=\"k\">x</span>") == "<p data-line=\"0\">line<br>\nbreak<br/><span class=\"k\">x</span></p>\n")
         #expect(html("**unclosed and * star") == "<p data-line=\"0\">**unclosed and * star</p>\n")
         #expect(html("[not a link] [x](") == "<p data-line=\"0\">[not a link] [x](</p>\n")
+    }
+
+    /// Raw HTML can't navigate the preview away (to a page without its CSP) or retarget it: those
+    /// tags show as text. Harmless HTML stays.
+    @Test func neutralizesTagsThatNavigateOrRun() {
+        let block = html("<meta http-equiv=\"refresh\" content=\"0;url=https://evil.example\">\n<BASE href=\"https://evil.example/\">\n<div>ok</div>")
+        #expect(block == "&lt;meta http-equiv=\"refresh\" content=\"0;url=https://evil.example\">\n&lt;BASE href=\"https://evil.example/\">\n<div>ok</div>\n")
+        #expect(html("<form action=\"https://evil.example\"><button>go</button></form>")
+                == "&lt;form action=\"https://evil.example\"><button>go</button>&lt;/form>\n")
+        #expect(html("a <script>x()</script> <iframe src=x> <metadata> b")
+                == "<p data-line=\"0\">a &lt;script>x()&lt;/script> &lt;iframe src=x> <metadata> b</p>\n")
+    }
+
+    @MainActor @Test func previewOnlyLoadsItsOwnPage() {
+        typealias Preview = MarkdownPreviewController
+        let page = LocalFileSchemeHandler.url(for: URL(filePath: "/r/", directoryHint: .isDirectory))
+        let remote = URL(string: "https://evil.example/")!
+        #expect(Preview.decision(for: page, type: .other, isMainFrame: true, page: page) == .allow)
+        #expect(Preview.decision(for: URL(string: "about:blank"), type: .other, isMainFrame: true, page: page) == .allow)
+        // A refresh, a form, a frame, another local page: cancelled.
+        #expect(Preview.decision(for: remote, type: .other, isMainFrame: true, page: page) == .cancel)
+        #expect(Preview.decision(for: remote, type: .formSubmitted, isMainFrame: true, page: page) == .cancel)
+        #expect(Preview.decision(for: page, type: .other, isMainFrame: false, page: page) == .cancel)
+        #expect(Preview.decision(for: LocalFileSchemeHandler.url(for: URL(filePath: "/r/x.html")), type: .other, isMainFrame: true, page: page) == .cancel)
+        // Clicked links open elsewhere, by scheme.
+        #expect(Preview.decision(for: remote, type: .linkActivated, isMainFrame: true, page: page) == .openInBrowser(remote))
+        #expect(Preview.decision(for: URL(string: "mailto:a@b.c"), type: .linkActivated, isMainFrame: true, page: page)
+                == .openInBrowser(URL(string: "mailto:a@b.c")!))
+        #expect(Preview.decision(for: LocalFileSchemeHandler.url(for: URL(filePath: "/r/b.md")), type: .linkActivated, isMainFrame: true, page: page)
+                == .openFile(URL(filePath: "/r/b.md")))
+        #expect(Preview.decision(for: URL(string: "file:///Applications/Calculator.app"), type: .linkActivated, isMainFrame: true, page: page) == .cancel)
+        #expect(Preview.decision(for: URL(string: "x-apple.systempreferences:"), type: .linkActivated, isMainFrame: true, page: page) == .cancel)
     }
 
     @Test func listsFencedCodeBlocks() {

@@ -59,6 +59,18 @@ struct TextReplacementTests {
         #expect(!document.undoManager.canUndo)
     }
 
+    /// Regression: an edit that only changes the normalization (NFD "e" + accent to NFC "é")
+    /// compared equal as Swift strings and was dropped.
+    @Test func appliesNormalizationOnlyEdits() throws {
+        let document = try makeDocument("e\u{301}x")
+        #expect(document.textStorage.length == 3)
+        #expect(try document.apply([TextReplacement(range: NSRange(location: 0, length: 2), text: "\u{E9}")], actionName: "Test"))
+        #expect(document.textStorage.length == 2)
+        #expect(document.textStorage.mutableString.character(at: 0) == 0xE9)
+        // Literally the same text is still no change.
+        #expect(try !document.apply([TextReplacement(range: NSRange(location: 0, length: 1), text: "\u{E9}")], actionName: "Test"))
+    }
+
     @Test func previewGroupsEditsByLine() {
         let text = "a b a\nnone\nx\ny\nlast a"
         let edits = [
