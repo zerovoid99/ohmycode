@@ -352,6 +352,36 @@ Edit → Lines and the palette. Sorting works on the selected lines, or the whol
 is selected. The editor handles these keys itself, so they work as usual in other text fields
 (⌥↑ in the commit message box). They can be changed in Settings → Keyboard Shortcuts.
 
+## Vim mode
+Turn it on in Settings → Editor → *Vim mode*, or with *Toggle Vim Mode* in the palette. It's off
+by default, and only the code editor uses it: the find bar, the terminal and other text fields
+keep their usual keys, and ⌘ shortcuts (⌘S, ⌘P, ⌘C, ⌘V…) work in every mode. The status bar
+shows the mode (`-- INSERT --`, `-- VISUAL --`…), keys typed so far (`2d`) and the command line.
+Normal and Visual mode show a block cursor.
+
+- Modes: Normal, Insert, Visual, Visual Line, Replace (`R`). Esc or ⌃[ goes back to Normal; an
+  open completion list, AI suggestion or find bar closes first.
+- Motions: `h j k l`, `w W b B e E ge gE`, `0 ^ $ g_`, `gg G` (`5G`), `f F t T ; ,`, `%`, `{ }`,
+  `H M L`, `+ - _`, ⌃D ⌃U ⌃F ⌃B ⌃E ⌃Y, `zz zt zb`, `* #`, `/` and `?` with `n N`.
+- Operators `d c y > < gu gU g~` with any motion or text object (`iw aw iW aW`, brackets
+  `i( a( ib i{ iB i[ i<`, quotes `i"`, `i'`, `` i` ``, tags `it at`, paragraphs `ip ap`), doubled for lines
+  (`dd`, `>>`, `gUU`), and `D C Y x X s S r ~ J gJ p P`. Counts work almost everywhere (`3dw`,
+  `2d3w`, `5x`, `3ix<Esc>`).
+- Registers: the unnamed one, `"a`–`"z` (`"A` appends), `"0` (the last yank), `"1`–`"9`, `"-`,
+  `"_`, and `"+` / `"*` for the system clipboard. Lines are put as lines.
+- `u` and ⌃R undo and redo (the editor's own undo: each Vim change, typing included, is one
+  step), `.` repeats the last change with what was typed in it.
+- Visual mode: motions extend the selection, `o` swaps its ends, `gv` selects it again; `d c y
+  > < ~ u U r J p` act on it, `:` starts a command for its lines.
+- Commands: `:w`, `:q` (closes the tab; `:q!` drops changes), `:wq`, `:x`, `:wa`, `:{line}`,
+  `:s/pattern/replacement/g` on the line, `:%s` on the file, `:'<,'>s` on the selection (Vim's
+  regular expressions: `\(\)`, `\<\>`, `\{n}`, `&` and `\1` in the replacement), `:d`, `:y`,
+  `:>`, `:j`, `:noh`, `:set ic` / `:set scs`.
+- Several cursors (⌥-click, ⌘D) switch to Insert mode, so typing goes to each of them; Esc
+  removes them, and a second Esc returns to Normal mode, where commands use one cursor.
+- In read-only views, Normal mode moves, selects and yanks but doesn't edit. Input methods work
+  in Insert mode as usual.
+
 ## Links
 URLs written in any file (`https://`, `http://`, `ftp://`, `file://`) and links the language server
 finds (such as an import's path) are underlined while ⌘ is held over them. ⌘-click opens them:

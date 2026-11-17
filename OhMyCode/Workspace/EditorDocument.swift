@@ -57,6 +57,8 @@ final class EditorDocument: Identifiable {
     private(set) var lineCount = 1
     var cursorLine = 1
     var cursorColumn = 1
+    /// Vim mode's mode, pending keys or command line, for the status bar (nil: Vim mode is off).
+    var vimStatus: String?
 
     @ObservationIgnored private(set) var lineIndex: LineIndex
     @ObservationIgnored private(set) var highlighter: SyntaxHighlighter?

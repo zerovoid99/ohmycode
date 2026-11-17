@@ -100,6 +100,8 @@ final class AppSettings {
     var stagesResolvedConflicts: Bool { didSet { changed() } }
     /// Closing brackets and quotes typed for you.
     var autoClosePairs: Bool { didSet { changed() } }
+    /// Vim's modes and keys in the code editor.
+    var vimMode: Bool { didSet { changed() } }
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var isLoading = false
@@ -134,6 +136,7 @@ final class AppSettings {
         linkedEditing = defaults.object(forKey: Keys.linkedEditing) as? Bool ?? true
         stagesResolvedConflicts = defaults.object(forKey: Keys.stagesResolvedConflicts) as? Bool ?? true
         autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
+        vimMode = defaults.object(forKey: Keys.vimMode) as? Bool ?? false
         isLoading = false
     }
 
@@ -165,6 +168,7 @@ final class AppSettings {
         static let linkedEditing = "linkedEditing"
         static let stagesResolvedConflicts = "stagesResolvedConflicts"
         static let autoClosePairs = "autoClosePairs"
+        static let vimMode = "vimMode"
     }
 
     private static func clampedSize(_ size: Double) -> Double {
@@ -206,6 +210,7 @@ final class AppSettings {
         defaults.set(linkedEditing, forKey: Keys.linkedEditing)
         defaults.set(stagesResolvedConflicts, forKey: Keys.stagesResolvedConflicts)
         defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
+        defaults.set(vimMode, forKey: Keys.vimMode)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
         EditorTheme.invalidate()
         applyAppearance()
@@ -223,7 +228,7 @@ final class AppSettings {
             "showsMinimap": .bool(showsMinimap), "stickyScroll": .bool(stickyScroll), "formatOnSave": .bool(formatOnSave),
             "showsLineBlame": .bool(showsLineBlame), "showsBreadcrumbs": .bool(showsBreadcrumbs),
             "showsInlayHints": .bool(showsInlayHints), "stagesResolvedConflicts": .bool(stagesResolvedConflicts),
-            "autoClosePairs": .bool(autoClosePairs), "highlightsOccurrences": .bool(highlightsOccurrences),
+            "autoClosePairs": .bool(autoClosePairs), "vimMode": .bool(vimMode), "highlightsOccurrences": .bool(highlightsOccurrences),
             "highlightsMatchingBrackets": .bool(highlightsMatchingBrackets), "showsIndentGuides": .bool(showsIndentGuides),
             "wordWrap": .string(wordWrap.rawValue), "renderWhitespace": .string(renderWhitespace.rawValue),
             "semanticHighlighting": .bool(semanticHighlighting), "formatOnSaveScope": .string(formatOnSaveScope.rawValue),
@@ -263,6 +268,7 @@ final class AppSettings {
         if let value = values["formatOnSaveScope"]?.string.flatMap(FormatOnSaveScope.init(rawValue:)) { formatOnSaveScope = value }
         if let value = values["stagesResolvedConflicts"]?.bool { stagesResolvedConflicts = value }
         if let value = values["autoClosePairs"]?.bool { autoClosePairs = value }
+        if let value = values["vimMode"]?.bool { vimMode = value }
         isLoading = false
         changed()
     }

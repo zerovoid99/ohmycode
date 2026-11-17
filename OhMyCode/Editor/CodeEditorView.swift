@@ -61,6 +61,9 @@ final class EditorController: NSObject {
     /// AI suggestions at the caret (ghost text) and ⌘I edits.
     private(set) lazy var inlineSuggestions = InlineSuggestionController(editor: self)
     private(set) lazy var inlineEdit = InlineEditController(editor: self)
+    /// Vim mode (nil while it's off; see VimBridge).
+    private(set) var vim: VimBridge?
+    private var appliedVimMode: Bool?
     /// The word wrap the view is laid out for (nil: not yet).
     var appliedWordWrap: Bool?
     /// Strings and comments in the highlighted text (brackets there don't match), for `nonCodeVersion`.
@@ -162,6 +165,9 @@ final class EditorController: NSObject {
         overlay.conflictBands = { [weak self] in self?.conflictBands() ?? [] }
         overlay.conflictActions = { [weak self] in self?.conflictActionRects() ?? [] }
         overlay.cursorMarks = { [weak self] in self?.cursorMarks() ?? [] }
+        overlay.blockCaret = { [weak self] in self?.vim?.blockCaretRect() }
+        textView.onVimKey = { [weak self] event, isKeyEquivalent in self?.vim?.handle(event, isKeyEquivalent: isKeyEquivalent) ?? false }
+        textView.onPaste = { [weak self] in self?.vim?.paste() ?? false }
 
         let gutter = GutterView(textView: textView, document: document)
         self.gutterView = gutter
@@ -338,6 +344,20 @@ final class EditorController: NSObject {
         }
         minimapView?.invalidate()
         stickyView?.update()
+        if appliedVimMode != settings.vimMode { setVimMode(settings.vimMode) }
+        vim?.updateCaret()
+    }
+
+    /// Turns Vim mode on or off in this editor (the setting does, for every editor).
+    func setVimMode(_ on: Bool) {
+        appliedVimMode = on
+        if on, vim == nil {
+            vim = VimBridge(editor: self)
+            vim?.vimStateDidChange()
+        } else if !on, let vim {
+            vim.detach()
+            self.vim = nil
+        }
     }
 
     // MARK: Folding
@@ -755,7 +775,7 @@ final class EditorController: NSObject {
     func cursorMarks() -> Set<DiagnosticsOverlayView.Mark> {
         DiagnosticsOverlayView.marks(brackets: bracketRects(), activeGuides: indentGuideRects(onlyActive: true).map(\.rect),
                                      occurrences: occurrenceRects(), annotation: blameAnnotation(),
-                                     extraCursors: extraCursorShapes())
+                                     extraCursors: extraCursorShapes(), blockCaret: vim?.blockCaretRect())
     }
 
     /// Sticky scroll follows the line at the top of the view, which isn't known until the
@@ -773,6 +793,7 @@ final class EditorController: NSObject {
         // Edits and selection sync go through the primary layout manager.
         if let textLayoutManager { document.textContentStorage.primaryTextLayoutManager = textLayoutManager }
         document.updateCursor(forSelectionAt: textView.selectedRange().location)
+        if let vim { vim.publishStatus() } else if document.vimStatus != nil { document.vimStatus = nil }
         onFocus?()
     }
 
@@ -1056,6 +1077,7 @@ extension EditorController: NSTextViewDelegate {
     /// it wasn't told about first crashed there (reading the string as it moved).
     func textWillChange() {
         textView?.finder.noteClientStringWillChange()
+        vim?.textWillChange()
     }
 
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
@@ -1089,6 +1111,7 @@ extension EditorController: NSTextViewDelegate {
 
     func textViewDidChangeSelection(_ notification: Notification) {
         NotificationCenter.default.post(name: Self.selectionDidChangeNotification, object: self)
+        vim?.selectionDidChange()
         snippetSelectionChanged()
         inlineSuggestions.selectionDidChange()
         lightbulb.update()
@@ -1226,16 +1249,28 @@ final class CodeTextView: NSTextView, @preconcurrency NSTextFinderClient {
     /// A key press bound to an editor command (line commands); returns true if handled.
     var onCommandKey: ((NSEvent) -> Bool)?
 
+    /// Vim mode's keys (with whether it's asked as a key equivalent); true if it took the key.
+    var onVimKey: ((NSEvent, Bool) -> Bool)?
+    /// Paste; true if handled elsewhere (Vim's command line).
+    var onPaste: (() -> Bool)?
+
     override func keyDown(with event: NSEvent) {
         onKeyDown?()
+        if onVimKey?(event, false) == true { return }
         if onCommandKey?(event) == true { return }
         super.keyDown(with: event)
     }
 
     /// ⌘ keys reach views before the menus: the editor's own commands go first while it's focused.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, onVimKey?(event, true) == true { return true }
         if window?.firstResponder === self, onCommandKey?(event) == true { return true }
         return super.performKeyEquivalent(with: event)
+    }
+
+    override func paste(_ sender: Any?) {
+        if onPaste?() == true { return }
+        super.paste(sender)
     }
 
     override func scrollWheel(with event: NSEvent) {

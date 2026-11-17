@@ -42,6 +42,13 @@ struct StatusBarView: View {
                 .buttonStyle(StatusBarButtonStyle())
                 .help("Source Control")
             }
+            if let vimStatus = document?.vimStatus {
+                Text(vimStatus)
+                    .fontDesign(.monospaced)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .foregroundStyle(.primary)
+            }
             if document?.hasExternalChanges == true {
                 Label("Changed on disk, your unsaved edits were kept", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)

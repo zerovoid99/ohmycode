@@ -115,6 +115,8 @@ struct PaletteCommand: Identifiable {
         PaletteCommand(id: "ai.triggerSuggestion", title: "AI: Trigger Inline Suggestion", icon: "sparkles", key: "alt+\\",
                        isAvailable: { $0.activeDocument?.editor != nil },
                        perform: { $0.activeDocument?.editor?.inlineSuggestions.trigger() }),
+        PaletteCommand(id: "edit.toggleVimMode", title: "Toggle Vim Mode", icon: "keyboard", key: nil,
+                       isAvailable: { _ in true }, perform: { _ in AppSettings.shared.vimMode.toggle() }),
         PaletteCommand(id: "ai.toggleSuggestions", title: "AI: Toggle Inline Suggestions", icon: "sparkles.rectangle.stack", key: nil,
                        isAvailable: { _ in true }, perform: { _ in AISettings.shared.inlineSuggestionsEnabled.toggle() }),
         PaletteCommand(id: "ai.editSelection", title: "AI: Edit Selection…", icon: "wand.and.stars", key: "cmd+i",

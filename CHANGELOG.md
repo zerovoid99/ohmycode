@@ -14,6 +14,11 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
   dump, read as you scroll so big files open at once, with *Open as Text Anyway*. Viewer tabs
   split, move, close and come back with the session like other tabs.
 - UTF-16 text files (with a byte order mark) open in the editor and are saved as UTF-16.
+- Vim mode, off until turned on in Settings → Editor or with Toggle Vim Mode in the palette:
+  Normal, Insert, Visual, Visual Line and Replace modes, motions, operators with counts and text
+  objects, registers (with the system clipboard as `"+`), `.` to repeat, `u` and ⌃R, search with
+  `/` and `*`, and `:w`, `:q`, `:s` and other commands. The status bar shows the mode and the
+  command line, and Normal mode has a block cursor. ⌘ shortcuts keep working in every mode.
 
 ## [0.1.9] - 2026-11-18
 

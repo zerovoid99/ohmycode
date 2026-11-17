@@ -23,6 +23,7 @@
 		0B65873D675CA3F4E6024BBF /* LinkedEditingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AD8419A7463D17AF39D48F2 /* LinkedEditingTests.swift */; };
 		0F88E5B7B3FCD696BBD5E5AC /* BlameCommitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7828EF22F88C26490D76FA27 /* BlameCommitTests.swift */; };
 		102C110D623A51DE8695EC94 /* EditPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6370077B6CFBDF889C95B886 /* EditPreviewView.swift */; };
+		11026FB00A20CBF556EAE339 /* VimCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FB95528ADCCDB84225D38BB /* VimCommands.swift */; };
 		11D618DD62A741BF5C5FC2E1 /* CodeEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95ED4C401864D6BBB7980F5B /* CodeEditorView.swift */; };
 		1258710818E4603B33D517A4 /* ClaudeProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9CB28E46EEB871E0EA77E53 /* ClaudeProvider.swift */; };
 		1451CEA00381D14E03E0D3D5 /* PTYProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A76E72897EB0575B5F95E98 /* PTYProcess.swift */; };
@@ -59,6 +60,7 @@
 		2E028BA8A6DD44C06C727335 /* TreeSitterPython in Frameworks */ = {isa = PBXBuildFile; productRef = B7578A1892DE4A8AD836F880 /* TreeSitterPython */; };
 		2E38ED0353BACFC3385C917E /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 1483ECC5A9D0932AFCC311ED /* Sparkle */; };
 		2FB2B1492CB1576BA473613E /* TabSwitchBenchmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001ED9A2163D664EBA6EF797 /* TabSwitchBenchmarks.swift */; };
+		30186B72C856E7D22B5D8AF1 /* VimBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9962FA8488AA16E15DB21A21 /* VimBridge.swift */; };
 		3043BD420289D09EDB6B05E8 /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1D8010605A8A9875A268782 /* TimelineView.swift */; };
 		31D1D6E6497A1357514A302C /* MergeEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 609F4481E1A42EE7F8690963 /* MergeEditor.swift */; };
 		33140238CA8B7381A3BE3EB6 /* Workspace+Files.swift in Sources */ = {isa = PBXBuildFile; fileRef = 370DFA55B9A04014B4A290AF /* Workspace+Files.swift */; };
@@ -170,6 +172,7 @@
 		995F8CE75A54484EF2A4A79B /* FileIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9946041B33945585756E431F /* FileIndex.swift */; };
 		9A6FA3A23E349E3154CA0FDD /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 796D31D35763D8DDD9A8020B /* WorkspaceView.swift */; };
 		9A7723213A4E42A98A941F06 /* TerminalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D130AAE1FC421ED188E3196D /* TerminalView.swift */; };
+		9B048D2F81DF2A5BF6AB28A7 /* VimEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B9869C4D7A68D5A1CC8B5D5 /* VimEngine.swift */; };
 		A09C0787798D6942C1467B9B /* TextSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 091334CC03D66036131BB5D3 /* TextSearch.swift */; };
 		A1067724769B50220C149882 /* MarkdownPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C7E8C04538AFC9A0A6A1E3C /* MarkdownPreview.swift */; };
 		A1704FC0107756EA96D734BF /* TerminalSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57DDDDFEE387635D979AA622 /* TerminalSession.swift */; };
@@ -185,6 +188,7 @@
 		A831D17D876BEE7755F56B1D /* DebuggerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E1653AB1FC39B91FD8C6A3 /* DebuggerTests.swift */; };
 		A94A499556E5989B2A57138E /* BracketGuideTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E738C52C8BA5E39775326DC6 /* BracketGuideTests.swift */; };
 		AA2CBF1B037147BBBDF7E501 /* LaunchBenchmarks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E50E340F2FA1E8A9642C90E /* LaunchBenchmarks.swift */; };
+		AA2E16CB5D891250188CDC0B /* VimTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1DC11BFB509BA7D83DE2D9 /* VimTests.swift */; };
 		AA5F484687B73816E1700EAC /* BranchViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A31CC2BCD7DAB857B704425 /* BranchViews.swift */; };
 		AA67C0005F88B5503F97856B /* AgentSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D0A0DCBBCAAD71457470ED3 /* AgentSettingsView.swift */; };
 		AAB71F6BE2CE7E5D5864EADF /* DiffHighlightTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AF03008167CA8E54A787179 /* DiffHighlightTests.swift */; };
@@ -227,6 +231,7 @@
 		CABEED7DF19DCC31E8FFCA57 /* EditPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2064E56401AD034E47F05028 /* EditPreview.swift */; };
 		CCF3FEB6ABD8D4B06EE01189 /* BranchOperationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */; };
 		CE38648F31A1B5069B2505D0 /* TerminalLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717D9E61C3E74E899FD53900 /* TerminalLinkTests.swift */; };
+		CE5C3FB627672B13DCF103C2 /* VimText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96C41D6990688740A2F20854 /* VimText.swift */; };
 		CF3CC73FB18DFAF15E4D40DE /* DebugSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F43BD238A2B371BBCAFBCDA4 /* DebugSession.swift */; };
 		D0590F5B0AE246E7AE486EC2 /* AITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E275A0673DFB83297C00948 /* AITests.swift */; };
 		D0C69CCCDCCC46C9DEF53105 /* OccurrenceHighlights.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD38CC20E29A70B456DCC3E3 /* OccurrenceHighlights.swift */; };
@@ -301,6 +306,7 @@
 		07F077DF9001333C3035F7BE /* DocumentLinkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentLinkTests.swift; sourceTree = "<group>"; };
 		088244D4B0A83520AC330D1F /* LSPPipelineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LSPPipelineTests.swift; sourceTree = "<group>"; };
 		091334CC03D66036131BB5D3 /* TextSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSearch.swift; sourceTree = "<group>"; };
+		0B9869C4D7A68D5A1CC8B5D5 /* VimEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VimEngine.swift; sourceTree = "<group>"; };
 		0C6DCEDB6FD252CBA4ECF5E8 /* OutlineViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutlineViews.swift; sourceTree = "<group>"; };
 		0CE2146BEDE3433D4D023C59 /* Workspace+Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+Language.swift"; sourceTree = "<group>"; };
 		0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoEditTests.swift; sourceTree = "<group>"; };
@@ -372,6 +378,7 @@
 		48E7BA781D696548AAD229A3 /* TaskRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRun.swift; sourceTree = "<group>"; };
 		4932ADA2034EED08CCF5EAC3 /* TerminalLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinks.swift; sourceTree = "<group>"; };
 		4A76E72897EB0575B5F95E98 /* PTYProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYProcess.swift; sourceTree = "<group>"; };
+		4B1DC11BFB509BA7D83DE2D9 /* VimTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VimTests.swift; sourceTree = "<group>"; };
 		4BA3F2309DB72CB1A8E30443 /* CodeLensTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeLensTests.swift; sourceTree = "<group>"; };
 		4F4A1D4E9786FCAEC6E2C553 /* MultiCursorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiCursorTests.swift; sourceTree = "<group>"; };
 		4F75F53CE900295074EEE285 /* CommitGraph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommitGraph.swift; sourceTree = "<group>"; };
@@ -452,9 +459,11 @@
 		95DB07857625F52A05770C90 /* OhMyCodeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OhMyCodeTests.swift; sourceTree = "<group>"; };
 		95ED4C401864D6BBB7980F5B /* CodeEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeEditorView.swift; sourceTree = "<group>"; };
 		960146F4059055A703540981 /* AIPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIPrompts.swift; sourceTree = "<group>"; };
+		96C41D6990688740A2F20854 /* VimText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VimText.swift; sourceTree = "<group>"; };
 		98686231101B7D30D51EBDC4 /* LanguageServers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageServers.swift; sourceTree = "<group>"; };
 		9946041B33945585756E431F /* FileIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileIndex.swift; sourceTree = "<group>"; };
 		995D20D57A5D6B2463BCB67A /* WorkspaceCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceCommands.swift; sourceTree = "<group>"; };
+		9962FA8488AA16E15DB21A21 /* VimBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VimBridge.swift; sourceTree = "<group>"; };
 		9AE654543EFDE601C8E12DF0 /* Keybindings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keybindings.swift; sourceTree = "<group>"; };
 		9BA27F72EE334EC2CEE7909C /* BracketsAndGuides.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BracketsAndGuides.swift; sourceTree = "<group>"; };
 		9BA9DA92A03F7F0A135A4135 /* LineIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineIndexTests.swift; sourceTree = "<group>"; };
@@ -462,6 +471,7 @@
 		9D20F3C4146C1A73972F0F3A /* ExtensionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionTests.swift; sourceTree = "<group>"; };
 		9E0E8E7F569AC9998B3A769E /* AISettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISettings.swift; sourceTree = "<group>"; };
 		9F428138839F8ECDB991241B /* EditorRedrawTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorRedrawTests.swift; sourceTree = "<group>"; };
+		9FB95528ADCCDB84225D38BB /* VimCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VimCommands.swift; sourceTree = "<group>"; };
 		9FEB380BB31707CFA139D310 /* EditorConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorConfigTests.swift; sourceTree = "<group>"; };
 		9FFFFC387DA176B3A7A61AED /* SearchResultsTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsTable.swift; sourceTree = "<group>"; };
 		A14A7EFABD0BFC396322A78C /* SourceControlView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlView.swift; sourceTree = "<group>"; };
@@ -803,6 +813,7 @@
 				717D9E61C3E74E899FD53900 /* TerminalLinkTests.swift */,
 				062545FE7797841B1F4B7A4A /* TerminalTests.swift */,
 				B4F2009FE316D50973213A0B /* TestingTests.swift */,
+				4B1DC11BFB509BA7D83DE2D9 /* VimTests.swift */,
 				CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */,
 				0E13FA664353862B8CC80898 /* WhitespaceTests.swift */,
 				B61128CB548B448BDD2438DA /* WindowedHighlightingTests.swift */,
@@ -933,6 +944,7 @@
 				E1E7CB6CB93BDCD61F6CE46E /* StickyScrollView.swift */,
 				FFB57ED33528D4A77B307287 /* WhitespaceMarks.swift */,
 				B1EA766EA033C850581F49B3 /* WordWrap.swift */,
+				9A91F676939280AE547284AC /* Vim */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -950,6 +962,17 @@
 				D130AAE1FC421ED188E3196D /* TerminalView.swift */,
 			);
 			path = Terminal;
+			sourceTree = "<group>";
+		};
+		9A91F676939280AE547284AC /* Vim */ = {
+			isa = PBXGroup;
+			children = (
+				9962FA8488AA16E15DB21A21 /* VimBridge.swift */,
+				9FB95528ADCCDB84225D38BB /* VimCommands.swift */,
+				0B9869C4D7A68D5A1CC8B5D5 /* VimEngine.swift */,
+				96C41D6990688740A2F20854 /* VimText.swift */,
+			);
+			path = Vim;
 			sourceTree = "<group>";
 		};
 		AB9D6A95DD636D3B107EE197 /* AI */ = {
@@ -1340,6 +1363,10 @@
 				85FEC831829AF27DCBF673AF /* ThemeStyle.swift in Sources */,
 				3043BD420289D09EDB6B05E8 /* TimelineView.swift in Sources */,
 				1F6340BD53600AC51FF68193 /* VSCodeTheme.swift in Sources */,
+				30186B72C856E7D22B5D8AF1 /* VimBridge.swift in Sources */,
+				11026FB00A20CBF556EAE339 /* VimCommands.swift in Sources */,
+				9B048D2F81DF2A5BF6AB28A7 /* VimEngine.swift in Sources */,
+				CE5C3FB627672B13DCF103C2 /* VimText.swift in Sources */,
 				C6CBA1171534B6D1B3BF508F /* WelcomeView.swift in Sources */,
 				B60ED05D0898696FA26C666F /* WhitespaceMarks.swift in Sources */,
 				582482340451A6F5324EC2D9 /* WordWrap.swift in Sources */,
@@ -1444,6 +1471,7 @@
 				C1B812E94CAE7B6150426CB0 /* TerminalTests.swift in Sources */,
 				C422ED907B71E4685C30F145 /* TestingTests.swift in Sources */,
 				D7A7FF2C9BF229A9AD1993F2 /* VSCodeThemeTests.swift in Sources */,
+				AA2E16CB5D891250188CDC0B /* VimTests.swift in Sources */,
 				1AC61C937F4E32F73FA243EB /* WhitespaceTests.swift in Sources */,
 				22A41F02FA5C10BB721D5A68 /* WindowedHighlightingTests.swift in Sources */,
 				77385E231648078B92330DB0 /* WordWrapTests.swift in Sources */,

@@ -27,6 +27,8 @@ final class DiagnosticsOverlayView: NSView {
     var foldPlaceholders: (() -> [(rect: NSRect, header: Int)])?
     /// Extra cursors (multi-cursor): caret bars and selected text.
     var extraCursors: (() -> (carets: [NSRect], selections: [NSRect]))?
+    /// Vim mode's block cursor (Normal and Visual mode), drawn over its character.
+    var blockCaret: (() -> NSRect?)?
     /// Inlay hints: their labels' rects.
     var inlayHints: (() -> [(rect: NSRect, mark: InlayHintMark)])?
     /// An AI suggestion at the caret: its lines and where each starts (and the caret, in its gap).
@@ -112,8 +114,10 @@ final class DiagnosticsOverlayView: NSView {
     }
 
     static func marks(brackets: [NSRect], activeGuides: [NSRect], occurrences: [(rect: NSRect, isWrite: Bool)],
-                      annotation: BlameAnnotation?, extraCursors: (carets: [NSRect], selections: [NSRect])?) -> Set<Mark> {
+                      annotation: BlameAnnotation?, extraCursors: (carets: [NSRect], selections: [NSRect])?,
+                      blockCaret: NSRect? = nil) -> Set<Mark> {
         var marks = Set<Mark>()
+        if let blockCaret { marks.insert(Mark(blockCaret, "block", outset: 1)) }
         for rect in brackets { marks.insert(Mark(rect, "bracket")) }
         for rect in activeGuides { marks.insert(Mark(rect, "guide", outset: 1)) }
         for (rect, isWrite) in occurrences { marks.insert(Mark(rect, isWrite ? "write" : "read")) }
@@ -277,12 +281,17 @@ final class DiagnosticsOverlayView: NSView {
         let occurrences = occurrences?() ?? []
         let annotation = blameAnnotation?()
         let extraCursors = extraCursors?()
+        let block = blockCaret?()
         // Drawn whole: these are the cursor's marks shown now.
         if isWhole {
             let visible = visibleRect
             let activeGuides = guides.filter { $0.isActive && $0.rect.maxY >= visible.minY && $0.rect.minY <= visible.maxY }
             drawnMarks = Self.marks(brackets: brackets, activeGuides: activeGuides.map(\.rect), occurrences: occurrences,
-                                    annotation: annotation, extraCursors: extraCursors)
+                                    annotation: annotation, extraCursors: extraCursors, blockCaret: block)
+        }
+        if let block, block.intersects(dirtyRect) {
+            theme.cursor.withAlphaComponent(0.45).setFill()
+            block.fill(using: .sourceOver)
         }
         for rect in brackets where rect.intersects(dirtyRect.insetBy(dx: -2, dy: -2)) {
             let box = NSBezierPath(roundedRect: rect.insetBy(dx: -0.5, dy: 0.5), xRadius: 2, yRadius: 2)
