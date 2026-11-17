@@ -5,6 +5,8 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-17
+
 ### Fixed
 - Scrolling with the minimap shown no longer keeps the syntax highlighter busy. The minimap
   asked for the colors of the few hundred lines it shows at every line scrolled, about twice
@@ -50,7 +52,8 @@ tree-sitter highlighting, language servers, git, an integrated terminal and exte
 - The gutter and overlays redraw only the rows and marks that change, and line numbers are drawn
   from cached glyphs.
 
-[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/zerovoid99/ohmycode/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/zerovoid99/ohmycode/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/zerovoid99/ohmycode/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/zerovoid99/ohmycode/releases/tag/v0.1.0
