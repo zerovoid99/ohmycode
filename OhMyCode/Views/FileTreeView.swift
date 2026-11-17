@@ -65,11 +65,13 @@ private struct FileRow: View {
                     .foregroundStyle(status.map { Color(nsColor: $0.color) } ?? .primary)
                     .strikethrough(status == .deleted)
             } icon: {
-                if submodule != nil {
-                    Image(systemName: "shippingbox").foregroundStyle(.secondary)
-                } else {
-                    FileIcon(name: node.name, isDirectory: node.isDirectory)
-                }
+                // One view whatever the kind, so a recycled row swaps its symbol rather than
+                // cross-fading between two different views.
+                let style = submodule != nil ? (symbol: "shippingbox", color: Color.secondary)
+                    : FileIcon.style(for: node.name, isDirectory: node.isDirectory)
+                Image(systemName: style.symbol)
+                    .foregroundStyle(style.color)
+                    .symbolRenderingMode(.hierarchical)
             }
             .lineLimit(1)
             .truncationMode(.middle)
@@ -86,6 +88,9 @@ private struct FileRow: View {
                 }
             }
         }
+        // The outline reuses row views as folders open and close; animating a reused row's
+        // change of content left the old row's name and icon faded over the new one.
+        .transaction { $0.animation = nil }
         .help(submodule.map { "\(node.name): submodule at \($0.shortSHA) — \($0.stateDescription)" }
               ?? status.map { "\(node.name): \($0.label)" } ?? node.name)
     }
