@@ -167,6 +167,19 @@ struct BlameCommitTests {
         withExtendedLifetime((workspace, window)) {}
     }
 
+    /// Between the annotation and the popover above it, even off to the side of the annotation,
+    /// the mouse is on its way to the popover; below the annotation, or past the popover, it isn't.
+    @Test func theWayToThePopoverKeepsItOpen() {
+        let anchor = NSRect(x: 400, y: 300, width: 300, height: 16)
+        let popover = NSRect(x: 300, y: 330, width: 400, height: 120)
+        let way = BlameHoverController.way(from: anchor, to: popover)
+        #expect(way.contains(NSPoint(x: 550, y: 320)))  // straight up, in the gap
+        #expect(way.contains(NSPoint(x: 320, y: 325)))  // diagonally, toward the popover's left end
+        #expect(way.contains(NSPoint(x: 500, y: 400)))  // in it
+        #expect(!way.contains(NSPoint(x: 550, y: 250))) // below the annotation
+        #expect(!way.contains(NSPoint(x: 800, y: 400))) // past it
+    }
+
     @Test func showInTimelineFindsTheCommitInTheRepositoryLog() async throws {
         let (root, bob) = try makeRepository()
         let (workspace, document) = try await blamedDocument(in: root)

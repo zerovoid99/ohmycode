@@ -25,6 +25,13 @@ final class BlameHoverController: NSObject, NSPopoverDelegate {
     /// The commit waiting for the delay to show.
     private var pendingCommit: String?
     private var popover: NSPopover?
+    /// Where the popover points from, on screen: with the popover, the area the mouse may cross
+    /// on its way into it without closing it.
+    private var anchorOnScreen: NSRect?
+    /// Closes the popover once the mouse has left both it and the way to it.
+    private var watchTask: Task<Void, Never>?
+    /// The mouse on screen (tests set it).
+    nonisolated(unsafe) static var mouseLocation: () -> NSPoint = { NSEvent.mouseLocation }
     private(set) var isMouseOnAnnotation = false
     /// The commit the popover shows (tests).
     private(set) var shownCommit: String?
@@ -37,6 +44,8 @@ final class BlameHoverController: NSObject, NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         guard notification.object as? NSPopover === popover else { return }
         popover = nil
+        watchTask?.cancel()
+        watchTask = nil
         shownCommit = nil
     }
 
@@ -53,7 +62,12 @@ final class BlameHoverController: NSObject, NSPopoverDelegate {
             editor.diagnosticsOverlay?.needsDisplay = true
         }
         guard isOn, let annotation else {
-            if isShown || pendingCommit != nil { dismiss() }
+            if pendingCommit != nil {
+                dismiss()
+            } else if isShown {
+                // On the way up to the popover, it stays; anywhere else, it closes.
+                if keepsPopover(at: screenPoint(point, in: editor.textView)) { watchMouse() } else { dismiss() }
+            }
             return false
         }
         NSCursor.pointingHand.set()
@@ -65,7 +79,11 @@ final class BlameHoverController: NSObject, NSPopoverDelegate {
     /// The blame column: the hovered line (nil: none) and its rect in the gutter.
     func gutterMouseMoved(line: Int?, rect: NSRect) {
         guard let editor, let line, let blame = (editor.document.blame?[safe: line] ?? nil), !blame.isUncommitted else {
-            if isShown || pendingCommit != nil { dismiss() }
+            if pendingCommit != nil {
+                dismiss()
+            } else if isShown {
+                if keepsPopover(at: Self.mouseLocation()) { watchMouse() } else { dismiss() }
+            }
             return
         }
         hover(blame, rect: rect, in: editor.gutterView) { [weak editor] in editor?.document.showsBlameColumn == true }
@@ -94,18 +112,47 @@ final class BlameHoverController: NSObject, NSPopoverDelegate {
             editor?.diagnosticsOverlay?.needsDisplay = true
         }
         guard isShown else { return }
-        task = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled, let self else { return }
-            self.task = nil
-            if let window = self.popover?.contentViewController?.view.window, window.frame.contains(NSEvent.mouseLocation) { return }
-            self.dismiss()
+        watchMouse()
+    }
+
+    /// The popover and the annotation it points from, with the gap between them: the mouse
+    /// crossing it (even diagonally) is going to the popover.
+    func keepsPopover(at screenPoint: NSPoint) -> Bool {
+        guard let frame = popover?.contentViewController?.view.window?.frame, let anchor = anchorOnScreen else { return false }
+        return Self.way(from: anchor, to: frame).contains(screenPoint)
+    }
+
+    static func way(from anchor: NSRect, to popover: NSRect) -> NSRect {
+        popover.union(anchor).insetBy(dx: -4, dy: -4)
+    }
+
+    /// Until the popover closes: closes it a moment after the mouse leaves it and the way to it
+    /// (the text view's own moves don't arrive while the mouse is in the popover).
+    private func watchMouse() {
+        guard watchTask == nil else { return }
+        watchTask = Task { [weak self] in
+            while true {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled, let self, self.isShown else { return }
+                if self.isMouseOnAnnotation || self.keepsPopover(at: Self.mouseLocation()) { continue }
+                self.watchTask = nil
+                self.dismiss()
+                return
+            }
         }
+    }
+
+    private func screenPoint(_ point: NSPoint, in view: NSView) -> NSPoint {
+        guard let window = view.window else { return point }
+        return window.convertPoint(toScreen: view.convert(point, to: nil))
     }
 
     func dismiss() {
         task?.cancel()
         task = nil
+        watchTask?.cancel()
+        watchTask = nil
+        anchorOnScreen = nil
         pendingCommit = nil
         let popover = self.popover
         self.popover = nil
@@ -136,7 +183,8 @@ final class BlameHoverController: NSObject, NSPopoverDelegate {
         popover.delegate = self
         self.popover = popover
         shownCommit = blame.commit
-        if view.window != nil {
+        if let window = view.window {
+            anchorOnScreen = window.convertToScreen(view.convert(rect, to: nil))
             popover.show(relativeTo: rect, of: view, preferredEdge: view === editor.gutterView ? .maxX : .minY)
         }
     }
