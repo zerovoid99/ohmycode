@@ -632,6 +632,41 @@ final class TerminalView: NSView {
         session?.paste(text)
     }
 
+    /// Explain with AI on the selection (set by the panel: the workspace explains it). Gets the
+    /// selected text, the terminal's title (often the command running) and where to show it.
+    var onExplain: ((_ text: String, _ title: String?, _ rect: NSRect) -> Void)?
+    /// Whether AI is set up (the menu item is disabled, saying why, until it is).
+    var isAIConfigured: () -> Bool = { AISettings.shared.isConfigured }
+    private var menuLocation = NSPoint.zero
+
+    /// The context menu: Copy, Paste, and Explain with AI for a selection.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        menuLocation = convert(event.locationInWindow, from: nil)
+        return contextMenu()
+    }
+
+    func contextMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Paste", action: #selector(paste(_:)), keyEquivalent: "").target = self
+        if onExplain != nil {
+            menu.addItem(.separator())
+            let explain = NSMenuItem(title: "Explain with AI", action: #selector(explainSelection(_:)), keyEquivalent: "")
+            explain.target = self
+            if !isAIConfigured() { explain.toolTip = AIActions.notConfiguredHelp }
+            menu.addItem(explain)
+        }
+        return menu
+    }
+
+    @objc func explainSelection(_ sender: Any?) {
+        guard let text = session?.text(selectionOnly: true), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            NSSound.beep()
+            return
+        }
+        onExplain?(text, session?.displayTitle, NSRect(origin: menuLocation, size: NSSize(width: 1, height: 1)))
+    }
+
 
     // MARK: Mouse
 
@@ -807,6 +842,7 @@ extension TerminalView: NSMenuItemValidation {
         switch menuItem.action {
         case #selector(copy(_:)): session?.hasSelection == true
         case #selector(paste(_:)): NSPasteboard.general.string(forType: .string) != nil
+        case #selector(explainSelection(_:)): session?.hasSelection == true && isAIConfigured()
         default: true
         }
     }

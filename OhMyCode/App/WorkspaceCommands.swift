@@ -230,7 +230,8 @@ struct WorkspaceCommands: Commands {
                 .disabled(!supports(.rename))
             Button("Quick Fix & Refactor…") { workspace?.showCodeActions() }
                 .keyboardShortcut(keys.shortcut("edit.codeActions"))
-                .disabled(!supports(.codeAction))
+                // With AI set up, ⌘. also offers Fix with AI (problems from tasks too).
+                .disabled(!supports(.codeAction) && !(AISettings.shared.isConfigured && workspace?.activeDocument?.editor != nil))
             Button("Organize Imports") { workspace?.organizeImports() }
                 .keyboardShortcut(keys.shortcut("edit.organizeImports"))
                 .disabled(!supports(.codeAction))
@@ -272,6 +273,9 @@ struct WorkspaceCommands: Commands {
                 workspace?.activeDocument?.editor?.inlineEdit.begin()
             }
             .disabled(workspace?.activeDocument?.editor == nil)
+            Button("Explain with AI") { workspace?.activeDocument?.editor?.explainWithAI() }
+                .disabled(workspace?.activeDocument?.editor == nil || !AISettings.shared.isConfigured)
+                .help(AISettings.shared.isConfigured ? "Explain the selection, or the line at the cursor" : AIActions.notConfiguredHelp)
             Button(keys.display(for: "ai.triggerSuggestion").map { "Trigger Inline Suggestion  \($0)" } ?? "Trigger Inline Suggestion") {
                 workspace?.activeDocument?.editor?.inlineSuggestions.trigger()
             }

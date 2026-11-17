@@ -1035,7 +1035,7 @@ extension EditorController: NSTextViewDelegate {
         if !(NSLocationInRange(charIndex, selection) || (selection.length == 0 && charIndex == selection.location)) {
             view.setSelectedRange(NSRange(location: charIndex, length: 0))
         }
-        var items = linkMenuItems(at: charIndex) + languageMenuItems()
+        var items = linkMenuItems(at: charIndex) + languageMenuItems() + aiMenuItems()
         // In a git repository, with changes: stage what the selection touches.
         if document.stageHunkAction != nil, !document.diffHunks.isEmpty {
             let stage = NSMenuItem(title: "Stage Selected Lines", action: #selector(contextStageLines), keyEquivalent: "")

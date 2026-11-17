@@ -142,13 +142,13 @@ enum AIPrompts {
                          maxTokens: AISettings.editMaxTokens)
     }
 
-    /// Up to 40 lines (and 6,000 characters) on each side of `range`.
-    static func editContext(text: NSString, range: NSRange) -> (before: String, after: String) {
+    /// Up to 40 lines (or `maxLines`, and 6,000 characters) on each side of `range`.
+    static func editContext(text: NSString, range: NSRange, maxLines: Int = editContextLines) -> (before: String, after: String) {
         var start = range.location, lines = 0
         while start > 0, range.location - start < editContextCharacters {
             if text.character(at: start - 1) == 0x0A {
                 lines += 1
-                if lines > editContextLines { break }
+                if lines > maxLines { break }
             }
             start -= 1
         }
@@ -157,7 +157,7 @@ enum AIPrompts {
         while end < text.length, end - NSMaxRange(range) < editContextCharacters {
             if text.character(at: end) == 0x0A {
                 lines += 1
-                if lines > editContextLines { break }
+                if lines > maxLines { break }
             }
             end += 1
         }

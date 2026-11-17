@@ -5,6 +5,23 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- Explain with AI: right-click in the editor (or use the command palette) to have the selection,
+  or the line at the cursor, explained in a popover. The explanation streams in and can be
+  stopped, copied, or continued in the Agent sidebar with *Ask Agent*.
+- Fix with AI: problems from language servers, extensions and tasks can be fixed with AI from the
+  Problems panel, the hover, the editor's context menu and the ⌘. menu. The lines around the
+  problem are rewritten and shown as a diff to accept (one undo step) or reject; if they changed
+  meanwhile, the fix is refused.
+- Explain with AI for terminal output: select an error or a stack trace in the terminal and
+  right-click ▸ Explain with AI. The Tasks panel has a button that explains a run's output.
+- Source Control can write the commit message with AI: the ✨ button beside the message writes a
+  Conventional Commits message from the staged changes (or all changes when nothing is staged),
+  in the repository picked in Source Control.
+- These AI actions use the provider set up in Settings ▸ AI, are disabled (saying where to set it
+  up) until there is one, and send nothing until you choose them. The README lists what each one
+  sends.
+
 ## [0.2.0] - 2026-11-18
 
 ### Added

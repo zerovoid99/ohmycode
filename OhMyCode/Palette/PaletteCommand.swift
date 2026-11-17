@@ -43,7 +43,8 @@ struct PaletteCommand: Identifiable {
         PaletteCommand(id: "go.outgoingCalls", title: "Show Outgoing Calls", icon: "phone.arrow.up.right", key: nil,
                        isAvailable: { supports($0, .callHierarchy) }, perform: { $0.showCallHierarchy(incoming: false) }),
         PaletteCommand(id: "edit.codeActions", title: "Quick Fix & Refactor…", icon: "lightbulb", key: "cmd+.",
-                       isAvailable: { supports($0, .codeAction) }, perform: { $0.showCodeActions() }),
+                       isAvailable: { supports($0, .codeAction) || (AISettings.shared.isConfigured && $0.activeDocument?.editor != nil) },
+                       perform: { $0.showCodeActions() }),
         PaletteCommand(id: "edit.organizeImports", title: "Organize Imports", icon: "arrow.up.arrow.down.square", key: "alt+shift+o",
                        isAvailable: { supports($0, .codeAction) }, perform: { $0.organizeImports() }),
         PaletteCommand(id: "edit.parameterHints", title: "Trigger Parameter Hints", icon: "function", key: "shift+cmd+space",
@@ -132,6 +133,19 @@ struct PaletteCommand: Identifiable {
         PaletteCommand(id: "ai.editSelection", title: "AI: Edit Selection…", icon: "wand.and.stars", key: "cmd+i",
                        isAvailable: { $0.activeDocument?.editor != nil },
                        perform: { $0.activeDocument?.editor?.inlineEdit.begin() }),
+        // Without AI set up, the explanation says how to set it up.
+        PaletteCommand(id: "ai.explainSelection", title: "AI: Explain Selection", icon: "text.bubble", key: nil,
+                       isAvailable: { $0.activeDocument?.editor != nil },
+                       perform: { $0.activeDocument?.editor?.explainWithAI() }),
+        PaletteCommand(id: "ai.fixProblem", title: "AI: Fix Problem at Cursor", icon: "wand.and.sparkles", key: nil,
+                       isAvailable: { workspace in
+                           guard let editor = workspace.activeDocument?.editor, let textView = editor.textView else { return false }
+                           return !editor.problems(touching: textView.selectedRange()).isEmpty
+                       },
+                       perform: { workspace in
+                           guard let editor = workspace.activeDocument?.editor else { return }
+                           editor.contextFixWithAI(nil)
+                       }),
         PaletteCommand(id: "claude.sendSelection", title: "Claude Code: Send Selection", icon: "arrow.up.right.square", key: "alt+cmd+k",
                        isAvailable: { $0.activeDocument != nil }, perform: { $0.sendSelectionToClaudeCode() }),
         PaletteCommand(id: "markdown.preview", title: "Markdown: Toggle Preview to the Side", icon: "doc.richtext", key: "shift+cmd+v",

@@ -572,4 +572,257 @@ struct InlineSuggestionTests {
         #expect(InlineSuggestionController.nextWord(of: "(bar)") == "(")
         #expect(InlineSuggestionController.nextWord(of: "\n    return x") == "\n    return")
     }
+
+    // MARK: Explain and Fix with AI in the editor
+
+    private func problem(line: Int, from: Int, to: Int, _ message: String) -> Diagnostic {
+        Diagnostic(range: LSPRange(start: LSPPosition(line: line, character: from), end: LSPPosition(line: line, character: to)),
+                   severity: .error, message: message, source: "swiftc")
+    }
+
+    @Test func fixWithAIReplacesExactlyTheRegionInOneUndoStep() async throws {
+        let lines = (0..<12).map { "let v\($0) = \($0)" }
+        let text = lines.joined(separator: "\n") + "\n"
+        var fixed = lines
+        fixed[5] = "let v5 = 5 // fixed"
+        let region = fixed[2...8].joined(separator: "\n")
+        let (document, controller, window, provider, _) = try makeEditor(
+            text, reply: "Here's the fix:\n```swift\n\(region)\n```\nIt adds a comment.")
+        let diagnostic = problem(line: 5, from: 4, to: 6, "cannot find 'x' in scope\nnote: more")
+        document.setDiagnostics([diagnostic])
+        let edit = controller.inlineEdit
+        controller.fixWithAI(diagnostic)
+        let model = try #require(edit.model)
+        #expect(edit.fixing == diagnostic && model.instruction == "Fix: cannot find 'x' in scope")
+        // Lines 3-9 (three on each side of the problem's line), with the last line break.
+        #expect(model.original == lines[2...8].joined(separator: "\n") + "\n")
+        #expect(edit.range == NSRange(location: (lines[0...1].joined(separator: "\n") as NSString).length + 1,
+                                      length: (model.original as NSString).length))
+        await edit.waitForReply()
+        #expect(model.phase == .done && model.output == region + "\n")
+        let request = try #require(provider.requests.first)
+        #expect(request.purpose == .edit && request.system == AIPrompts.fixSystem)
+        #expect(request.user.contains("Problem (error, from swiftc) at line 6, column 5 to line 6, column 7: cannot find 'x' in scope"))
+        #expect(request.user.contains("The region is lines 3-9."))
+        #expect(request.user.contains("<region>\n\(model.original)</region>"))
+        #expect(!request.user.contains("Instruction:"))
+        #expect(model.diff.filter { $0.kind != .same }.map(\.text) == ["let v5 = 5", "let v5 = 5 // fixed"])
+
+        press(controller) { #expect(edit.accept()) }
+        var expected = fixed
+        expected[5] = "let v5 = 5 // fixed"
+        #expect(document.textStorage.string == expected.joined(separator: "\n") + "\n")
+        document.undoManager.undo()
+        #expect(document.textStorage.string == text)
+
+        // The region changed while the fix was being written: refused.
+        controller.fixWithAI(diagnostic)
+        await edit.waitForReply()
+        document.textStorage.replaceCharacters(in: NSRange(location: edit.range.location, length: 1), with: "v")
+        let changed = document.textStorage.string
+        #expect(!edit.accept())
+        if case .failed = edit.model?.phase {} else { Issue.record("not refused") }
+        #expect(document.textStorage.string == changed)
+        edit.cancel()
+        #expect(edit.model == nil && edit.fixing == nil)
+        withExtendedLifetime(window) {}
+    }
+
+    @Test func aiMenuItemsNeedAProvider() throws {
+        let (document, controller, window, _, settings) = try makeEditor("let a = 1\nlet b = c\n", reply: "")
+        document.setDiagnostics([problem(line: 1, from: 8, to: 9, "cannot find 'c' in scope")])
+        controller.textView.setSelectedRange(NSRange(location: 12, length: 0))
+        // Configured (a provider): enabled.
+        var items = controller.aiMenuItems()
+        #expect(items.map(\.title) == ["Explain with AI", "Fix with AI", ""])
+        #expect(items[0].action != nil && items[1].action != nil && items[0].toolTip == nil)
+        #expect(controller.aiFixMenuItems(for: controller.textView.selectedRange()).map(\.isEnabled) == [true])
+        let menu = EditorController.codeActionMenu([], extra: controller.aiFixMenuItems(for: controller.textView.selectedRange())) { _ in }
+        #expect(menu.items.map(\.title) == ["AI", "Fix with AI: cannot find 'c' in scope"])
+
+        // No provider: disabled, saying where to set it up.
+        settings.providerOverride = nil
+        #expect(!settings.isConfigured)
+        items = controller.aiMenuItems()
+        #expect(items[0].action == nil && items[1].action == nil)
+        #expect(items[0].toolTip == "Set up AI in Settings ▸ AI" && items[1].toolTip == "Set up AI in Settings ▸ AI")
+        let fixes = controller.aiFixMenuItems(for: controller.textView.selectedRange())
+        #expect(fixes.map(\.isEnabled) == [false] && fixes.first?.toolTip == AIActions.notConfiguredHelp)
+        // No problem on the line: no Fix.
+        controller.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(controller.aiMenuItems().map(\.title) == ["Explain with AI", ""])
+
+        // The terminal's Explain with AI too.
+        let terminal = TerminalView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        terminal.onExplain = { _, _, _ in }
+        terminal.isAIConfigured = { settings.isConfigured }
+        let explain = try #require(terminal.contextMenu().items.first { $0.title == "Explain with AI" })
+        #expect(explain.toolTip == AIActions.notConfiguredHelp && !terminal.validateMenuItem(explain))
+        withExtendedLifetime(window) {}
+    }
+
+    @Test func explainStreamsMarkdown() async throws {
+        let (document, controller, window, provider, settings) = try makeEditor(
+            "func a() {}\nfunc total(_ x: [Int]) -> Int { x.reduce(0, +) }\nfunc b() {}\n",
+            reply: "# Summary\n\nAdds up `x`.\n\n- Empty: 0\n- Else: the sum")
+        controller.textView.setSelectedRange(NSRange(location: 20, length: 0)) // in "total"
+        controller.explainWithAI()
+        let model = try #require(AIExplainPresenter.shared.model)
+        #expect(model.subtitle == "\(document.fileName):2")
+        await model.waitForReply()
+        #expect(model.phase == .done)
+        #expect(model.blocks == [.heading(level: 1, text: "Summary"), .paragraph("Adds up `x`."),
+                                 .listItem(marker: "•", depth: 0, text: "Empty: 0"), .listItem(marker: "•", depth: 0, text: "Else: the sum")])
+        let request = try #require(provider.requests.first)
+        #expect(request.system == AIPrompts.explainSystem && request.purpose == .edit)
+        #expect(request.user.contains("Lines: 2\nThe cursor is on `total`"))
+        #expect(request.user.contains("<code>\nfunc total(_ x: [Int]) -> Int { x.reduce(0, +) }</code>"))
+        #expect(request.user.contains("<context_before>\nfunc a() {}\n</context_before>"))
+        AIExplainPresenter.shared.close()
+        #expect(model.phase == .done && AIExplainPresenter.shared.model == nil)
+
+        // Without a provider, it says so instead of sending anything.
+        settings.providerOverride = nil
+        let unconfigured = AIExplainModel(title: "Explain", subtitle: "x")
+        unconfigured.start(AIRequest(purpose: .edit, model: "m", system: "s", user: "u", maxTokens: 10), settings: settings)
+        #expect(unconfigured.phase == .failed("Add a Claude API key in Settings ▸ AI."))
+        #expect(provider.requests.count == 1)
+        withExtendedLifetime(window) {}
+    }
+}
+
+// MARK: Explain, Fix and commit message prompts
+
+@MainActor
+struct AIActionPromptTests {
+    @Test func fixRegionIsTheProblemsLinesAndThreeAround() {
+        let text = (0..<100).map { "line \($0)" }.joined(separator: "\n") as NSString
+        let index = LineIndex(string: text)
+        func lines(_ range: NSRange) -> ClosedRange<Int> {
+            index.line(containing: range.location)...index.line(containing: NSMaxRange(range) - 1)
+        }
+        #expect(lines(AIPrompts.fixRegion(lines: 50...51, lineIndex: index, textLength: text.length)) == 47...54)
+        // Clamped at the ends; the last line has no line break.
+        let start = AIPrompts.fixRegion(lines: 1...1, lineIndex: index, textLength: text.length)
+        #expect(start.location == 0 && lines(start) == 0...4)
+        let end = AIPrompts.fixRegion(lines: 99...99, lineIndex: index, textLength: text.length)
+        #expect(NSMaxRange(end) == text.length && lines(end) == 96...99)
+        // A problem over many lines: at most 60.
+        #expect(lines(AIPrompts.fixRegion(lines: 10...90, lineIndex: index, textLength: text.length)) == 7...66)
+
+        // 30 lines of context on each side, no more.
+        let region = AIPrompts.fixRegion(lines: 50...50, lineIndex: index, textLength: text.length)
+        let diagnostic = Diagnostic(range: LSPRange(start: LSPPosition(line: 50, character: 0), end: LSPPosition(line: 50, character: 4)),
+                                    severity: .warning, message: "unused", source: nil)
+        let request = AIPrompts.fixRequest(text: text, region: region, diagnostic: diagnostic, lineIndex: index,
+                                           instruction: "keep it short", path: "src/a.txt", languageId: "plaintext", model: "m")
+        #expect(request.user.contains("File: src/a.txt\nLanguage: plaintext\n"))
+        #expect(request.user.contains("Problem (warning) at line 51, column 1 to line 51, column 5: unused"))
+        #expect(request.user.contains("The region is lines 48-54.\nInstruction: keep it short"))
+        #expect(request.user.contains("<context_before>\nline 17\n") && !request.user.contains("line 16\n"))
+        #expect(request.user.contains("line 84</context_after>") && !request.user.contains("line 85"))
+        #expect(request.model == "m" && request.maxTokens == AISettings.editMaxTokens)
+    }
+
+    @Test func fixRepliesAreSanitized() {
+        let original = "    let a = 1\n    let b = 2\n"
+        #expect(AIPrompts.sanitizeFix("```swift\n    let a = 1\n    let b = 3\n```", original: original) == "    let a = 1\n    let b = 3\n")
+        #expect(AIPrompts.sanitizeFix("Here is the corrected code:\n\n```\n    let b = 3\n```\nDone.", original: original) == "    let b = 3\n")
+        #expect(AIPrompts.sanitizeFix("<region>\n    let b = 3\n</region>", original: original) == "    let b = 3\n")
+        #expect(AIPrompts.sanitizeFix("    let b = 3</region>\n", original: original) == "    let b = 3\n")
+        // Indentation kept; no line break added where the region had none.
+        #expect(AIPrompts.sanitizeFix("    let b = 3\n\n", original: "    let b = 2") == "    let b = 3")
+        // Prose that isn't introducing a code block stays (it's code as far as we know).
+        #expect(AIPrompts.sanitizeFix("x = 1\n```\ny\n```", original: "x\n") == "x = 1\n```\ny\n```\n")
+    }
+
+    @Test func outputExplanationsCarryTheirContext() {
+        let output = String(repeating: "a", count: 20_000) + "\nerror: boom"
+        let request = AIPrompts.explainOutputRequest(output: output, source: "Terminal", command: "swift build",
+                                                     activeFile: "Sources/main.swift", languageId: "swift", model: "m")
+        #expect(request.system == AIPrompts.explainOutputSystem)
+        #expect(request.user.hasPrefix("Source: Terminal\nCommand: swift build\nFile open in the editor: Sources/main.swift (swift)\n"))
+        #expect(request.user.contains("<output>\n[… earlier output cut]\n") && request.user.contains("error: boom\n</output>"))
+        #expect(request.user.count < AIPrompts.outputCharacters + 400)
+        let bare = AIPrompts.explainOutputRequest(output: "oops", source: "Task “build”", command: nil, activeFile: nil,
+                                                  languageId: nil, model: "m")
+        #expect(bare.user == "Source: Task “build”\n\n<output>\noops\n</output>\n\nExplain this output.")
+    }
+
+    @Test func longDiffsAreCutToWholeFilesAndListed() {
+        func file(_ name: String, _ size: Int) -> String {
+            "diff --git a/\(name) b/\(name)\n--- a/\(name)\n+++ b/\(name)\n" + String(repeating: "+x\n", count: size / 3)
+        }
+        let diff = file("a.swift", 12_000) + file("b.swift", 12_000) + file("c.swift", 12_000) + file("d.swift", 100)
+        let numstat = "4000\t0\ta.swift\n4000\t0\tb.swift\n4000\t2\tc.swift\n33\t0\td.swift\n"
+        let capped = AIPrompts.cappedDiff(diff, numstat: numstat, extraFiles: ["new.txt"])
+        #expect(capped.count <= AIPrompts.commitDiffCharacters + 200)
+        #expect(capped.contains("diff --git a/a.swift") && capped.contains("diff --git a/b.swift"))
+        #expect(!capped.contains("diff --git a/c.swift") && capped.contains("diff --git a/d.swift"))
+        #expect(capped.hasSuffix("[The diff is too long: 2 more changed files, not shown above:]\nc.swift (+4000 -2)\nnew.txt (new, untracked)"))
+        // Short: as it is (untracked files listed after it).
+        #expect(AIPrompts.cappedDiff("small", numstat: "") == "small")
+        #expect(AIPrompts.cappedDiff("small", numstat: "", extraFiles: ["n"]) == "small\n[Untracked files, not in the diff:]\nn (new, untracked)")
+        // One file longer than the limit: its start.
+        let huge = AIPrompts.cappedDiff(file("big.bin", 90_000), numstat: "-\t-\tbig.bin")
+        #expect(huge.hasPrefix("diff --git a/big.bin") && huge.hasSuffix("[… the rest of this file's diff is cut]\n"))
+        #expect(huge.count < AIPrompts.commitDiffCharacters + 100)
+    }
+
+    @Test func commitMessagesAreSanitized() {
+        #expect(AIPrompts.sanitizeCommitMessage("```\nfeat: add x\n```") == "feat: add x")
+        #expect(AIPrompts.sanitizeCommitMessage("\"fix(ui): align the button\"") == "fix(ui): align the button")
+        #expect(AIPrompts.sanitizeCommitMessage("feat: a\nThe body.  \n\n\n") == "feat: a\n\nThe body.")
+        let long = "refactor(editor): move the code that draws the gutter into its own view so it redraws less often"
+        let subject = AIPrompts.sanitizeCommitMessage(long)
+        #expect(subject.count <= 72 && long.hasPrefix(subject) && !subject.hasSuffix(" "))
+        #expect(long.dropFirst(subject.count).hasPrefix(" "))
+    }
+
+    @Test func commitMessageFromTheStagedDiff() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-ai-commit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(Git.run(["init", "--quiet"], in: root) != nil)
+        try "hello\n".write(to: root.appending(path: "staged.txt"), atomically: true, encoding: .utf8)
+        try "other\n".write(to: root.appending(path: "unstaged.txt"), atomically: true, encoding: .utf8)
+        #expect(Git.run(["add", "staged.txt"], in: root) != nil)
+        let repository = try #require(Git.repository(at: root))
+
+        let settings = AISettings(defaults: ScratchDefaults.named("ai-commit-\(UUID().uuidString)"), keys: InMemoryKeyStore())
+        let provider = FakeAIProvider(reply: "```\nfeat(greeting): add a hello file\n\nIt says hello.\n```")
+        settings.providerOverride = provider
+        let model = AICommitMessageModel()
+        model.message = "typed"
+        model.generate(in: repository, branch: "main", settings: settings)
+        #expect(model.isGenerating)
+        await model.waitForReply()
+        #expect(model.phase == .idle && model.message == "feat(greeting): add a hello file\n\nIt says hello.")
+        #expect(!model.usedAllChanges)
+        let request = try #require(provider.requests.first)
+        #expect(request.system == AIPrompts.commitSystem && request.purpose == .edit)
+        #expect(request.user.hasPrefix("These are the staged changes.\nBranch: main\n"))
+        #expect(request.user.contains("+++ b/staged.txt\n@@ -0,0 +1 @@\n+hello"))
+        #expect(!request.user.contains("unstaged.txt"))
+
+        // Nothing staged: all the changes, the untracked file by name.
+        #expect(Git.run(["rm", "--cached", "--quiet", "staged.txt"], in: root) != nil)
+        model.generate(in: repository, branch: nil, settings: settings)
+        await model.waitForReply()
+        #expect(model.usedAllChanges)
+        let all = try #require(provider.requests.last)
+        #expect(all.user.hasPrefix("Nothing is staged: these are all the changes in the working tree.\n"))
+        #expect(all.user.contains("staged.txt (new, untracked)") && all.user.contains("unstaged.txt (new, untracked)"))
+
+        // Errors show, and what was typed comes back.
+        settings.providerOverride = nil
+        model.message = "mine"
+        model.generate(in: repository, branch: nil, settings: settings)
+        #expect(model.phase == .failed("Add a Claude API key in Settings ▸ AI.") && model.message == "mine")
+        model.messageEdited()
+        #expect(model.phase == .failed("Add a Claude API key in Settings ▸ AI."))
+        model.message = "mine!"
+        model.messageEdited()
+        #expect(model.phase == .idle)
+    }
 }

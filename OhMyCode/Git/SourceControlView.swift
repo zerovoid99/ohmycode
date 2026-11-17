@@ -4,7 +4,8 @@ import SwiftUI
 /// Source Control sidebar: commit message, staged and unstaged changes with per-file actions.
 struct SourceControlView: View {
     let workspace: Workspace
-    @State private var message = ""
+    /// The message, and writing it with AI.
+    @State private var commit = AICommitMessageModel()
 
     var body: some View {
         if let status = workspace.gitStatus {
@@ -19,35 +20,52 @@ struct SourceControlView: View {
                     OperationBanner(workspace: workspace, operation: operation,
                                     conflicts: status.changes.filter(\.isConflicted).count)
                 }
-                TextField("Message (⌘↩ to commit on \(status.branch ?? "HEAD"))", text: $message, axis: .vertical)
-                    .lineLimit(1...6)
-                    .textFieldStyle(.roundedBorder)
+                HStack(alignment: .top, spacing: 4) {
+                    TextField("Message (⌘↩ to commit on \(status.branch ?? "HEAD"))", text: $commit.message, axis: .vertical)
+                        .lineLimit(1...6)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(commit.isGenerating)
+                        .onChange(of: commit.message) { commit.messageEdited() }
+                    commitMessageButton(status)
+                }
+                if case .failed(let error) = commit.phase {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if commit.usedAllChanges, status.stagedChanges.isEmpty, !commit.message.isEmpty {
+                    Text("Nothing is staged: written from all changes.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 HStack(spacing: 4) {
                     Button {
-                        Task { if await workspace.commit(message: message) { message = "" } }
+                        Task { if await workspace.commit(message: commit.message) { commit.message = "" } }
                     } label: {
                         Label("Commit", systemImage: "checkmark").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    .disabled(commit.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || commit.isGenerating
                               || status.stagedChanges.isEmpty || workspace.isRunningGitCommand)
                     .help(status.stagedChanges.isEmpty ? "Stage changes to commit them" : "Commit staged changes")
                     Menu {
                         Button("Commit (Amend)") {
-                            Task { if await workspace.amend(message: message) { message = "" } }
+                            Task { if await workspace.amend(message: commit.message) { commit.message = "" } }
                         }
                         .help("Add what is staged to the last commit; an empty message keeps its message")
                         Button("Edit Last Commit Message") {
-                            Task { if let last = await workspace.lastCommitMessage() { message = last } }
+                            Task { if let last = await workspace.lastCommitMessage() { commit.message = last } }
                         }
                         Divider()
                         Button("Undo Last Commit") {
                             Task {
                                 // Its message comes back to the box, unless something is typed there.
                                 if let undone = await workspace.undoLastCommit(),
-                                   message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    message = undone
+                                   commit.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    commit.message = undone
                                 }
                             }
                         }
@@ -152,6 +170,32 @@ struct SourceControlView: View {
             ContentUnavailableView("No Repository", systemImage: "arrow.triangle.branch",
                                    description: Text(workspace.isMultiRoot ? "None of these folders is in a git repository."
                                                      : "This folder isn't in a git repository."))
+        }
+    }
+
+    /// ✨ beside the message: writes one with AI from the selected repository's staged changes
+    /// (all changes when nothing is staged); while it writes, stops it.
+    @ViewBuilder
+    private func commitMessageButton(_ status: GitStatus) -> some View {
+        let settings = AISettings.shared
+        if commit.isGenerating {
+            Button { commit.stop() } label: { Image(systemName: "stop.fill") }
+                .buttonStyle(.borderless)
+                .padding(.top, 4)
+                .help("Stop writing the message")
+        } else {
+            Button {
+                guard let repository = workspace.gitRepository else { return }
+                commit.generate(in: repository, branch: status.branch, settings: settings)
+            } label: {
+                Image(systemName: "sparkles")
+            }
+            .buttonStyle(.borderless)
+            .padding(.top, 4)
+            .disabled(!settings.isConfigured || status.changes.isEmpty || workspace.gitRepository == nil)
+            .help(!settings.isConfigured ? AIActions.notConfiguredHelp
+                  : status.stagedChanges.isEmpty ? "Write a commit message with AI from all changes (nothing is staged)"
+                  : "Write a commit message with AI from the staged changes")
         }
     }
 

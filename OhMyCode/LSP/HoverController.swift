@@ -83,7 +83,10 @@ final class HoverController {
               let rect = editor.rect(for: range.length > 0 ? range : NSRange(location: index, length: 1)) else { return false }
 
         popover?.close()
-        let content = HoverView(diagnostics: diagnostics, blocks: markdown.map(HoverContent.blocks) ?? [])
+        // Fix with AI under each problem, once AI is set up.
+        let fix: ((Diagnostic) -> Void)? = editor.inlineEdit.settings.isConfigured
+            ? { [weak editor] diagnostic in editor?.fixWithAI(diagnostic) } : nil
+        let content = HoverView(diagnostics: diagnostics, blocks: markdown.map(HoverContent.blocks) ?? [], fix: fix)
         let controller = NSHostingController(rootView: content)
         controller.preferredContentSize = content.fittingSize
         controller.sizingOptions = []
@@ -108,6 +111,8 @@ struct HoverView: View {
 
     let diagnostics: [Diagnostic]
     let blocks: [HoverContent.Block]
+    /// Fix with AI for a problem (nil: not offered).
+    var fix: ((Diagnostic) -> Void)?
 
     var body: some View {
         ScrollView { padded }
@@ -136,6 +141,12 @@ struct HoverView: View {
                     Text(diagnostic.message).textSelection(.enabled)
                     if let source = diagnostic.source {
                         Text(source).foregroundStyle(.secondary)
+                    }
+                    if let fix {
+                        Button { fix(diagnostic) } label: { Label("Fix with AI", systemImage: "sparkles") }
+                            .buttonStyle(.link)
+                            .fixedSize()
+                            .help("Ask AI for a fix of the lines around this problem, shown as a diff to accept")
                     }
                 }
             }

@@ -87,6 +87,11 @@ struct ProblemsView: View {
                                     .contextMenu {
                                         Button("Copy") { copy(diagnostic, in: file) }
                                         Button("Copy Message") { copy(diagnostic.message) }
+                                        Divider()
+                                        Button("Fix with AI") { workspace.fixWithAI(diagnostic, in: file.url) }
+                                            .disabled(!AISettings.shared.isConfigured)
+                                            .help(AISettings.shared.isConfigured
+                                                  ? "Ask AI for a fix of the lines around this problem" : AIActions.notConfiguredHelp)
                                     }
                             }
                         }

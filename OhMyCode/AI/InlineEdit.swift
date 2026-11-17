@@ -43,6 +43,8 @@ final class InlineEditController {
     private var task: Task<Void, Never>?
     private var raw = ""
     private var popover: NSPopover?
+    /// Fix with AI: the problem the edit fixes (nil: a ⌘I edit).
+    private(set) var fixing: Diagnostic?
 
     init(editor: EditorController) {
         self.editor = editor
@@ -79,6 +81,35 @@ final class InlineEditController {
         showPopover()
     }
 
+    /// Fix with AI: asks at once for a replacement of the lines around `diagnostic` (see
+    /// `AIPrompts.fixRegion`), shown as a diff to accept or reject like a ⌘I edit.
+    func beginFix(_ diagnostic: Diagnostic) {
+        guard let textView = editor.textView, textView.isEditable else { return }
+        cancel()
+        editor.inlineSuggestions.dismiss()
+        editor.clearExtraCursors()
+        let text = document.textStorage.mutableString
+        guard text.length > 0 else { return }
+        let lines = document.lineIndex
+        let problem = document.range(for: diagnostic.range)
+        let first = lines.line(containing: problem.location)
+        let last = max(first, lines.line(containing: NSMaxRange(problem)))
+        range = AIPrompts.fixRegion(lines: first...last, lineIndex: lines, textLength: text.length)
+        fixing = diagnostic
+        let model = InlineEditModel(original: text.substring(with: range), fileName: document.fileName,
+                                    canOpenAsDiff: document.workspace != nil)
+        model.instruction = Self.fixInstruction(for: diagnostic)
+        self.model = model
+        document.reveal(range)
+        showPopover()
+        submit()
+    }
+
+    /// What the instruction field shows for a fix: the problem's first line.
+    static func fixInstruction(for diagnostic: Diagnostic) -> String {
+        "Fix: " + (diagnostic.message.split(separator: "\n").first.map(String.init) ?? diagnostic.message)
+    }
+
     /// Sends the instruction; the reply streams into the model.
     func submit() {
         guard let model, !model.instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -95,9 +126,19 @@ final class InlineEditController {
             model.phase = .failed("The file changed: the selection isn't there anymore.")
             return
         }
-        let request = AIPrompts.editRequest(text: text, range: model.isInsertion ? NSRange(location: range.location, length: 0) : range,
+        let request: AIRequest
+        if let fixing {
+            // The instruction only says more when it's been changed from the problem's message.
+            let instruction = model.instruction == Self.fixInstruction(for: fixing) ? nil : model.instruction
+            request = AIPrompts.fixRequest(text: text, region: range, diagnostic: fixing, lineIndex: document.lineIndex,
+                                           instruction: instruction, path: document.relativePath,
+                                           languageId: document.languageId, model: settings.editModel)
+        } else {
+            request = AIPrompts.editRequest(text: text, range: model.isInsertion ? NSRange(location: range.location, length: 0) : range,
                                             instruction: model.instruction, path: document.relativePath,
                                             languageId: document.languageId, model: settings.editModel)
+        }
+        let isFix = fixing != nil
         raw = ""
         model.output = ""
         model.phase = .streaming
@@ -112,7 +153,8 @@ final class InlineEditController {
                     model.output = AIPrompts.stripFences(self.raw)
                 }
                 guard let self, self.model === model else { return }
-                model.output = AIPrompts.sanitizeEdit(self.raw, original: model.original)
+                model.output = isFix ? AIPrompts.sanitizeFix(self.raw, original: model.original)
+                    : AIPrompts.sanitizeEdit(self.raw, original: model.original)
                 model.phase = .done
             } catch {
                 guard let self, self.model === model, !Task.isCancelled else { return }
@@ -129,7 +171,8 @@ final class InlineEditController {
         task?.cancel()
         task = nil
         guard let model, model.phase == .streaming else { return }
-        model.output = AIPrompts.sanitizeEdit(raw, original: model.original)
+        model.output = fixing != nil ? AIPrompts.sanitizeFix(raw, original: model.original)
+            : AIPrompts.sanitizeEdit(raw, original: model.original)
         model.phase = .done
     }
 
@@ -205,6 +248,7 @@ final class InlineEditController {
         task?.cancel()
         task = nil
         model = nil
+        fixing = nil
         let popover = self.popover
         self.popover = nil
         popover?.close()

@@ -285,9 +285,42 @@ reply streams in as a diff against the selection. ⌘↩ accepts it (one undo st
 *Open as Diff* opens it as a proposed change in a diff tab. Without a selection, ⌘I on a blank
 line writes code there; on another line it edits that line.
 
-**Privacy**: the code around the cursor (up to 6,000 characters before it and 2,000 after) is
-sent to the chosen provider for suggestions; for edits, the selection with up to 40 lines on
-each side. Nothing is sent until a provider is set up, and suggestions only while they're on.
+## Explain and fix with AI
+These use the edit model of the provider set up in *Settings ▸ AI*. Until one is set up their
+menu items are disabled and say where to set it up. Replies stream in and can be stopped.
+
+- **Explain with AI** (editor context menu, *Edit ▸ Explain with AI*, or *AI: Explain Selection*
+  in the command palette): explains the selection, or the line at the cursor, in a popover. *Copy*
+  copies the explanation; *Ask Agent* opens the Agent sidebar with the code attached and a
+  question in the prompt, for you to send.
+- **Fix with AI**: on a problem from a language server, an extension or a task, choose *Fix with
+  AI* in the Problems panel's context menu, in the hover over the problem, in the editor's
+  context menu, or in the ⌘. menu (and the 💡 beside the line). The lines around the problem are
+  rewritten and shown as a diff: ⌘↩ accepts it as one undo step, replacing only those lines. If
+  they changed in the meantime, it's refused and you can try again.
+- **Terminal and task output**: select text in a terminal and right-click ▸ *Explain with AI*
+  for an error or a stack trace. In the Tasks panel, the ✨ button explains the selected run's
+  output.
+- **Commit messages**: the ✨ button beside the message in Source Control writes a Conventional
+  Commits message (a subject of at most 72 characters, a body when it helps) from the staged
+  changes, or from all changes when nothing is staged (its tooltip says which). With several
+  repositories, it's the one picked in Source Control.
+
+**Privacy**: nothing is sent until a provider is set up, and then only when you ask:
+
+- Inline suggestions: the code around the cursor (up to 6,000 characters before it and 2,000
+  after), only while suggestions are on or when you press ⌥\.
+- ⌘I edits: the instruction, the selection and up to 40 lines on each side.
+- Explain with AI: the file's path and language, the selection (or line), and up to 40 lines on
+  each side.
+- Fix with AI: the file's path and language, the problem's message, source and position, the
+  lines around it and 30 lines on each side.
+- Terminal and task output: the selected text (or the run's last 200 lines), at most its last
+  12,000 characters, the terminal's title or the task's command, and the path of the file open
+  in the editor (not its contents).
+- Commit messages: the repository's staged diff (or all changes, with untracked files by name
+  only), up to 30,000 characters; past that, the other files are listed with their added and
+  removed line counts. The current branch's name.
 
 ## GitHub pull requests
 The Pull Requests sidebar lists the repository's open pull requests through the GitHub CLI

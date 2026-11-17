@@ -53,7 +53,8 @@ struct TerminalPanel: View {
                     ForEach(group) { member in
                         TerminalViewRepresentable(session: member, focusRequest: member.id == session.id ? workspace.terminalFocusRequest : -1,
                                                   onFocus: { if workspace.activeTerminalID != member.id { workspace.activeTerminalID = member.id } },
-                                                  onOpenLink: { workspace.openTerminalLink($0) })
+                                                  onOpenLink: { workspace.openTerminalLink($0) },
+                                                  onExplain: { workspace.explainTerminalOutput($0, title: $1, from: $3, at: $2) })
                             .frame(minWidth: 120, maxWidth: .infinity, maxHeight: .infinity)
                             .overlay(alignment: .top) {
                                 // Which pane typing goes to.
@@ -63,7 +64,8 @@ struct TerminalPanel: View {
                 }
             } else {
                 TerminalViewRepresentable(session: session, focusRequest: workspace.terminalFocusRequest, onFocus: {},
-                                          onOpenLink: { workspace.openTerminalLink($0) })
+                                          onOpenLink: { workspace.openTerminalLink($0) },
+                                          onExplain: { workspace.explainTerminalOutput($0, title: $1, from: $3, at: $2) })
             }
         }
     }
@@ -122,6 +124,8 @@ private struct TerminalViewRepresentable: NSViewRepresentable {
     let focusRequest: Int
     let onFocus: () -> Void
     var onOpenLink: (TerminalLink) -> Void = { _ in }
+    /// Explain with AI on a selection: its text, the terminal's title, where, in which view.
+    var onExplain: ((String, String?, NSRect, NSView) -> Void)?
 
     final class Coordinator {
         var lastFocusRequest = -1
@@ -139,6 +143,14 @@ private struct TerminalViewRepresentable: NSViewRepresentable {
         view.session = session
         view.onFocus = onFocus
         view.onOpenLink = onOpenLink
+        if let onExplain {
+            view.onExplain = { [weak view] text, title, rect in
+                guard let view else { return }
+                onExplain(text, title, rect, view)
+            }
+        } else {
+            view.onExplain = nil
+        }
         if focusRequest >= 0, context.coordinator.lastFocusRequest != focusRequest {
             context.coordinator.lastFocusRequest = focusRequest
             DispatchQueue.main.async { view.window?.makeFirstResponder(view) }

@@ -4,6 +4,8 @@ import SwiftUI
 /// The bottom panel's Tasks tab: each run's output; lines reporting an error open it.
 struct TasksView: View {
     let workspace: Workspace
+    /// Explain with AI on the selected run's output.
+    @State private var explanation: AIExplainModel?
 
     var body: some View {
         let run = workspace.selectedTaskRun
@@ -34,6 +36,15 @@ struct TasksView: View {
                         }
                         Button { run.clearOutput() } label: { Image(systemName: "trash") }
                             .help("Clear the output")
+                        Button { explain(run) } label: { Image(systemName: "sparkles") }
+                            .help(AISettings.shared.isConfigured ? "Explain the output with AI" : AIActions.notConfiguredHelp)
+                            .disabled(!AISettings.shared.isConfigured || run.lines.isEmpty)
+                            .popover(isPresented: Binding(get: { explanation != nil },
+                                                          set: { if !$0 { explanation?.stop(); explanation = nil } })) {
+                                if let explanation {
+                                    AIExplainView(model: explanation) { self.explanation?.stop(); self.explanation = nil }
+                                }
+                            }
                     }
                     Button { workspace.hidePanel() } label: { Image(systemName: "chevron.down") }
                         .help("Hide the panel")
@@ -57,6 +68,13 @@ struct TasksView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    /// The run's last 200 lines of output, explained with the task's command.
+    private func explain(_ run: TaskRun) {
+        explanation?.stop()
+        let output = run.lines.suffix(200).map(\.text).joined(separator: "\n")
+        explanation = workspace.outputExplanation(output, source: "Task “\(run.task.label)”", command: run.task.command)
     }
 }
 

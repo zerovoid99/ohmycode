@@ -60,16 +60,18 @@ extension Workspace {
         }
     }
 
-    /// ⌘.: the fixes and refactorings for the selection (or the cursor's line), in a menu at the cursor.
+    /// ⌘.: the fixes and refactorings for the selection (or the cursor's line), in a menu at
+    /// the cursor, with Fix with AI for the problems there.
     @discardableResult
     func showCodeActions(in target: EditorDocument? = nil) -> Task<Void, Never>? {
         guard let document = target ?? activeDocument, let editor = document.editor else { NSSound.beep(); return nil }
         let selection = editor.textView.selectedRange()
         return Task {
             let actions = await codeActions(for: document, range: selection)
-            guard !actions.isEmpty else { NSSound.beep(); return }
+            let aiFixes = editor.aiFixMenuItems(for: selection)
+            guard !actions.isEmpty || !aiFixes.isEmpty else { NSSound.beep(); return }
             let caret = editor.rect(for: NSRange(location: selection.location, length: 0)) ?? .zero
-            editor.showCodeActionMenu(actions, at: NSPoint(x: caret.minX, y: caret.maxY), in: editor.textView) { action in
+            editor.showCodeActionMenu(actions, extra: aiFixes, at: NSPoint(x: caret.minX, y: caret.maxY), in: editor.textView) { action in
                 Task { await self.run(action, in: document) }
             }
         }
@@ -92,14 +94,15 @@ extension Workspace {
 }
 
 extension EditorController {
-    /// The actions as a menu (quick fixes, then refactorings, then source actions), the
-    /// preferred one bold; disabled ones say why.
-    func showCodeActionMenu(_ actions: [CodeAction], at point: NSPoint, in view: NSView, run: @escaping (CodeAction) -> Void) {
-        let menu = Self.codeActionMenu(actions, run: run)
-        menu.popUp(positioning: menu.items.first { $0.isEnabled }, at: point, in: view)
+    /// The actions as a menu (quick fixes, then refactorings, then source actions, then `extra`
+    /// items under "AI"), the preferred one bold; disabled ones say why.
+    func showCodeActionMenu(_ actions: [CodeAction], extra: [NSMenuItem] = [], at point: NSPoint, in view: NSView,
+                            run: @escaping (CodeAction) -> Void) {
+        let menu = Self.codeActionMenu(actions, extra: extra, run: run)
+        menu.popUp(positioning: menu.items.first { $0.isEnabled && !$0.isSectionHeader }, at: point, in: view)
     }
 
-    static func codeActionMenu(_ actions: [CodeAction], run: @escaping (CodeAction) -> Void) -> NSMenu {
+    static func codeActionMenu(_ actions: [CodeAction], extra: [NSMenuItem] = [], run: @escaping (CodeAction) -> Void) -> NSMenu {
         let menu = NSMenu(title: "Code Actions")
         menu.autoenablesItems = false
         let groups: [(String, (CodeAction) -> Bool)] = [
@@ -123,6 +126,11 @@ extension EditorController {
                 menu.addItem(item)
             }
         }
+        if !extra.isEmpty {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            menu.addItem(NSMenuItem.sectionHeader(title: "AI"))
+            extra.forEach(menu.addItem)
+        }
         return menu
     }
 }
@@ -141,6 +149,8 @@ final class LightbulbController {
     /// The actions the bulb offers (tests).
     private(set) var actions: [CodeAction] = []
     private(set) var line: Int?
+    /// The selection the actions are for (Fix with AI offers the problems it touches).
+    private var selection = NSRange(location: 0, length: 0)
     nonisolated(unsafe) static var delay: Duration = .milliseconds(300)
 
     init(editor: EditorController) {
@@ -157,20 +167,29 @@ final class LightbulbController {
         let selection = editor.textView.selectedRange()
         let cursorLine = document.lineIndex.line(containing: selection.location)
         if line != cursorLine { hide() }
-        guard let client = document.languageClient, client.state == .ready, client.supports(.codeAction),
-              document.diagnostics.contains(where: { $0.range.start.line <= cursorLine && $0.range.end.line >= cursorLine }),
+        let asksServer = document.languageClient.map { $0.state == .ready && $0.supports(.codeAction) } ?? false
+        // With AI set up, any problem can be fixed with it (the Problems panel's too).
+        let offersAI = editor.inlineEdit.settings.isConfigured
+        let hasProblem = asksServer
+            && document.diagnostics.contains(where: { $0.range.start.line <= cursorLine && $0.range.end.line >= cursorLine })
+        guard hasProblem || (offersAI && !editor.problems(touching: selection).isEmpty),
               let workspace = document.workspace else {
             hide()
             return
         }
         task = Task { [weak self] in
             try? await Task.sleep(for: Self.delay)
-            guard !Task.isCancelled, let self else { return }
+            guard !Task.isCancelled, let self, let editor = self.editor else { return }
             let version = document.editVersion
-            let actions = await workspace.codeActions(for: document, range: selection)
+            let actions = asksServer ? await workspace.codeActions(for: document, range: selection) : []
             guard !Task.isCancelled, document.editVersion == version else { return }
             self.actions = actions.filter { $0.disabledReason == nil }
-            if self.actions.isEmpty { self.hide() } else { self.show(line: cursorLine) }
+            self.selection = selection
+            if self.actions.isEmpty && !(offersAI && !editor.problems(touching: selection).isEmpty) {
+                self.hide()
+            } else {
+                self.show(line: cursorLine)
+            }
         }
     }
 
@@ -206,7 +225,8 @@ final class LightbulbController {
     @objc private func clicked() {
         guard let editor, let button, let workspace = editor.document.workspace else { return }
         let document = editor.document
-        editor.showCodeActionMenu(actions, at: NSPoint(x: 0, y: button.bounds.maxY), in: button) { action in
+        editor.showCodeActionMenu(actions, extra: editor.aiFixMenuItems(for: selection),
+                                  at: NSPoint(x: 0, y: button.bounds.maxY), in: button) { action in
             Task { await workspace.run(action, in: document) }
         }
     }
