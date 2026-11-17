@@ -148,6 +148,9 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
     private weak var editor: EditorController?
     private var highlights: [NamedRange] = []
     private var highlightedRange: NSRange?
+    /// The range asked for and not received yet (layout and scrolling both refresh, before
+    /// the first ask's colors arrive).
+    private var requestedRange: NSRange?
 
     /// What the picture is painted for: its size in pixels, and the colors it uses.
     private struct Canvas: Equatable {
@@ -180,6 +183,8 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
     private(set) var paintedLines = 0
     /// The picture as last painted (tests).
     var paintedImage: CGImage? { image }
+    /// Highlight results received (benchmarks).
+    private(set) var highlightResults = 0
 
     private let contentLayer = CALayer()
     private let sliderLayer = CALayer()
@@ -222,11 +227,16 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
 
     // MARK: SyntaxHighlighterClient
 
-    var highlightRange: NSRange? {
+    /// The lines shown, and half as many again each way: scrolling asks for colors once every
+    /// half a minimap, not at every line (each request is a query of hundreds of lines).
+    var highlightRange: NSRange? { lineRange(overscan: capacity / 2) }
+
+    /// The text of the lines shown, and `overscan` lines each way.
+    private func lineRange(overscan: Int) -> NSRange? {
         guard let editor, !isHidden, bounds.height > 0 else { return nil }
         let index = editor.document.lineIndex
-        let first = firstLine
-        let last = min(index.lineCount, first + capacity)
+        let first = max(0, firstLine - overscan)
+        let last = min(index.lineCount, firstLine + capacity + overscan)
         let start = index.lineStarts[first]
         let end = last < index.lineCount ? index.lineStarts[last] : editor.document.textStorage.length
         return NSRange(location: start, length: end - start)
@@ -235,6 +245,8 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
     func applyHighlights(_ highlights: [NamedRange], in range: NSRange) {
         self.highlights = highlights
         highlightedRange = range
+        requestedRange = nil
+        highlightResults += 1
         colorsAreStale = true
         colorsChanged = true
         needsDisplay = true
@@ -252,6 +264,7 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
     /// Everything is painted again (theme, settings).
     func invalidate() {
         pending = .all
+        requestedRange = nil
         needsDisplay = true
     }
 
@@ -264,9 +277,12 @@ final class MinimapView: NSView, SyntaxHighlighterClient {
         // The slider moves at the next display, after layout: where the top line is, asked
         // before an edit is laid out, is estimated through every paragraph from the start.
         needsDisplay = true
-        if textChanged { return } // the highlighter re-requests for all clients after edits
-        if let highlightedRange, let wanted = highlightRange,
-           NSIntersectionRange(highlightedRange, wanted) == wanted { return }
+        if textChanged { requestedRange = nil; return } // the highlighter re-requests for all clients after edits
+        guard let shown = lineRange(overscan: 0) else { return }
+        for range in [highlightedRange, requestedRange] {
+            if let range, NSIntersectionRange(range, shown) == shown { return }
+        }
+        requestedRange = highlightRange
         editor.document.highlighter?.requestHighlights(for: self)
     }
 

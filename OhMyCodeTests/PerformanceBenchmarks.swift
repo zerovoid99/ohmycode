@@ -246,6 +246,49 @@ struct PerformanceBenchmarks {
         withExtendedLifetime(window) {}
     }
 
+    /// Scrolling as a trackpad does, a few lines an event, with the minimap shown or hidden:
+    /// each step's drawing, and the highlights it asks for (results applied and drawn, and the
+    /// background work they cost, waited for).
+    @Test(arguments: [(1.0, true), (1.0, false), (5.0, true), (5.0, false)])
+    func smoothScroll(megabytes: Double, minimap shown: Bool) async throws {
+        let url = try file(megabytes)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let (document, controller, window, _, _) = try open(url)
+        document.attach(controller)
+        let highlighter = try #require(document.highlighter)
+        highlighter.addClient(controller)
+        let minimap = try #require(controller.minimapView)
+        if shown { highlighter.addClient(minimap) } else { minimap.isHidden = true }
+        controller.containerView?.layoutSubtreeIfNeeded()
+        await highlighter.waitUntilIdle()
+        draw(window)
+        let label = "\(Int(megabytes))MB minimap \(shown ? "on" : "off")"
+
+        let scrollView = try #require(controller.textView.enclosingScrollView)
+        let clock = ContinuousClock()
+        var steps: [Duration] = [], applied: [Duration] = [], waited: Duration = .zero
+        let results = minimap.highlightResults
+        for _ in 0..<200 {
+            let (change, drawn) = step(window) {
+                var origin = scrollView.contentView.bounds.origin
+                origin.y += 24
+                scrollView.contentView.scroll(to: origin)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+                controller.textView.layoutSubtreeIfNeeded()
+            }
+            steps.append(change + drawn)
+            waited += await clock.measure { await highlighter.waitUntilIdle() }
+            applied.append(clock.measure { draw(window) })
+        }
+        report("smoothScroll.step median \(label)", ms(median(steps)))
+        report("smoothScroll.step p95 \(label)", ms(p95(steps)))
+        report("smoothScroll.applied median \(label)", ms(median(applied)))
+        report("smoothScroll.applied p95 \(label)", ms(p95(applied)))
+        report("smoothScroll.highlightWait total \(label)", ms(waited))
+        report("smoothScroll.minimapResults \(label)", "\(minimap.highlightResults - results) / 200 steps")
+        withExtendedLifetime(window) {}
+    }
+
     /// Typing with folds: none, a few, and everything folded (Fold All).
     @Test(arguments: [0, 24, -1])
     func typingWithFolds(folds: Int) async throws {

@@ -217,6 +217,45 @@ struct EditorChromeTests {
         withExtendedLifetime(window) {}
     }
 
+    /// Scrolling a line at a time doesn't ask for the minimap's colors at every line (each ask
+    /// is a query of the hundreds of lines it shows): only once the lines shown pass the ones
+    /// it has colors for.
+    @Test func minimapAsksForColorsOncePastWhatItHas() async throws {
+        let (document, controller, window) = try makeEditor(functions: 40) // 1,203 lines
+        let minimap = try #require(controller.minimapView)
+        let highlighter = try #require(document.highlighter)
+        highlighter.addClient(minimap)
+        controller.scrollLineToTop(300)
+        controller.textView.layoutSubtreeIfNeeded()
+        minimap.refresh()
+        await highlighter.waitUntilIdle()
+        let capacity = Int(minimap.bounds.height / MinimapView.lineHeight)
+        try #require(capacity >= 40 && document.lineIndex.lineCount > capacity * 2)
+
+        func scroll(toLine line: Int) async {
+            controller.scrollLineToTop(line)
+            controller.textView.layoutSubtreeIfNeeded()
+            minimap.refresh()
+            await highlighter.waitUntilIdle()
+        }
+        let asked = minimap.highlightResults, first = minimap.firstLine
+        var line = 300
+        while minimap.firstLine - first < capacity / 2 - 2 {
+            line += 1
+            await scroll(toLine: line)
+        }
+        #expect(minimap.highlightResults == asked, "asked for colors while scrolling within its overscan")
+
+        await scroll(toLine: line + capacity)
+        #expect(minimap.highlightResults == asked + 1, "asked \(minimap.highlightResults - asked) times for one scroll")
+        minimap.updateLayer()
+        let painted = try pixels(minimap.paintedImage)
+        minimap.invalidate()
+        minimap.updateLayer()
+        #expect(try pixels(minimap.paintedImage) == painted)
+        withExtendedLifetime(window) {}
+    }
+
     /// The layer shows the picture the right way up, with the slider over the lines in view:
     /// the same as drawing it.
     @Test func minimapLayerMatchesItsDrawing() async throws {

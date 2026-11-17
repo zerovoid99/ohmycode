@@ -5,6 +5,12 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Fixed
+- Scrolling with the minimap shown no longer keeps the syntax highlighter busy. The minimap
+  asked for the colors of the few hundred lines it shows at every line scrolled, about twice
+  per scroll event (some 9 ms of background work each, delaying the editor's own colors); it
+  now asks for half a minimap more each way, so once every half a minimap of scrolling.
+
 ## [0.1.2] - 2026-11-17
 
 ### Added
