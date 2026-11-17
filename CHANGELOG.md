@@ -5,6 +5,15 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- An app icon: a lime orbit around </> in a hexagon, after the ZeroVoid Lab mark. On macOS 26
+  and later it's drawn by the system in its own shape; the welcome window and the start page
+  show it too.
+
+### Fixed
+- The commit popover shown when hovering the blame annotation stays open while the mouse moves
+  up into it, and closes once the mouse leaves it.
+
 ## [0.1.7] - 2026-11-18
 
 ### Changed
