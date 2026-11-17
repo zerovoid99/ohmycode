@@ -52,7 +52,7 @@ struct DebugView: View {
             }
             .listStyle(.sidebar)
         }
-        .task(id: workspace.rootURL) { await workspace.loadLaunchConfigurations() }
+        .task(id: workspace.folders) { await workspace.loadLaunchConfigurations() }
     }
 
     @ViewBuilder

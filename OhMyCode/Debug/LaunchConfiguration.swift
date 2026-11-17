@@ -33,6 +33,8 @@ struct LaunchConfiguration: Codable, Equatable, Identifiable, Sendable {
     var adapter: [String]?
     /// More arguments for the adapter's launch or attach request (merged last).
     var adapterArguments: [String: JSONValue]?
+    /// The workspace folder it's from (`${workspaceFolder}`); nil: the first.
+    var folder: URL?
 
     var id: String { name }
     var isAttach: Bool { request == "attach" }

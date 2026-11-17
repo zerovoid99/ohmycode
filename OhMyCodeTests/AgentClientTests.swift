@@ -83,6 +83,27 @@ struct AgentClientTests {
         #expect(messages(client).last?.contains("outside the workspace") == true)
     }
 
+    /// With several folders: files in any of them, nothing outside (the session's cwd is the first).
+    @Test func readsInEveryWorkspaceFolderAndNowhereElse() async throws {
+        let (workspace, root) = try makeWorkspace(["a.txt": "first\n"])
+        let second = FileManager.default.temporaryDirectory.appending(path: "omc-agent-second-\(UUID().uuidString)").resolvingSymlinksInPath()
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        try "second\n".write(to: second.appending(path: "b.txt"), atomically: true, encoding: .utf8)
+        workspace.addFolder(second)
+        let client = try await start(workspace, root: root)
+        defer { client.stop() }
+        await client.send("read \(root.path)/a.txt")
+        #expect(messages(client).last == "read: first\n")
+        await client.send("read \(second.path)/b.txt")
+        #expect(messages(client).last == "read: second\n")
+        await client.send("read \(second.deletingLastPathComponent().path)/elsewhere.txt")
+        #expect(messages(client).last?.contains("outside the workspace") == true)
+        // Taken out of the workspace: outside again.
+        workspace.removeFolder(second)
+        await client.send("read \(second.path)/b.txt")
+        #expect(messages(client).last?.contains("outside the workspace") == true)
+    }
+
     @Test func readsLineRangesWhateverTheNumbers() async throws {
         let (workspace, root) = try makeWorkspace(["lines.txt": "a\nb\nc\n"])
         let path = root.appending(path: "lines.txt").path

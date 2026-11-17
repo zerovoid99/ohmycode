@@ -25,19 +25,19 @@ actor WorkspaceSymbolIndex {
     private(set) var isComplete = false
     private var updating: Task<Void, Never>?
 
-    /// Reads files that are new or changed since last time (`paths` relative to `root`);
+    /// Reads files that are new or changed since last time (`paths` as `roots` writes them);
     /// forgets those no longer listed. Changed files are parsed on all cores.
-    func update(root: URL, paths: [String]) async {
+    func update(roots: WorkspaceRoots, paths: [String]) async {
         // One at a time: the actor is free while files are parsed, and a second search then
         // would parse the same files again.
         while let updating { await updating.value }
-        let task = Task { await self.read(root: root, paths: paths) }
+        let task = Task { await self.read(roots: roots, paths: paths) }
         updating = task
         await task.value
         updating = nil
     }
 
-    private func read(root: URL, paths: [String]) async {
+    private func read(roots: WorkspaceRoots, paths: [String]) async {
         let listed = Set(paths.prefix(Self.maxFiles))
         for path in files.keys where !listed.contains(path) { files[path] = nil }
         var stale: [(path: String, language: SourceLanguage, date: Date)] = []
@@ -47,7 +47,7 @@ actor WorkspaceSymbolIndex {
             // stat, not `attributesOfItem`: this runs for every file at every search (88 µs
             // against 2 a file).
             var info = stat()
-            guard stat(root.appending(path: path).path, &info) == 0, info.st_size <= Self.maxFileSize else { continue }
+            guard let url = roots.url(for: path), stat(url.path, &info) == 0, info.st_size <= Self.maxFileSize else { continue }
             let date = Date(timeIntervalSince1970: Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1e9)
             if files[path]?.date == date { continue }
             stale.append((path, language, date))
@@ -62,7 +62,7 @@ actor WorkspaceSymbolIndex {
                     group.addTask {
                         var parsers: [SourceLanguage: Parser] = [:]
                         return slice.compactMap { entry in
-                            let url = root.appending(path: entry.path)
+                            guard let url = roots.url(for: entry.path) else { return nil }
                             guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
                             return (entry.path, entry.date, Self.symbols(in: text as NSString, language: entry.language, url: url, parsers: &parsers))
                         }
@@ -136,7 +136,7 @@ extension Workspace {
     /// syntax trees' (open files as they are now), best matches first.
     func workspaceSymbols(matching query: String, limit: Int = 200) async -> [WorkspaceSymbolResult] {
         let text = query.trimmingCharacters(in: .whitespaces)
-        guard let root = rootURL, !text.isEmpty else { return [] }
+        guard !folders.isEmpty, !text.isEmpty else { return [] }
 
         // The servers, each given a moment: a slow one doesn't hold the rest up.
         let clients = languageClientsForSymbols
@@ -144,7 +144,7 @@ extension Workspace {
 
         // The index, brought up to date with the file list first.
         let paths = await searchableFiles()
-        await symbolIndex.update(root: root, paths: paths)
+        await symbolIndex.update(roots: roots, paths: paths)
         // The servers' first: they know containers and kinds best (duplicates are dropped below).
         var results: [WorkspaceSymbolResult] = await fromServers.map { symbol in
             WorkspaceSymbolResult(name: symbol.name, kind: DocumentSymbol.Kind(rawValue: symbol.kind) ?? .variable,

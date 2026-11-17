@@ -221,12 +221,13 @@ struct BreadcrumbsView: View {
         Image(systemName: "chevron.right").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
     }
 
-    /// The folders from the workspace's root down to the file's.
+    /// The folders from the workspace folder the file is in down to the file's.
     private var folderPath: [URL] {
         let folder = document.url.deletingLastPathComponent()
-        guard let root = workspace.rootURL, let relative = workspace.relativePath(of: folder) ?? (folder == root ? "" : nil) else {
-            return [folder]
-        }
+        guard let root = workspace.folder(containing: document.url) else { return [folder] }
+        let rootPath = root.standardizedFileURL.path, folderPath = folder.standardizedFileURL.path
+        guard folderPath == rootPath || folderPath.hasPrefix(rootPath + "/") else { return [folder] }
+        let relative = folderPath == rootPath ? "" : String(folderPath.dropFirst(rootPath.count + 1))
         var url = root
         var path = [root]
         for part in relative.split(separator: "/") {

@@ -96,12 +96,20 @@ final class TestController {
         return path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count)) : nil
     }
 
+    /// The window's paths (see `WorkspaceRoots`) of files in the first folder, from it: tests
+    /// are found and run there (with several folders, the others' aren't listed).
+    private func primaryFolderPaths(_ paths: [String]) -> [String] {
+        guard let workspace, workspace.isMultiRoot, let root else { return paths }
+        let prefix = workspace.label(of: root) + "/"
+        return paths.compactMap { $0.hasPrefix(prefix) ? String($0.dropFirst(prefix.count)) : nil }
+    }
+
     /// Reads every test file in the folder.
     func discover() async {
         guard let workspace, let root = workspace.rootURL else { files = []; return }
         isDiscovering = true
         defer { isDiscovering = false }
-        let paths = await workspace.searchableFiles()
+        let paths = primaryFolderPaths(await workspace.searchableFiles())
         var detected = TestDiscovery.frameworks(in: root)
         if XcodeProject.container(in: root) != nil {
             xcode = await XcodeProject.load(in: root, environment: await ShellEnvironment.shared.environment())
@@ -148,7 +156,7 @@ final class TestController {
     func filesChanged(_ paths: [String]) {
         guard !files.isEmpty || !frameworks.isEmpty, let workspace, let root else { return }
         let frameworks = frameworks, xcode = xcode
-        var changed = paths.compactMap { path in
+        var changed = primaryFolderPaths(paths).compactMap { path in
             TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode).map { (path: path, framework: $0) }
         }
         guard !changed.isEmpty else { return }

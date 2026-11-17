@@ -15,8 +15,8 @@ struct WorkspaceView: View {
                     }
                     switch workspace.sidebarMode {
                     case .files:
-                        if let root = workspace.rootNode {
-                            FileTreeView(root: root, workspace: workspace)
+                        if !workspace.rootNodes.isEmpty {
+                            FileTreeView(workspace: workspace)
                         }
                     case .search:
                         SearchView(model: workspace.search)
@@ -101,8 +101,11 @@ struct WorkspaceView: View {
 
     private var panelSubtitle: String? {
         switch workspace.sidebarMode {
-        case .files: workspace.rootURL?.lastPathComponent
-        case .sourceControl: workspace.gitStatus?.branch
+        case .files: workspace.isMultiRoot ? workspace.workspaceName : workspace.rootURL?.lastPathComponent
+        case .sourceControl:
+            workspace.repositories.count > 1
+                ? workspace.repositories.first { $0.id == workspace.selectedRepositoryID }.map { $0.name } ?? workspace.repositories.first?.name
+                : workspace.gitStatus?.branch
         default: nil
         }
     }
@@ -146,7 +149,9 @@ private struct ActiveStatusBar: View {
     let workspace: Workspace
 
     var body: some View {
-        StatusBarView(document: workspace.activeDocument, gitStatus: workspace.gitStatus,
+        // The branch of the active file's repository (with several, it may not be the current one).
+        StatusBarView(document: workspace.activeDocument,
+                      gitStatus: workspace.repositoryState(for: workspace.activeFileURL)?.status ?? workspace.gitStatus,
                       problems: workspace.rootURL == nil ? nil : workspace.problems,
                       showProblems: { workspace.toggleProblems() },
                       tasks: workspace.taskRuns.filter { $0.state.isRunning },

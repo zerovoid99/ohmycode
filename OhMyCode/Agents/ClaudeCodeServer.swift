@@ -123,12 +123,13 @@ final class ClaudeCodeServer {
 
     /// Writes (or rewrites, the folder changed) the lock file: readable only by the user.
     func writeLockFile() {
-        guard let port, let root = workspace?.rootURL else { return removeLockFile() }
+        guard let port, let folders = workspace?.folders, !folders.isEmpty else { return removeLockFile() }
         let directory = Self.lockDirectory
         let url = directory.appending(path: "\(port).lock")
         let lock: [String: Any] = [
             "pid": Int(ProcessInfo.processInfo.processIdentifier),
-            "workspaceFolders": [root.path],
+            // Every folder of the window: `claude` run in any of them finds it.
+            "workspaceFolders": folders.map(\.path),
             "ideName": Self.ideName,
             "transport": "ws",
             "authToken": authToken,
@@ -322,7 +323,9 @@ final class ClaudeCodeServer {
         case "getWorkspaceFolders":
             guard let root = workspace.rootURL else { return Self.result(["success": true, "folders": [Any](), "rootPath": ""]) }
             return Self.result(["success": true, "rootPath": root.path,
-                                "folders": [["name": root.lastPathComponent, "uri": root.absoluteString, "path": root.path]]])
+                                "folders": workspace.folders.map { folder in
+                                    ["name": workspace.label(of: folder), "uri": folder.absoluteString, "path": folder.path]
+                                }])
         case "getDiagnostics":
             var files = workspace.problems.files()
             if let uri = arguments["uri"] as? String, let url = URL(string: uri) {

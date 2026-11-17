@@ -12,14 +12,25 @@ struct OpenRequest: Equatable {
     var newWindow = false
     /// `omc -r`: the frontmost window, even for a file outside its folder.
     var reuseWindow = false
+    /// An unsaved workspace coming back at launch (`url` is its first folder).
+    var workspace: UntitledWorkspace?
+
+    struct UntitledWorkspace: Equatable {
+        var id: UUID
+        var folders: [URL]
+        var names: [URL: String]
+    }
 
     static let scheme = "ohmycode"
 
     /// The same path (however the URL was made) and the same options.
     static func == (a: OpenRequest, b: OpenRequest) -> Bool {
         a.url.standardizedFileURL.path == b.url.standardizedFileURL.path && a.line == b.line && a.column == b.column
-            && a.newWindow == b.newWindow && a.reuseWindow == b.reuseWindow
+            && a.newWindow == b.newWindow && a.reuseWindow == b.reuseWindow && a.workspace == b.workspace
     }
+
+    /// A workspace file (`.omc-workspace`, `.code-workspace`): opened as the window's folders.
+    var isWorkspaceFile: Bool { workspace == nil && WorkspaceFile.isWorkspaceFile(url) && !isDirectory }
 
     var isDirectory: Bool {
         var directory: ObjCBool = false
@@ -104,9 +115,22 @@ final class OpenRouter {
     static func route(_ request: OpenRequest, isDirectory: Bool, workspaces: [Workspace]) -> Decision {
         let path = FileWatcher.canonicalPath(request.url)
         let isEmpty: (Workspace) -> Bool = { $0.rootURL == nil && $0.documents.isEmpty }
+        // A workspace (file, or unsaved coming back): the window showing it, else like a folder.
+        if request.workspace != nil || request.isWorkspaceFile {
+            let shows: (Workspace) -> Bool = { workspace in
+                if let id = request.workspace?.id { return workspace.untitledWorkspaceID == id }
+                return workspace.workspaceFile.map(FileWatcher.canonicalPath) == path
+            }
+            if !request.newWindow, let existing = workspaces.first(where: shows) { return .focus(ObjectIdentifier(existing)) }
+            if !request.newWindow, let empty = workspaces.first(where: isEmpty) { return .openIn(ObjectIdentifier(empty)) }
+            if request.reuseWindow, let front = workspaces.first { return .openIn(ObjectIdentifier(front)) }
+            return .newWindow
+        }
         if isDirectory {
-            if !request.newWindow,
-               let existing = workspaces.first(where: { $0.rootURL.map(FileWatcher.canonicalPath) == path }) {
+            // A plain folder window showing it (a workspace's folder opens a window of its own).
+            if !request.newWindow, let existing = workspaces.first(where: {
+                $0.workspaceFile == nil && $0.untitledWorkspaceID == nil && $0.rootURL.map(FileWatcher.canonicalPath) == path
+            }) {
                 return .focus(ObjectIdentifier(existing))
             }
             if !request.newWindow, let empty = workspaces.first(where: isEmpty) { return .openIn(ObjectIdentifier(empty)) }
@@ -115,7 +139,7 @@ final class OpenRouter {
         }
         if !request.newWindow {
             if let owner = workspaces.first(where: { workspace in
-                workspace.rootURL.map { path.hasPrefix(FileWatcher.canonicalPath($0) + "/") } ?? false
+                workspace.folders.contains { path.hasPrefix(FileWatcher.canonicalPath($0) + "/") }
             }) {
                 return .focus(ObjectIdentifier(owner))
             }
@@ -205,6 +229,18 @@ final class OpenRouter {
     func apply(_ request: OpenRequest, isDirectory: Bool? = nil, in workspace: Workspace) {
         workspace.window?.makeKeyAndOrderFront(nil)
         if !LaunchTrace.isEnabled { NSApp.activate() } // a traced launch takes no focus
+        if let untitled = request.workspace {
+            if workspace.untitledWorkspaceID != untitled.id {
+                workspace.openUntitledWorkspace(folders: untitled.folders, names: untitled.names, id: untitled.id)
+            }
+            return
+        }
+        if request.isWorkspaceFile {
+            if workspace.workspaceFile.map(FileWatcher.canonicalPath) != FileWatcher.canonicalPath(request.url) {
+                workspace.openWorkspace(file: request.url)
+            }
+            return
+        }
         if isDirectory ?? request.isDirectory {
             if workspace.rootURL.map(FileWatcher.canonicalPath) != FileWatcher.canonicalPath(request.url) {
                 workspace.openFolder(request.url)
@@ -262,6 +298,16 @@ final class RecentFolders {
 
     /// Those that still exist.
     var existing: [URL] { urls.filter { FileManager.default.fileExists(atPath: $0.path) } }
+
+    /// A recent entry's icon: a folder, or a workspace file's.
+    static func symbol(for url: URL) -> String {
+        WorkspaceFile.isWorkspaceFile(url) ? "square.stack.3d.up" : "folder"
+    }
+
+    /// A recent entry's name: a workspace file's without its extension, marked as a workspace.
+    static func title(for url: URL) -> String {
+        WorkspaceFile.isWorkspaceFile(url) ? url.deletingPathExtension().lastPathComponent + " (Workspace)" : url.lastPathComponent
+    }
 
     private func save() { defaults.set(urls.map(\.path), forKey: "recentFolders") }
 }

@@ -47,8 +47,27 @@ struct SearchView: View {
                 }
             }
             if showsFilters {
-                TextField("Files to include (e.g. *.swift, Sources/)", text: binding(\.include))
-                    .textFieldStyle(.roundedBorder)
+                HStack(spacing: 4) {
+                    TextField(model.folderLabels.isEmpty ? "Files to include (e.g. *.swift, Sources/)"
+                              : "Files to include (e.g. *.swift, \(model.folderLabels[0])/**)", text: binding(\.include))
+                        .textFieldStyle(.roundedBorder)
+                    // Several folders: search one of them ("label/**").
+                    if !model.folderLabels.isEmpty {
+                        Menu {
+                            Button("All Folders") { model.options.include = "" }
+                            Divider()
+                            ForEach(model.folderLabels, id: \.self) { label in
+                                Button(label) { model.options.include = label + "/**" }
+                            }
+                        } label: {
+                            Image(systemName: "folder")
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("Search in one folder")
+                    }
+                }
                 TextField("Files to exclude", text: binding(\.exclude))
                     .textFieldStyle(.roundedBorder)
             }

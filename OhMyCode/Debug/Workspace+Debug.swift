@@ -77,22 +77,39 @@ extension Workspace {
 
     // MARK: Launch configurations
 
-    /// Reads .omc/launch.json, or finds a Swift package's executables.
+    /// Reads each folder's .omc/launch.json, or finds a Swift package's executables there. With
+    /// several folders, each configuration's name names its folder ("Debug app (api)").
     func loadLaunchConfigurations() async {
-        guard let root = rootURL else { launchConfigurations = []; return }
-        do {
-            let configured = try LaunchConfiguration.load(in: root)
-            if !configured.isEmpty { launchConfigurations = configured; return }
-        } catch {
-            errorMessage = error.localizedDescription
+        guard !folders.isEmpty else { launchConfigurations = []; return }
+        let folders = self.folders
+        var all: [LaunchConfiguration] = []
+        for root in folders {
+            var found: [LaunchConfiguration] = []
+            do {
+                found = try LaunchConfiguration.load(in: root)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            if found.isEmpty {
+                let environment = await ShellEnvironment.shared.environment()
+                found = await LaunchConfiguration.swiftPackage(in: root, environment: environment)
+            }
+            let label = folders.count > 1 ? self.label(of: root) : nil
+            all += found.map { configuration in
+                var configuration = configuration
+                configuration.folder = root
+                if let label { configuration.name += " (\(label))" }
+                return configuration
+            }
         }
-        let environment = await ShellEnvironment.shared.environment()
-        launchConfigurations = await LaunchConfiguration.swiftPackage(in: root, environment: environment)
+        guard self.folders == folders else { return }
+        launchConfigurations = all
     }
 
-    /// Writes .omc/launch.json (for a program the editor can't find by itself) and opens it.
+    /// Writes .omc/launch.json (for a program the editor can't find by itself) and opens it:
+    /// the active file's folder's (with several), else the first's.
     func createLaunchFile() {
-        guard let root = rootURL else { return }
+        guard let root = activeDocument.flatMap({ folder(containing: $0.url) }) ?? rootURL else { return }
         do {
             let url = root.appending(path: LaunchConfiguration.file)
             if !FileManager.default.fileExists(atPath: url.path) { _ = try LaunchConfiguration.writeTemplate(in: root) }
@@ -117,7 +134,7 @@ extension Workspace {
     func startDebugging(_ chosen: LaunchConfiguration? = nil) async {
         if let session = debugSession, session.isActive { await session.stop() }
         if launchConfigurations.isEmpty { await loadLaunchConfigurations() }
-        guard let root = rootURL else { return }
+        guard rootURL != nil else { return }
         guard let configuration = chosen ?? launchConfigurations.first(where: { $0.name == selectedLaunchName }) ?? launchConfigurations.first else {
             sidebarMode = .debug
             errorMessage = "There's nothing to debug yet: add a program to \(LaunchConfiguration.file) (Run and Debug → Create launch.json)."
@@ -126,6 +143,8 @@ extension Workspace {
         selectedLaunchName = configuration.name
         saveAll()
         let environment = await ShellEnvironment.shared.environment()
+        // `${workspaceFolder}` is the configuration's own folder.
+        guard let root = configuration.folder ?? rootURL else { return }
         let session = DebugSession(configuration: configuration.resolved(root: root, file: activeDocument?.url),
                                    adapter: debugAdapter, environment: environment)
         session.breakpoints = { [weak self] in self?.breakpoints.byPath ?? [:] }

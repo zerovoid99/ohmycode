@@ -9,6 +9,11 @@ struct SourceControlView: View {
     var body: some View {
         if let status = workspace.gitStatus {
             VStack(spacing: 8) {
+                // Several repositories: one row each (name, branch, changes); the one picked is
+                // what the rest of the panel shows and commits to.
+                if workspace.repositories.count > 1 {
+                    RepositoryList(workspace: workspace)
+                }
                 BranchBar(workspace: workspace, status: status)
                 if let operation = status.operation {
                     OperationBanner(workspace: workspace, operation: operation,
@@ -142,10 +147,11 @@ struct SourceControlView: View {
             }
             .padding(.horizontal, 8)
             .padding(.top, 4)
-            .task(id: workspace.rootURL) { await workspace.loadWorktrees() }
+            .task(id: [workspace.rootURL?.path, workspace.selectedRepositoryID]) { await workspace.loadWorktrees() }
         } else {
             ContentUnavailableView("No Repository", systemImage: "arrow.triangle.branch",
-                                   description: Text("This folder isn't in a git repository."))
+                                   description: Text(workspace.isMultiRoot ? "None of these folders is in a git repository."
+                                                     : "This folder isn't in a git repository."))
         }
     }
 
@@ -160,6 +166,60 @@ struct SourceControlView: View {
                 .buttonStyle(.borderless)
                 .disabled(count == 0)
         }
+    }
+}
+
+/// The window's repositories (with several folders): each one's name, branch and number of
+/// changes; a click makes it the one the panel shows. Staging all of one's changes works from
+/// its row too.
+private struct RepositoryList: View {
+    let workspace: Workspace
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("REPOSITORIES")
+                .font(.system(size: 10, weight: .semibold)).tracking(0.4)
+                .foregroundStyle(.secondary)
+                .padding(.leading, 4)
+            ForEach(workspace.repositories) { state in
+                RepositoryRow(workspace: workspace, state: state,
+                              isSelected: state.repository.root == workspace.gitRepository?.root)
+            }
+        }
+    }
+}
+
+private struct RepositoryRow: View {
+    let workspace: Workspace
+    let state: RepositoryState
+    let isSelected: Bool
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.triangle.branch").foregroundStyle(isSelected ? Color.accentColor : .secondary)
+            Text(state.name).fontWeight(isSelected ? .semibold : .regular).lineLimit(1)
+            Text(state.status.branch ?? "HEAD").font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 4)
+            if isHovering, !state.status.unstagedChanges.isEmpty {
+                Button("Stage All", systemImage: "plus") {
+                    workspace.stage(state.status.unstagedChanges.map(\.path), in: state.repository)
+                }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .help("Stage all changes in \(state.name)")
+            }
+            if state.status.changedFileCount > 0 {
+                Text("\(state.status.changedFileCount)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 5).fill(isSelected ? Color.accentColor.opacity(0.12) : .clear))
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .onTapGesture { workspace.selectRepository(state) }
+        .help(state.folders.map { ($0.path as NSString).abbreviatingWithTildeInPath }.joined(separator: "\n"))
     }
 }
 
@@ -210,7 +270,7 @@ private struct ChangeRow: View {
         // Like VS Code: a click shows the changes; the context menu opens the file.
         .onTapGesture {
             // A submodule has no text diff: its menu opens or updates it.
-            guard status != .deleted, !change.isSubmodule, let root = workspace.rootURL else { return }
+            guard status != .deleted, !change.isSubmodule, let root = workspace.gitRootURL else { return }
             if change.isUntracked {
                 workspace.open(fileAt: root.appending(path: change.path))
             } else {
@@ -223,7 +283,7 @@ private struct ChangeRow: View {
                     .disabled(submodule.state == .notInitialized)
                 Button("Update Submodule") { workspace.updateSubmodules([submodule]) }
                     .help("Check out the commit the repository records for it")
-            } else if status != .deleted, let root = workspace.rootURL {
+            } else if status != .deleted, let root = workspace.gitRootURL {
                 if !change.isUntracked {
                     Button("Open Changes") { workspace.openChanges(for: root.appending(path: change.path), staged: staged) }
                 }

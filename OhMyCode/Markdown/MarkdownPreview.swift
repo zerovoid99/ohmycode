@@ -41,6 +41,19 @@ extension EditorController {
 final class LocalFileSchemeHandler: NSObject, WKURLSchemeHandler {
     static let scheme = "omc-file"
 
+    /// The folders it serves files from (the window's, or the document's own folder without
+    /// one); a page can't read anything else on the disk.
+    private let allowedFolders: @MainActor () -> [URL]
+
+    init(allowedFolders: @escaping @MainActor () -> [URL]) {
+        self.allowedFolders = allowedFolders
+    }
+
+    /// Whether `file` is in one of `folders` (links followed).
+    static func isAllowed(_ file: URL, in folders: [URL]) -> Bool {
+        folders.contains { file.isWithin($0) }
+    }
+
     static func url(for fileURL: URL) -> URL {
         var components = URLComponents()
         components.scheme = scheme
@@ -54,7 +67,8 @@ final class LocalFileSchemeHandler: NSObject, WKURLSchemeHandler {
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
         guard let url = task.request.url else { return }
         let file = Self.fileURL(for: url)
-        guard let data = try? Data(contentsOf: file) else {
+        let folders = MainActor.assumeIsolated { allowedFolders() }
+        guard Self.isAllowed(file, in: folders), let data = try? Data(contentsOf: file) else {
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
@@ -92,7 +106,12 @@ final class MarkdownPreviewController: NSObject {
     init(document: EditorDocument) {
         self.document = document
         let configuration = WKWebViewConfiguration()
-        configuration.setURLSchemeHandler(LocalFileSchemeHandler(), forURLScheme: LocalFileSchemeHandler.scheme)
+        let handler = LocalFileSchemeHandler { [weak document] in
+            guard let document else { return [] }
+            let folders = document.workspace?.folders ?? []
+            return folders.isEmpty ? [document.url.deletingLastPathComponent()] : folders
+        }
+        configuration.setURLSchemeHandler(handler, forURLScheme: LocalFileSchemeHandler.scheme)
         let controller = WKUserContentController()
         controller.addUserScript(WKUserScript(source: Self.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true,
                                               in: .defaultClient))

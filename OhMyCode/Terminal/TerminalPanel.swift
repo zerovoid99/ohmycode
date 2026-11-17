@@ -85,7 +85,7 @@ private struct TerminalTab: View {
             Image(systemName: sessions.count > 1 ? "square.split.2x1" : "terminal")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text(sessions.map(\.displayTitle).joined(separator: " | "))
+            Text(sessions.map(\.tabTitle).joined(separator: " | "))
                 .font(.callout)
                 .lineLimit(1)
                 .truncationMode(.middle)

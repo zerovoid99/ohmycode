@@ -48,9 +48,17 @@ enum TextSearch {
     /// on-disk content is stale (unsaved editors). Batches of results arrive on `onBatch`.
     static func search(_ options: SearchOptions, root: URL, files: [String], overrides: [String: String],
                        onBatch: @escaping @Sendable ([SearchFileResult]) async -> Void) async throws {
-        guard !options.query.isEmpty else { return }
+        try await search(options, roots: WorkspaceRoots(single: root), files: files, overrides: overrides, onBatch: onBatch)
+    }
+
+    /// The same over several folders: `files` as `roots` writes paths (each folder's label
+    /// first), so "api/**" includes only that folder.
+    static func search(_ options: SearchOptions, roots: WorkspaceRoots, files: [String], overrides: [String: String],
+                       onBatch: @escaping @Sendable ([SearchFileResult]) async -> Void) async throws {
+        guard !options.query.isEmpty, let root = roots.folders.first?.url else { return }
         let matcher = try Matcher(options)
-        let filter = PathFilter(include: options.include, exclude: options.exclude)
+        let filter = PathFilter(include: options.include, exclude: options.exclude,
+                                folderLabels: roots.isMultiRoot ? Set(roots.folders.map(\.label)) : [])
         let candidates = files.filter(filter.accepts)
 
         let workers = max(2, ProcessInfo.processInfo.activeProcessorCount)
@@ -70,7 +78,7 @@ enum TextSearch {
                     var results: [SearchFileResult] = []
                     for path in chunk {
                         if Task.isCancelled || budget.isExhausted { break }
-                        let url = root.appending(path: path)
+                        let url = roots.isMultiRoot ? (roots.url(for: path) ?? root.appending(path: path)) : root.appending(path: path)
                         let matches: [SearchMatch]
                         if let text = overrides[path] {
                             matches = matcher.matches(in: Data(text.utf8))
@@ -199,18 +207,32 @@ private final class ResultBudget: @unchecked Sendable {
 struct PathFilter: Sendable {
     let include: [String]
     let exclude: [String]
+    /// With several folders, their labels: a pattern starting with one ("api/**") is about that
+    /// folder only, not any "api" folder deeper down.
+    let folderLabels: Set<String>
 
-    init(include: String, exclude: String) {
+    init(include: String, exclude: String, folderLabels: Set<String> = []) {
         func split(_ text: String) -> [String] {
             text.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         }
         self.include = split(include)
         self.exclude = split(exclude)
+        self.folderLabels = folderLabels
     }
 
     func accepts(_ path: String) -> Bool {
-        if exclude.contains(where: { Self.matches($0, path) }) { return false }
-        return include.isEmpty || include.contains { Self.matches($0, path) }
+        if exclude.contains(where: { matches($0, path) }) { return false }
+        return include.isEmpty || include.contains { matches($0, path) }
+    }
+
+    private func matches(_ pattern: String, _ path: String) -> Bool {
+        if let label = pattern.split(separator: "/", maxSplits: 1).first.map(String.init), folderLabels.contains(label),
+           pattern.contains("/") || pattern == label {
+            guard path == label || path.hasPrefix(label + "/") else { return false }
+            let rest = pattern.dropFirst(label.count).drop { $0 == "/" }
+            return rest.isEmpty || Self.matches(String(rest), String(path.dropFirst(label.count + 1)))
+        }
+        return Self.matches(pattern, path)
     }
 
     static func matches(_ pattern: String, _ path: String) -> Bool {

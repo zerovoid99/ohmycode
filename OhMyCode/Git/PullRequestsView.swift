@@ -15,7 +15,7 @@ struct PullRequestsView: View {
                 list
             }
         }
-        .task(id: workspace.rootURL) {
+        .task(id: [workspace.rootURL?.path, workspace.selectedRepositoryID]) {
             if workspace.pullRequests == nil, workspace.pullRequestError == nil { await workspace.refreshPullRequests() }
         }
     }
@@ -126,7 +126,7 @@ private struct PullRequestDetailsView: View {
                                 .font(.caption.monospacedDigit())
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    if let root = workspace.rootURL { workspace.open(fileAt: root.appending(path: file.path)) }
+                                    if let root = workspace.repositoryRootURL ?? workspace.rootURL { workspace.open(fileAt: root.appending(path: file.path)) }
                                 }
                                 .help("Open \(file.path)")
                             }

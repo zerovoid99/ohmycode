@@ -6,15 +6,32 @@ import SwiftUI
 @MainActor
 @Observable
 final class Workspace {
-    private(set) var rootURL: URL?
-    private(set) var rootNode: FileNode?
+    /// The window's folders, in order (see WorkspaceFolders.swift); empty without a folder.
+    private(set) var folders: [URL] = []
+    /// Names given to folders in the workspace file (shown instead of the folder's).
+    private(set) var folderNames: [URL: String] = [:]
+    /// Each folder's tree (the Explorer's top-level rows), in `folders` order.
+    private(set) var rootNodes: [FileNode] = []
+    /// The workspace file the window shows (`.omc-workspace`, `.code-workspace`), if any.
+    var workspaceFile: URL?
+    /// Several folders not saved as a workspace file: their session's key.
+    var untitledWorkspaceID: UUID?
+    /// The workspace file's `settings` (for all folders), as read and as written back.
+    var workspaceSettings = ProjectSettings()
+    @ObservationIgnored var workspaceSettingsJSON: Data?
+    /// Each folder's own `.omc/settings.json`.
+    var folderSettings: [URL: ProjectSettings] = [:]
+    /// The primary (first) folder: where the window's terminal, agent and tasks start.
+    var rootURL: URL? { folders.first }
+    /// The primary folder's tree.
+    var rootNode: FileNode? { rootNodes.first }
     /// Every open document, in any editor group.
     private(set) var documents: [EditorDocument] = [] {
         didSet {
             for document in documents where !oldValue.contains(where: { $0 === document }) {
                 attachBreakpoints(to: document)
                 applyTaskProblems(to: document)
-                document.workspaceRoot = rootURL
+                document.workspaceRoot = folder(containing: document.url) ?? rootURL
                 document.workspace = self
                 attachTests(to: document)
             }
@@ -169,10 +186,12 @@ final class Workspace {
     }
 
     /// Files for Find in Files: the quick-open index (git-aware), built first if needed.
+    /// With several folders, each path starts with its folder's label (see `WorkspaceRoots`).
     func searchableFiles() async -> [String] {
-        if fileIndex == nil, let rootURL {
-            let index = await ProcessIO.detached(priority: .userInitiated) { FileIndexer.build(root: rootURL) }
-            if self.rootURL == rootURL, fileIndex == nil { fileIndex = index }
+        if fileIndex == nil, !folders.isEmpty {
+            let roots = self.roots
+            let index = await ProcessIO.detached(priority: .userInitiated) { FileIndexer.build(roots: roots) }
+            if self.roots == roots, fileIndex == nil { fileIndex = index }
         }
         return fileIndex?.files.map(\.text) ?? []
     }
@@ -195,7 +214,14 @@ final class Workspace {
     @ObservationIgnored var formatOnSaveTimeout: Duration = .seconds(2)
     /// Replaces the rename dialog (tests): gets the current name, returns the new one or nil.
     @ObservationIgnored var renamePrompt: ((String) -> String?)?
+    /// The current repository's status: the one Source Control, branches, history and stashes
+    /// work on (with several folders, picked in Source Control; the first one's at first).
     private(set) var gitStatus: GitStatus?
+    /// Every repository the window's folders are in, with its status, in folder order (one
+    /// for a single folder; two folders in one repository share it).
+    private(set) var repositories: [RepositoryState] = []
+    /// The repository picked in Source Control (its root's path); nil: the first one.
+    private(set) var selectedRepositoryID: String?
     var isRunningGitCommand = false
     /// GitHub (see GitHub.swift): the open pull requests, why they couldn't be read, the one opened.
     var pullRequests: [PullRequest]?
@@ -289,14 +315,17 @@ final class Workspace {
         await indexTask?.value
         await gitTask?.value
     }
-    @ObservationIgnored private var watcher: FileWatcher?
+    /// One per folder.
+    @ObservationIgnored private var watchers: [FileWatcher] = []
     @ObservationIgnored private var pendingEvents: PendingEvents?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     /// A git refresh that was asked to reload open documents is owed that, even if a later
     /// refresh (which wasn't) replaced it before it ran.
     @ObservationIgnored private var gitRefreshReloadsDocuments = false
-    /// Root as FSEvents reports paths (symlinks resolved).
-    @ObservationIgnored private var canonicalRootPath = ""
+    /// The folders as FSEvents reports paths (symlinks resolved), in `folders` order.
+    @ObservationIgnored private var canonicalRootPaths: [String] = []
+    /// The primary folder's.
+    private var canonicalRootPath: String { canonicalRootPaths.first ?? "" }
 
     /// Stands in for a window's workspace once it's closed, for work that finishes after it.
     static let closed = Workspace()
@@ -323,27 +352,31 @@ final class Workspace {
     }
 
     var displayName: String {
-        rootURL?.lastPathComponent ?? "Oh My Code"
+        workspaceName ?? "Oh My Code"
     }
 
-    func presentOpenPanel() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Open"
-        if panel.runModal() == .OK, let url = panel.url {
-            openFolder(url)
-        }
-    }
-
+    /// Opens one folder (the window shows just it, as a folder, not a workspace).
     func openFolder(_ url: URL) {
+        open(folders: [url], names: [:], workspaceFile: nil, untitledID: nil, settings: ProjectSettings(), settingsJSON: nil,
+             recent: url)
+    }
+
+    /// Opens folders (one, or a workspace's: saved as `workspaceFile` or untitled with
+    /// `untitledID`), replacing what the window had.
+    func open(folders urls: [URL], names: [URL: String], workspaceFile file: URL?, untitledID: UUID?, settings: ProjectSettings,
+              settingsJSON: Data?, recent: URL? = nil) {
+        guard let url = urls.first else { return }
         guard documents.allSatisfy({ confirmClose($0) }) else { return }
         // The folder this window leaves isn't open any more (its unsaved changes were asked about).
         if rootURL != nil { keepSession(wasOpen: false, force: true) }
-        RecentFolders.shared.add(url)
-        rootURL = url
-        rootNode = FileNode(url: url, isDirectory: true)
+        if let recent = recent ?? file { RecentFolders.shared.add(recent) }
+        workspaceFile = file
+        untitledWorkspaceID = file == nil ? untitledID : nil
+        workspaceSettings = settings
+        workspaceSettingsJSON = settingsJSON
+        folders = urls
+        folderNames = names
+        rootNodes = urls.map { FileNode(url: $0, isDirectory: true) }
         documents.removeAll()
         viewers.removeAll()
         let group = EditorGroup()
@@ -360,6 +393,8 @@ final class Workspace {
 
         gitStatus = nil
         gitRepository = nil
+        repositories = []
+        selectedRepositoryID = nil
         remotes = nil
         worktrees = nil
         submodules = []
@@ -385,21 +420,55 @@ final class Workspace {
         // Resolve the login-shell PATH now, so the first file opened doesn't wait for it.
         Task.detached(priority: .utility) { _ = await ShellEnvironment.shared.environment() }
 
-        canonicalRootPath = FileWatcher.canonicalPath(url)
-        watcher = FileWatcher(path: canonicalRootPath) { [weak self] events in
-            self?.handleFileEvents(events)
-        }
+        watchFolders()
         projectSettings = ProjectSettings()
+        folderSettings = [:]
         loadProjectSettings()
         sessionSignature = nil
         restoreSession()
         updateClaudeCodeIntegration()
     }
 
+    /// The folders change in place (one added or removed): the window keeps its tabs, terminals
+    /// and language servers, and what depends on the folders follows.
+    func setFolders(_ urls: [URL], names: [URL: String]) {
+        guard !urls.isEmpty else { return }
+        let old = folders
+        let oldNodes = Dictionary(zip(folders, rootNodes), uniquingKeysWith: { a, _ in a })
+        folders = urls
+        folderNames = names.filter { urls.contains($0.key) }
+        rootNodes = urls.map { oldNodes[$0] ?? FileNode(url: $0, isDirectory: true) }
+        for document in documents { document.workspaceRoot = folder(containing: document.url) ?? rootURL }
+        fileIndex = nil
+        rebuildFileIndex()
+        symbolIndex = WorkspaceSymbolIndex()
+        // Found again for the new folders (the picked one stays picked if it's still there).
+        repositories = []
+        gitRepository = nil
+        refreshGit()
+        watchFolders()
+        loadProjectSettings()
+        Task { await testing.discover() }
+        Task { await loadLaunchConfigurations() }
+        workspaceFoldersChanged(added: urls.filter { !old.contains($0) }, removed: old.filter { !urls.contains($0) })
+        claudeCode.writeLockFile()
+        sessionSignature = nil
+        if search.options.query.isEmpty == false { search.refresh() }
+    }
+
+    /// One file watcher per folder.
+    private func watchFolders() {
+        canonicalRootPaths = folders.map(FileWatcher.canonicalPath)
+        watchers = canonicalRootPaths.compactMap { path in
+            FileWatcher(path: path) { [weak self] events in self?.handleFileEvents(events) }
+        }
+    }
+
     /// Rebuilds the quick-open index in the background. The previous index stays usable until
     /// the new one is ready; `delay` debounces bursts of file-system events.
     func rebuildFileIndex(after delay: Duration = .zero) {
-        guard let rootURL else { return }
+        guard !folders.isEmpty else { return }
+        let roots = self.roots
         indexTask?.cancel()
         indexTask = Task {
             if delay > .zero {
@@ -408,9 +477,9 @@ final class Workspace {
             }
             self.backgroundWork.indexBuilds += 1
             let index = await ProcessIO.detached(priority: .userInitiated) {
-                FileIndexer.build(root: rootURL)
+                FileIndexer.build(roots: roots)
             }
-            guard !Task.isCancelled, self.rootURL == rootURL else { return }
+            guard !Task.isCancelled, self.roots == roots else { return }
             self.fileIndex = index
             if self.palette?.mode == .files { self.palette?.refresh() }
         }
@@ -419,29 +488,34 @@ final class Workspace {
     // MARK: File system changes
 
     func handleFileEvents(_ events: [FileWatcher.Event]) {
-        guard let rootNode else { return }
-        let prefix = canonicalRootPath + "/"
-        var directoriesToReload = Set<String>()
+        guard !rootNodes.isEmpty else { return }
+        let roots = self.roots
+        var directoriesToReload = Set<FolderPath>()
         var changedPaths = Set<String>()
-        /// The same, from the folder.
+        /// The same, as the window writes paths (from the folder; with several, its label first).
         var changedRelativePaths = Set<String>()
         var needsIndexRebuild = false
         var needsGitRefresh = false
         var gitStateChanged = false
-        var rescanned = false
+        var rescanned = Set<Int>()
         var editorConfigChanged = false
         var projectSettingsChanged = false
 
         for event in events {
-            if event.requiresRescan || event.path == canonicalRootPath {
+            // The folder it's in (the innermost, when one is inside another).
+            guard let index = canonicalRootPaths.indices
+                .filter({ event.path == canonicalRootPaths[$0] || event.path.hasPrefix(canonicalRootPaths[$0] + "/") })
+                .max(by: { canonicalRootPaths[$0].count < canonicalRootPaths[$1].count }),
+                index < rootNodes.count else { continue }
+            let root = canonicalRootPaths[index]
+            if event.requiresRescan || event.path == root {
                 editorConfigChanged = true
-                if !rescanned { rootNode.reloadLoadedSubtree() } // once, however many events say so
-                rescanned = true
+                // Once, however many events say so.
+                if rescanned.insert(index).inserted { rootNodes[index].reloadLoadedSubtree() }
                 needsIndexRebuild = true
                 continue
             }
-            guard event.path.hasPrefix(prefix) else { continue }
-            let relative = String(event.path.dropFirst(prefix.count))
+            let relative = String(event.path.dropFirst(root.count + 1))
             // Git rewrites .git/index, locks etc. constantly; none of it changes the file list,
             // but it does change status (commits, staging, checkouts).
             needsGitRefresh = true
@@ -451,17 +525,17 @@ final class Workspace {
             }
 
             changedPaths.insert(event.path)
-            changedRelativePaths.insert(relative)
+            changedRelativePaths.formUnion(roots.paths([relative], in: roots.folders[index]))
             let slash = relative.lastIndex(of: "/")
             let name = slash.map { relative[relative.index(after: $0)...] } ?? relative[...]
             if name == ".editorconfig" { editorConfigChanged = true }
             if relative == ProjectSettings.file { projectSettingsChanged = true }
             if event.isStructural {
-                directoriesToReload.insert(slash.map { String(relative[..<$0]) } ?? "")
+                directoriesToReload.insert(FolderPath(folder: index, path: slash.map { String(relative[..<$0]) } ?? ""))
                 needsIndexRebuild = true
             }
         }
-        if rescanned {
+        if !rescanned.isEmpty {
             // Anything may have changed: every open file is looked at.
             for document in documents {
                 changedPaths.insert(document.canonicalPath)
@@ -471,28 +545,32 @@ final class Workspace {
 
         if editorConfigChanged { documents.forEach { $0.reloadEditorConfig() } }
         if projectSettingsChanged { loadProjectSettings() }
-        if !rescanned {
-            for directory in directoriesToReload {
-                let components = directory.isEmpty ? [] : directory.split(separator: "/").map(String.init)
-                rootNode.loadedNode(atRelativePath: components)?.reloadChildren()
-            }
+        for directory in directoriesToReload where !rescanned.contains(directory.folder) {
+            let components = directory.path.isEmpty ? [] : directory.path.split(separator: "/").map(String.init)
+            rootNodes[directory.folder].loadedNode(atRelativePath: components)?.reloadChildren()
         }
         if needsIndexRebuild || needsGitRefresh {
             followUpFileEvents(PendingEvents(rebuildsIndex: needsIndexRebuild, refreshesGit: needsGitRefresh,
                                              gitStateChanged: gitStateChanged,
-                                             paths: rescanned ? nil : changedRelativePaths))
+                                             paths: rescanned.isEmpty ? changedPaths : nil))
         }
         if !changedPaths.isEmpty {
             for document in documents where changedPaths.contains(document.canonicalPath) {
                 document.reloadFromDiskIfChanged()
             }
         }
-        for viewer in viewers where rescanned || changedPaths.contains(viewer.canonicalPath) { viewer.reloadIfChanged() }
+        for viewer in viewers where !rescanned.isEmpty || changedPaths.contains(viewer.canonicalPath) { viewer.reloadIfChanged() }
         if !changedRelativePaths.isEmpty {
             let changed = Array(changedRelativePaths)
             testing.filesChanged(changed)
             Task { [symbolIndex] in await symbolIndex.invalidate(changed) }
         }
+    }
+
+    /// A folder (by index) inside one of the window's folders.
+    private struct FolderPath: Hashable {
+        let folder: Int
+        let path: String
     }
 
     /// What file events call for, once they pause.
@@ -502,8 +580,8 @@ final class Workspace {
         /// Something inside .git changed (a commit, staging, a checkout): what open files are
         /// compared with and blamed against may have, too.
         var gitStateChanged = false
-        /// What changed, from the folder, to ask git whether any of it counts; nil when it's
-        /// unknown or too much to ask about.
+        /// What changed (paths as FSEvents reports them), to ask git whether any of it counts;
+        /// nil when it's unknown or too much to ask about.
         var paths: Set<String>? = []
 
         mutating func merge(_ other: PendingEvents) {
@@ -525,24 +603,42 @@ final class Workspace {
     /// everything that changed is ignored (a build's output, node_modules): neither lists
     /// such files, and a build writes them for minutes on end.
     private func followUpFileEvents(_ events: PendingEvents) {
-        guard let rootURL else { return }
+        guard !folders.isEmpty else { return }
+        let folders = self.folders
         if pendingEvents == nil { pendingEvents = events } else { pendingEvents?.merge(events) }
         eventTask?.cancel()
         eventTask = Task {
             try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled, self.rootURL == rootURL, let pending = self.pendingEvents else { return }
+            guard !Task.isCancelled, self.folders == folders, let pending = self.pendingEvents else { return }
             // From here on this batch is acted on, even if more events arrive meanwhile.
             self.pendingEvents = nil
             if !pending.gitStateChanged, let paths = pending.paths, !paths.isEmpty {
-                let repository = self.gitRepository
+                // Asked of each path's repository (or, outside any, its folder), from its root.
+                let groups = self.ignoreCheckGroups(paths)
                 let ignored = await ProcessIO.detached(priority: .utility) {
-                    FileIndexer.areIgnored(Array(paths), in: repository)
+                    !groups.isEmpty && groups.allSatisfy { FileIndexer.areIgnored($0.paths, in: $0.repository) }
                 }
-                guard !ignored, self.rootURL == rootURL else { return }
+                guard !ignored, self.folders == folders else { return }
             }
             if pending.rebuildsIndex { self.rebuildFileIndex() }
             if pending.refreshesGit { self.refreshGit(reloadingDocuments: pending.gitStateChanged) }
         }
+    }
+
+    /// Changed paths (canonical) grouped by the repository they're in, each relative to its
+    /// root; those in no repository relative to their folder.
+    private func ignoreCheckGroups(_ paths: Set<String>) -> [(repository: Git.Repository?, paths: [String])] {
+        let repositories = (self.repositories.isEmpty ? gitRepository.map { [$0] } ?? [] : self.repositories.map(\.repository))
+            .map { ($0, FileWatcher.canonicalPath($0.root)) }
+        var groups: [String: (repository: Git.Repository?, paths: [String])] = [:]
+        for path in paths {
+            if let (repository, root) = repositories.filter({ path.hasPrefix($0.1 + "/") }).max(by: { $0.1.count < $1.1.count }) {
+                groups[root, default: (repository, [])].paths.append(String(path.dropFirst(root.count + 1)))
+            } else if let root = canonicalRootPaths.filter({ path.hasPrefix($0 + "/") }).max(by: { $0.count < $1.count }) {
+                groups["folder:" + root, default: (nil, [])].paths.append(String(path.dropFirst(root.count + 1)))
+            }
+        }
+        return Array(groups.values)
     }
 
     /// Waits for what pending file events set off (tests).
@@ -554,36 +650,74 @@ final class Workspace {
     // MARK: Language servers
 
     func attachLanguageServer(to document: EditorDocument) {
-        guard let rootURL else { return }
+        guard !folders.isEmpty else { return }
+        let folders = self.folders
         Task { [weak self] in
             let environment = await ShellEnvironment.shared.environment()
-            guard let self, self.rootURL == rootURL, self.documents.contains(where: { $0 === document }),
+            guard let self, self.folders == folders, self.documents.contains(where: { $0 === document }),
                   let config = LanguageServers.config(for: document.language, path: environment["PATH"] ?? "",
                                                       overrides: self.languageServerOverrides)
             else { return }
-            let client: LanguageClient
-            if let existing = languageClients[config.name] {
-                client = existing
-            } else {
-                // Server missing or failed to launch: the editor works without it.
-                guard let started = startLanguageClient(config, rootURL: rootURL, environment: environment) else { return }
-                client = started
-            }
+            // Server missing or failed to launch: the editor works without it.
+            guard let client = await self.languageClient(config, for: document.url, environment: environment),
+                  self.folders == folders, self.documents.contains(where: { $0 === document }) else { return }
             connect(document, to: client)
         }
     }
 
-    private func startLanguageClient(_ config: LanguageServerConfig, rootURL: URL, environment: [String: String]) -> LanguageClient? {
+    /// The client for a file: the server's one, started with all the window's folders. A server
+    /// that doesn't take several folders (`workspace.workspaceFolders`) works on the first one
+    /// only, so a file in another folder gets a client of its own, started in that folder.
+    private func languageClient(_ config: LanguageServerConfig, for url: URL, environment: [String: String]) async -> LanguageClient? {
+        guard let rootURL else { return nil }
+        let shared: LanguageClient
+        if let existing = languageClients[config.name] {
+            shared = existing
+        } else {
+            guard let started = startLanguageClient(config, key: config.name, rootURL: rootURL, folders: folders,
+                                                    environment: environment) else { return nil }
+            shared = started
+        }
+        guard isMultiRoot, let folder = folder(containing: url), folder != shared.rootFolder else { return shared }
+        // Whether it takes several folders is known once it has started.
+        while shared.state == .starting { try? await Task.sleep(for: .milliseconds(50)) }
+        guard shared.state == .ready, !shared.supportsWorkspaceFolders else { return shared }
+        let key = Self.languageClientKey(config.name, folder: folder)
+        if let existing = languageClients[key] { return existing }
+        return startLanguageClient(config, key: key, rootURL: folder, folders: [folder], environment: environment)
+    }
+
+    /// A server's client for one folder (a server that doesn't take several).
+    nonisolated static func languageClientKey(_ name: String, folder: URL) -> String { name + "@" + folder.path }
+
+    /// Folders were added or removed: servers that take several hear it; a server started in a
+    /// folder that's gone stops (its files get a client again).
+    func workspaceFoldersChanged(added: [URL], removed: [URL]) {
+        guard !added.isEmpty || !removed.isEmpty else { return }
+        for (key, client) in languageClients {
+            if removed.contains(client.rootFolder) {
+                client.shutdown()
+                languageClients[key] = nil
+                for document in documents where document.languageClient === client { document.languageClient = nil }
+            } else if key == client.name {
+                client.changeWorkspaceFolders(added: added, removed: removed)
+            }
+        }
+        for document in documents where document.languageClient == nil { attachLanguageServer(to: document) }
+    }
+
+    private func startLanguageClient(_ config: LanguageServerConfig, key: String, rootURL: URL, folders: [URL],
+                                     environment: [String: String]) -> LanguageClient? {
         let client: LanguageClient
         do {
             client = try LanguageClient(name: config.name, command: config.command, rootURL: rootURL,
-                                        environment: environment)
+                                        workspaceFolders: folders, environment: environment)
         } catch {
             return nil
         }
         client.onFailure = { [weak self, weak client] in
             guard let self, let client else { return }
-            self.restartLanguageServer(config, after: client, rootURL: rootURL, environment: environment)
+            self.restartLanguageServer(config, key: key, after: client, rootURL: rootURL, environment: environment)
         }
         client.onInlayHintRefresh = { [weak self, weak client] in
             self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshInlayHints() }
@@ -607,23 +741,25 @@ final class Workspace {
             // (sourcekit-lsp answers with none until then, and doesn't say when).
             document?.refreshSemanticTokens(after: .milliseconds(50))
         }
-        languageClients[config.name] = client
+        languageClients[key] = client
         return client
     }
 
     /// A crashed server comes back (after a pause growing with each restart) with the files it
     /// had open, at most `languageServerRestartLimit.count` times in its window: one that keeps
     /// crashing is left failed.
-    private func restartLanguageServer(_ config: LanguageServerConfig, after failed: LanguageClient, rootURL: URL,
+    private func restartLanguageServer(_ config: LanguageServerConfig, key: String, after failed: LanguageClient, rootURL: URL,
                                        environment: [String: String]) {
         let now = ContinuousClock.now
-        let recent = (languageServerRestarts[config.name] ?? []).filter { now - $0 < Self.languageServerRestartLimit.window }
+        let recent = (languageServerRestarts[key] ?? []).filter { now - $0 < Self.languageServerRestartLimit.window }
         guard recent.count < Self.languageServerRestartLimit.count else { return }
-        languageServerRestarts[config.name] = recent + [now]
+        languageServerRestarts[key] = recent + [now]
         Task { [weak self, delay = languageServerRestartDelay * (recent.count + 1)] in
             try? await Task.sleep(for: delay)
-            guard let self, self.rootURL == rootURL, self.languageClients[config.name] === failed,
-                  let client = self.startLanguageClient(config, rootURL: rootURL, environment: environment) else { return }
+            guard let self, self.languageClients[key] === failed,
+                  let client = self.startLanguageClient(config, key: key, rootURL: rootURL,
+                                                        folders: key == config.name ? self.folders : [rootURL],
+                                                        environment: environment) else { return }
             for document in self.documents where document.languageClient === failed {
                 self.connect(document, to: client)
             }
@@ -650,8 +786,9 @@ final class Workspace {
     /// workspace root so the file isn't opened twice under different names.
     func workspaceURL(for url: URL) -> URL {
         let path = FileWatcher.canonicalPath(url)
-        if let rootURL, path.hasPrefix(canonicalRootPath + "/") {
-            return rootURL.appending(path: String(path.dropFirst(canonicalRootPath.count + 1)))
+        if let index = canonicalRootPaths.indices.filter({ path.hasPrefix(canonicalRootPaths[$0] + "/") })
+            .max(by: { canonicalRootPaths[$0].count < canonicalRootPaths[$1].count }), index < folders.count {
+            return folders[index].appending(path: String(path.dropFirst(canonicalRootPaths[index].count + 1)))
         }
         return URL(filePath: path)
     }
@@ -700,31 +837,42 @@ final class Workspace {
     /// alone unless the status came out different: a git command or two per open file, on
     /// every file event, is a lot of work for nothing.
     func refreshGit(after delay: Duration = .zero, reloadingDocuments: Bool = true) {
-        guard let rootURL else { return }
+        guard !folders.isEmpty else { return }
+        let folders = self.folders
         gitTask?.cancel()
         if reloadingDocuments { gitRefreshReloadsDocuments = true }
-        let knownRepository = gitRepository
+        // Found once per folder (again for one that had none, in case it became one).
+        let known = repositories.isEmpty ? gitRepository.map { [$0] } ?? [] : repositories.map(\.repository)
+        let selected = selectedRepositoryID
         gitTask = Task {
             if delay > .zero {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
             }
             self.backgroundWork.gitRefreshes += 1
-            let result = await ProcessIO.detached(priority: .utility) { () -> (Git.Repository, GitStatus, [GitStash], [GitSubmodule])? in
-                guard let repository = knownRepository ?? Git.repository(at: rootURL),
-                      let status = Git.status(of: repository) else { return nil }
-                return (repository, status, Git.stashes(in: repository) ?? [], Git.submodules(in: repository) ?? [])
+            let result = await ProcessIO.detached(priority: .utility) { () -> GitRefresh in
+                let found = Self.repositories(for: folders, known: known)
+                let states = found.compactMap { entry in
+                    Git.status(of: entry.repository).map { RepositoryState(repository: entry.repository, status: $0, folders: entry.folders) }
+                }
+                // The current one's stashes and submodules (Source Control shows them).
+                let current = states.first { $0.id == selected } ?? states.first
+                return GitRefresh(states: states, stashes: current.flatMap { Git.stashes(in: $0.repository) } ?? [],
+                                  submodules: current.flatMap { Git.submodules(in: $0.repository) } ?? [])
             }
-            guard !Task.isCancelled, self.rootURL == rootURL else { return }
+            guard !Task.isCancelled, self.folders == folders else { return }
+            let current = result.states.first { $0.id == self.selectedRepositoryID } ?? result.states.first
             // HEAD or what's staged changed, as far as status shows; or it can't be known from
-            // file events, the .git directory being outside the folder (a worktree, a subfolder).
-            let changed = (self.gitRepository == nil) != (result == nil)
-                || self.gitStatus?.baseSignature != result?.1.baseSignature
-                || result.map { !self.watchesGitDirectory(of: $0.0) } ?? false
-            self.gitRepository = result?.0
-            if self.gitStatus != result?.1 { self.gitStatus = result?.1 }
-            if self.stashes != result?.2 ?? [] { self.stashes = result?.2 ?? [] }
-            if self.submodules != result?.3 ?? [] { self.submodules = result?.3 ?? [] }
+            // file events, the .git directory being outside the folders (a worktree, a subfolder).
+            let before = Dictionary(self.repositories.map { ($0.id, $0.status.baseSignature) }, uniquingKeysWith: { a, _ in a })
+            let changed = (self.gitRepository == nil) != (current == nil)
+                || self.repositories.count != result.states.count
+                || result.states.contains { before[$0.id] != $0.status.baseSignature || !self.watchesGitDirectory(of: $0.repository) }
+            if self.repositories != result.states { self.repositories = result.states }
+            self.gitRepository = current?.repository
+            if self.gitStatus != current?.status { self.gitStatus = current?.status }
+            if self.stashes != result.stashes { self.stashes = result.stashes }
+            if self.submodules != result.submodules { self.submodules = result.submodules }
             guard self.gitRefreshReloadsDocuments || changed else { return }
             self.gitRefreshReloadsDocuments = false
             for document in self.documents { self.loadDiffBase(for: document) }
@@ -737,25 +885,110 @@ final class Workspace {
         }
     }
 
-    /// The repository's .git directory is in the folder, so the file watcher reports commits,
-    /// staging and checkouts.
-    private func watchesGitDirectory(of repository: Git.Repository) -> Bool {
-        guard let directory = repository.gitDirectory else { return false }
-        return FileWatcher.canonicalPath(directory) == canonicalRootPath + "/.git"
+    /// What a git refresh read.
+    private struct GitRefresh: Sendable {
+        var states: [RepositoryState]
+        var stashes: [GitStash]
+        var submodules: [GitSubmodule]
     }
 
-    func stage(_ paths: [String]) { runGit { try Git.stage(paths, in: $0) } }
+    /// The repositories the folders are in, in folder order. A folder's repository is run
+    /// from that folder (its status is the folder's part); two folders in one repository share
+    /// one, run from the repository's top (its status is all of it). `known`: found before.
+    nonisolated static func repositories(for folders: [URL], known: [Git.Repository]) -> [(repository: Git.Repository, folders: [URL])] {
+        var found: [(repository: Git.Repository, folder: URL)] = []
+        for folder in folders {
+            let path = folder.standardizedFileURL.path
+            if let repository = known.first(where: { path == $0.root.standardizedFileURL.path
+                    || (folders.count > 1 && path.hasPrefix($0.root.standardizedFileURL.path + "/")) })
+                ?? Git.repository(at: folder) {
+                found.append((repository, folder))
+            }
+        }
+        var order: [String] = []
+        var byTop: [String: [(repository: Git.Repository, folder: URL)]] = [:]
+        for entry in found {
+            let top = entry.repository.top.standardizedFileURL.path
+            if byTop[top] == nil { order.append(top) }
+            byTop[top, default: []].append(entry)
+        }
+        return order.compactMap { top in
+            guard let entries = byTop[top], let first = entries.first else { return nil }
+            let folders = entries.map(\.folder)
+            let distinct = Set(folders.map(\.standardizedFileURL.path))
+            guard distinct.count > 1 else { return (first.repository, folders) }
+            // Already run from its top (known from before).
+            if first.repository.prefix.isEmpty, first.repository.root.standardizedFileURL.path == top { return (first.repository, folders) }
+            return (Git.Repository(root: URL(filePath: top, directoryHint: .isDirectory), prefix: "",
+                                   gitDirectory: first.repository.gitDirectory), folders)
+        }
+    }
+
+    /// Source Control: makes `repository` the current one (its branch, history, stashes…).
+    func selectRepository(_ state: RepositoryState) {
+        guard selectedRepositoryID != state.id || gitRepository?.root != state.repository.root else { return }
+        selectedRepositoryID = state.id
+        gitRepository = state.repository
+        gitStatus = state.status
+        branches = nil
+        remotes = nil
+        worktrees = nil
+        stashes = []
+        submodules = []
+        repoHistory = nil
+        comparison = nil
+        pullRequests = nil
+        pullRequestError = nil
+        refreshGit()
+    }
+
+    /// Makes the repository `repository` is current, if it isn't.
+    func selectRepository(containing repository: Git.Repository) {
+        guard gitRepository?.root != repository.root,
+              let state = repositories.first(where: { $0.repository.root == repository.root }) else { return }
+        selectRepository(state)
+    }
+
+    /// The repository a file is in, and its path from where git runs there.
+    func gitContext(for url: URL) -> (repository: Git.Repository, path: String)? {
+        let path = url.standardizedFileURL.path
+        let candidates = repositories.isEmpty ? gitRepository.map { [$0] } ?? [] : repositories.map(\.repository)
+        guard let repository = candidates
+            .filter({ let root = $0.root.standardizedFileURL.path; return path.hasPrefix(root + "/") })
+            .max(by: { $0.root.standardizedFileURL.path.count < $1.root.standardizedFileURL.path.count })
+        else { return nil }
+        return (repository, String(path.dropFirst(repository.root.standardizedFileURL.path.count + 1)))
+    }
+
+    /// The repository (and its status) a file is in: the status bar's branch for the active file.
+    func repositoryState(for url: URL?) -> RepositoryState? {
+        guard let url, let context = gitContext(for: url) else { return nil }
+        return repositories.first { $0.repository.root == context.repository.root }
+    }
+
+    /// Where the current repository's change paths start (Source Control's files).
+    var gitRootURL: URL? { gitRepository?.root ?? rootURL }
+
+    /// The repository's .git directory is in one of the folders, so the file watcher reports
+    /// commits, staging and checkouts.
+    private func watchesGitDirectory(of repository: Git.Repository) -> Bool {
+        guard let directory = repository.gitDirectory else { return false }
+        let path = FileWatcher.canonicalPath(directory)
+        return canonicalRootPaths.contains { path == $0 + "/.git" }
+    }
+
+    func stage(_ paths: [String], in repository: Git.Repository? = nil) { runGit(in: repository) { try Git.stage(paths, in: $0) } }
 
     /// Stages one change of the editor's text (unsaved edits included), leaving the rest of
     /// the file unstaged.
     func stageHunk(_ hunk: DiffHunk, of document: EditorDocument) {
-        guard let base = document.diffBaseLines, let path = relativePath(of: document.url),
+        guard let base = document.diffBaseLines, let (repository, path) = gitContext(for: document.url),
               hunk.oldStart + hunk.oldCount <= base.count else { NSSound.beep(); return }
         let current = LineDiff.lines(document.textStorage.mutableString as String)
         guard hunk.newStart + hunk.newCount <= current.count else { NSSound.beep(); return }
         let expected = base.joined(separator: "\n")
         let content = LineDiff.applying(hunk, old: base, new: current)
-        runGit { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
+        runGit(in: repository) { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
     }
 
     /// Git: Stage Selected Lines — stages the changed lines the editor's selections touch
@@ -809,27 +1042,27 @@ final class Workspace {
     /// from the hunks as they are now; nil or none refuses (e.g. the diff they were picked
     /// from has changed since).
     func stageRows(of document: EditorDocument, _ rows: ([DiffHunk]) -> Set<DiffLinePair>?) {
-        guard let base = document.diffBaseLines, let path = relativePath(of: document.url) else { NSSound.beep(); return }
+        guard let base = document.diffBaseLines, let (repository, path) = gitContext(for: document.url) else { NSSound.beep(); return }
         let current = LineDiff.lines(document.textStorage.mutableString as String)
         let hunks = LineDiff.hunks(base: base, current: current)
         guard let selected = rows(hunks), !selected.isEmpty else { NSSound.beep(); return }
         let content = LineDiff.mixing(old: base, new: current, hunks: hunks, useNew: selected.contains)
         let expected = base.joined(separator: "\n")
-        runGit { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
+        runGit(in: repository) { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
     }
 
     /// Takes chosen rows back out of the staged version (the working tree keeps them).
     func unstageRows(_ rows: Set<DiffLinePair>, in session: DiffSession) {
         guard session.mode == .staged, let head = session.headLines, let index = session.indexLines,
-              let path = relativePath(of: session.url) else { NSSound.beep(); return }
+              let (repository, path) = gitContext(for: session.url) else { NSSound.beep(); return }
         let hunks = session.stagedHunks
         guard !rows.isDisjoint(with: hunks.flatMap(LineDiff.pairs)) else { NSSound.beep(); return }
         let content = LineDiff.mixing(old: head, new: index, hunks: hunks, useNew: { !rows.contains($0) })
         let expected = index.joined(separator: "\n")
         if session.isNewFile && content.isEmpty {
-            runGit { try Git.unstage([path], in: $0) }
+            runGit(in: repository) { try Git.unstage([path], in: $0) }
         } else {
-            runGit { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
+            runGit(in: repository) { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
         }
     }
 
@@ -847,7 +1080,7 @@ final class Workspace {
     /// Removes one change from the staged version (the working tree keeps it).
     func unstageHunk(_ hunk: DiffHunk, in session: DiffSession) {
         guard session.mode == .staged, let head = session.headLines, let index = session.indexLines,
-              let path = relativePath(of: session.url),
+              let (repository, path) = gitContext(for: session.url),
               hunk.oldStart + hunk.oldCount <= head.count, hunk.newStart + hunk.newCount <= index.count else {
             NSSound.beep()
             return
@@ -856,9 +1089,9 @@ final class Workspace {
         let content = LineDiff.reverting(hunk, old: head, new: index)
         if session.isNewFile && content.isEmpty {
             // Unstaging all of a new file's content: drop it from the index rather than staging it empty.
-            runGit { try Git.unstage([path], in: $0) }
+            runGit(in: repository) { try Git.unstage([path], in: $0) }
         } else {
-            runGit { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
+            runGit(in: repository) { try Git.setIndexContent(content, expected: expected, relativePath: path, in: $0) }
         }
     }
 
@@ -871,11 +1104,11 @@ final class Workspace {
             errorMessage = error.localizedDescription
         }
     }
-    func unstage(_ paths: [String]) { runGit { try Git.unstage(paths, in: $0) } }
+    func unstage(_ paths: [String], in repository: Git.Repository? = nil) { runGit(in: repository) { try Git.unstage(paths, in: $0) } }
 
     /// Discards unstaged changes. Untracked files go to the Trash rather than being deleted.
-    func discard(_ changes: [GitChange]) {
-        guard let rootURL, !changes.isEmpty else { return }
+    func discard(_ changes: [GitChange], in repository: Git.Repository? = nil) {
+        guard let root = (repository ?? gitRepository)?.root ?? rootURL, !changes.isEmpty else { return }
         let alert = NSAlert()
         alert.messageText = changes.count == 1
             ? "Discard changes in \(changes[0].path)?" : "Discard changes in \(changes.count) files?"
@@ -887,9 +1120,9 @@ final class Workspace {
         guard Self.confirmDiscard?(changes) ?? (alert.runModal() == .alertFirstButtonReturn) else { return }
 
         let tracked = changes.filter { !$0.isUntracked }.map(\.path)
-        let untracked = changes.filter(\.isUntracked).map { rootURL.appending(path: $0.path) }
+        let untracked = changes.filter(\.isUntracked).map { root.appending(path: $0.path) }
         let trash = Self.moveToTrash
-        runGit { repository in
+        runGit(in: repository) { repository in
             for url in untracked { try trash(url) }
             if !tracked.isEmpty { try Git.discard(tracked, in: repository) }
         }
@@ -966,17 +1199,19 @@ final class Workspace {
         return await ProcessIO.detached { Git.lastCommit(in: repository)?.message }
     }
 
-    private func runGit(_ operation: @escaping @Sendable (Git.Repository) throws -> Void) {
-        guard gitRepository != nil else { return }
+    /// `repository`: where (the current one by default).
+    private func runGit(in repository: Git.Repository? = nil, _ operation: @escaping @Sendable (Git.Repository) throws -> Void) {
+        guard repository ?? gitRepository != nil else { return }
         isRunningGitCommand = true
-        Task { await performGit(operation) }
+        Task { await performGit(in: repository, operation) }
     }
 
     /// Runs a git command off the main thread, shows its error, then reads the state again.
     /// Returns whether it succeeded.
     @discardableResult
-    private func performGit(_ operation: @escaping @Sendable (Git.Repository) throws -> Void) async -> Bool {
-        guard let repository = gitRepository else { return false }
+    private func performGit(in repository: Git.Repository? = nil,
+                            _ operation: @escaping @Sendable (Git.Repository) throws -> Void) async -> Bool {
+        guard let repository = repository ?? gitRepository else { return false }
         isRunningGitCommand = true
         var succeeded = true
         do {
@@ -993,17 +1228,19 @@ final class Workspace {
         return succeeded
     }
 
+    /// A file's status in its repository (the Explorer's badges).
     func gitStatus(for url: URL, isDirectory: Bool) -> GitFileStatus? {
-        guard let gitStatus, let path = relativePath(of: url) else { return nil }
-        return gitStatus.status(forRelativePath: path, isDirectory: isDirectory)
+        guard let (repository, path) = gitContext(for: url) else { return nil }
+        let status = repositories.first { $0.repository.root == repository.root }?.status ?? gitStatus
+        return status?.status(forRelativePath: path, isDirectory: isDirectory)
     }
 
+    /// A file's path as the window writes it: from its folder, and with several folders, the
+    /// folder's label first (see `WorkspaceRoots`). Nil outside the folders (and for a folder itself).
     func relativePath(of url: URL) -> String? {
-        guard let rootURL else { return nil }
-        let root = rootURL.standardizedFileURL.path
-        let path = url.standardizedFileURL.path
-        guard path.hasPrefix(root + "/") else { return nil }
-        return String(path.dropFirst(root.count + 1))
+        guard !folders.isEmpty, let path = roots.path(of: url), !path.isEmpty,
+              !folders.contains(where: { $0.standardizedFileURL.path == url.standardizedFileURL.path }) else { return nil }
+        return path
     }
 
     func loadDiffBase(for document: EditorDocument) {
@@ -1011,7 +1248,7 @@ final class Workspace {
             guard let self, let document else { return }
             self.compareConflict(conflict, in: document)
         }
-        guard let repository = gitRepository, let path = relativePath(of: document.url) else {
+        guard let (repository, path) = gitContext(for: document.url) else {
             document.setDiffBase(nil)
             return
         }
@@ -1028,10 +1265,18 @@ final class Workspace {
             }
         }
         document.scheduleBlame(after: .zero)
+        // The file's repository (with several folders, maybe not the current one): opening a
+        // commit's changes or the Timeline makes it current first.
         document.blameActions = BlameActions(
-            details: { [weak self] line in await self?.commitDetails(line.commit) },
-            openChanges: { [weak self] line in Task { await self?.openBlameChanges(line) } },
-            showInTimeline: { [weak self] line in self?.showInTimeline(commit: line.commit) })
+            details: { [weak self] line in await self?.commitDetails(line.commit, in: repository) },
+            openChanges: { [weak self] line in
+                self?.selectRepository(containing: repository)
+                Task { await self?.openBlameChanges(line) }
+            },
+            showInTimeline: { [weak self] line in
+                self?.selectRepository(containing: repository)
+                self?.showInTimeline(commit: line.commit)
+            })
         document.stageHunkAction = { [weak self, weak document] hunk in
             guard let self, let document else { return }
             self.stageHunk(hunk, of: document)
@@ -1040,7 +1285,7 @@ final class Workspace {
 
     /// Reads HEAD's and the index's version of a staged diff's file.
     private func loadStaged(_ session: DiffSession) {
-        guard let repository = gitRepository, let path = relativePath(of: session.url) else {
+        guard let (repository, path) = gitContext(for: session.url) else {
             session.setStaged(head: nil, index: nil)
             return
         }
@@ -1069,7 +1314,7 @@ final class Workspace {
     /// is ready when it's the same file.
     func loadHistory(for url: URL) {
         historyTask?.cancel()
-        guard let repository = gitRepository, let path = relativePath(of: url) else {
+        guard let (repository, path) = gitContext(for: url) else {
             fileHistory = FileHistory(url: url, commits: nil, isLoading: false)
             return
         }
@@ -1410,9 +1655,9 @@ final class Workspace {
     // MARK: Blame commits
 
     /// A commit's details, read once.
-    func commitDetails(_ sha: String) async -> CommitDetails? {
+    func commitDetails(_ sha: String, in repository: Git.Repository? = nil) async -> CommitDetails? {
         if let cached = commitDetailsCache[sha] { return cached }
-        guard let repository = gitRepository else { return nil }
+        guard let repository = repository ?? gitRepository else { return nil }
         let details = await ProcessIO.detached(priority: .userInitiated) { Git.commitDetails(sha, in: repository) }
         if let details { commitDetailsCache[sha] = details }
         return details
@@ -2012,10 +2257,15 @@ final class Workspace {
         selectTerminal(session)
     }
 
+    /// A shell in the active file's workspace folder (else the first one); with several folders
+    /// its tab says which.
     private func makeTerminal() -> TerminalSession? {
         do {
-            return try TerminalSession(directory: rootURL ?? FileManager.default.homeDirectoryForCurrentUser,
-                                       environment: claudeCode.terminalEnvironment)
+            let directory = activeFileURL.flatMap { self.folder(containing: $0) } ?? rootURL
+            let session = try TerminalSession(directory: directory ?? FileManager.default.homeDirectoryForCurrentUser,
+                                              environment: claudeCode.terminalEnvironment)
+            if isMultiRoot, let directory { session.folderLabel = label(of: directory) }
+            return session
         } catch {
             errorMessage = error.localizedDescription
             return nil
@@ -2465,7 +2715,7 @@ final class Workspace {
             try document.save()
             // Saved here: its files pick it up now, not when the file watcher reports it.
             if document.url.lastPathComponent == ".editorconfig" { documents.forEach { $0.reloadEditorConfig() } }
-            if relativePath(of: document.url) == ProjectSettings.file { loadProjectSettings() }
+            if isProjectSettingsFile(document.url) { loadProjectSettings() }
             stageIfConflictResolved(document)
             return true
         } catch {
@@ -2494,11 +2744,12 @@ final class Workspace {
     /// After a save: a file git still reports as conflicted, now without conflict markers, is
     /// resolved, so it's staged (marking it resolved for git, like `git add` after a merge).
     private func stageIfConflictResolved(_ document: EditorDocument) {
-        guard AppSettings.shared.stagesResolvedConflicts, let path = relativePath(of: document.url),
-              gitStatus?.changes.contains(where: { $0.path == path && $0.isConflicted }) == true,
+        guard AppSettings.shared.stagesResolvedConflicts, let (repository, path) = gitContext(for: document.url),
+              (repositoryState(for: document.url)?.status ?? gitStatus)?.changes
+                .contains(where: { $0.path == path && $0.isConflicted }) == true,
               // Read the saved text now: the debounced scan may not have run since the last edit.
               ConflictParser.conflicts(in: document.textStorage.mutableString).isEmpty else { return }
-        stage([path])
+        stage([path], in: repository)
     }
 
     /// Asks to save unsaved changes. Returns `false` if the user cancelled.

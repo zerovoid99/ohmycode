@@ -61,7 +61,7 @@ struct StartPageView: View {
         HStack(spacing: 14) {
             AppIconImage(size: 64)
             VStack(alignment: .leading, spacing: 3) {
-                Text(workspace.rootURL?.lastPathComponent ?? "Oh My Code").font(.title2.weight(.semibold))
+                Text(workspace.workspaceName ?? "Oh My Code").font(.title2.weight(.semibold))
                 if let branch = workspace.gitStatus?.branch {
                     Label(branch, systemImage: "arrow.triangle.branch").font(.callout).foregroundStyle(.secondary)
                 } else if let root = workspace.rootURL {

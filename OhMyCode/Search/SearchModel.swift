@@ -29,6 +29,10 @@ final class SearchModel {
         self.owner = workspace
     }
 
+    /// With several folders, their labels (results' paths start with them; "label/**" in the
+    /// include filter searches one folder).
+    var folderLabels: [String] { workspace.isMultiRoot ? workspace.roots.folders.map(\.label) : [] }
+
     var matchCount: Int { results.reduce(0) { $0 + $1.matches.count } }
     var isTruncated: Bool { matchCount >= TextSearch.maxResults }
 
@@ -44,12 +48,13 @@ final class SearchModel {
     private func schedule(delay: Duration = .milliseconds(200)) {
         task?.cancel()
         errorMessage = nil
-        guard !options.query.isEmpty, let root = workspace.rootURL else {
+        guard !options.query.isEmpty, !workspace.folders.isEmpty else {
             results = []
             isSearching = false
             return
         }
         let options = options
+        let roots = workspace.roots
         isSearching = true
         task = Task {
             if delay > .zero {
@@ -70,7 +75,7 @@ final class SearchModel {
             let collected = SortedResults()
             results = []
             do {
-                try await TextSearch.search(options, root: root, files: files, overrides: overrides) { batch in
+                try await TextSearch.search(options, roots: roots, files: files, overrides: overrides) { batch in
                     guard let snapshot = collected.add(batch) else { return }
                     await MainActor.run {
                         guard !Task.isCancelled else { return }

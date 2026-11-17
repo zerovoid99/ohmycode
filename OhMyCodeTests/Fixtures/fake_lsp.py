@@ -2,7 +2,9 @@
 """Minimal LSP server for tests. Mirrors documents from incremental changes (UTF-16
 positions), reports a diagnostic for every "BAD", and answers completion/definition.
 With --full-sync it asks for the whole text on every change (textDocumentSync 1); with
---fail-initialize it answers initialize (late) with an error; omc/crash makes it exit."""
+--fail-initialize it answers initialize (late) with an error; omc/crash makes it exit.
+With --workspace-folders it takes several workspace folders; omc/workspaceFolders reports
+the ones it started with and the changes it was sent."""
 import json, os, re, sys
 from urllib.parse import unquote, urlparse, quote
 
@@ -141,6 +143,8 @@ full_sync = "--full-sync" in sys.argv
 did_change_versions = []  # of each didChange
 completions_asked = 0
 cancelled = []
+initial_folders = []
+folder_changes = []
 
 while True:
     msg = read()
@@ -155,6 +159,12 @@ while True:
         sys.exit(3)
     elif method == "initialize":
         root = path_of(params["rootUri"])
+        initial_folders = [f["uri"] for f in params.get("workspaceFolders") or []]
+        workspace_caps = {"fileOperations": {
+            "willRename": {"filters": [{"pattern": {"glob": "**/*.swift", "matches": "file"}}]},
+            "didRename": {"filters": [{"pattern": {"glob": "**/*.swift"}}]}}}
+        if "--workspace-folders" in sys.argv:  # takes several folders (and hears changes)
+            workspace_caps["workspaceFolders"] = {"supported": True, "changeNotifications": True}
         send({"jsonrpc": "2.0", "id": mid, "result": {"capabilities": {
             "textDocumentSync": 1 if full_sync else 2, "completionProvider": {"triggerCharacters": ["."], "resolveProvider": True}, "definitionProvider": True,
             "hoverProvider": True, "referencesProvider": True, "renameProvider": {"prepareProvider": True},
@@ -165,9 +175,7 @@ while True:
             "inlayHintProvider": True, "documentHighlightProvider": True,
             "documentLinkProvider": {"resolveProvider": True},
             "codeLensProvider": {"resolveProvider": True},
-            "workspace": {"fileOperations": {
-                "willRename": {"filters": [{"pattern": {"glob": "**/*.swift", "matches": "file"}}]},
-                "didRename": {"filters": [{"pattern": {"glob": "**/*.swift"}}]}}},
+            "workspace": workspace_caps,
             "semanticTokensProvider": {"legend": {"tokenTypes": ["type", "function", "variable"], "tokenModifiers": []},
                                        "full": True}}}})
     elif method == "textDocument/hover":
@@ -467,6 +475,14 @@ while True:
                 hints.append({"position": {"line": number, "character": len(units(line[:m.start(1)]))},
                               "label": [{"value": "count"}, {"value": ":"}], "kind": 2, "paddingRight": True})
         send({"jsonrpc": "2.0", "id": mid, "result": hints})
+    elif method == "workspace/didChangeWorkspaceFolders":
+        event = params["event"]
+        folder_changes.append({"added": [f["uri"] for f in event.get("added", [])],
+                               "removed": [f["uri"] for f in event.get("removed", [])]})
+    elif method == "omc/workspaceFolders":
+        # What it was started with, the changes it heard, and the documents opened in it.
+        send({"jsonrpc": "2.0", "id": mid, "result": {"root": root, "initial": initial_folders,
+              "changes": folder_changes, "documents": sorted(docs)}})
     elif method == "omc/text":
         send({"jsonrpc": "2.0", "id": mid, "result": docs.get(params["uri"])})
     elif method == "shutdown":

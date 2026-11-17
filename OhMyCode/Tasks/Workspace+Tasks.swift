@@ -1,14 +1,24 @@
 import AppKit
 
 extension Workspace {
-    /// The folder's tasks: .omc/tasks.json's, then the ones its build files define.
+    /// The folders' tasks: each one's .omc/tasks.json's, then the ones its build files define.
+    /// With several folders, each task's label names its folder ("build (api)").
     func loadTasks() -> [TaskDefinition] {
-        guard let root = rootURL else { return [] }
-        do {
-            return try TaskDefinition.all(in: root)
-        } catch {
-            errorMessage = error.localizedDescription
-            return TaskDefinition.detect(in: root)
+        folders.flatMap { root -> [TaskDefinition] in
+            var tasks: [TaskDefinition]
+            do {
+                tasks = try TaskDefinition.all(in: root)
+            } catch {
+                errorMessage = error.localizedDescription
+                tasks = TaskDefinition.detect(in: root)
+            }
+            let label = isMultiRoot ? self.label(of: root) : nil
+            return tasks.map { task in
+                var task = task
+                task.folder = root
+                if let label { task.label += " (\(label))" }
+                return task
+            }
         }
     }
 
@@ -66,7 +76,8 @@ extension Workspace {
     /// Starts a task (stopping an earlier run of it), showing its output and problems.
     @discardableResult
     func runTask(_ task: TaskDefinition, reveal: Bool = true) -> TaskRun? {
-        guard let root = rootURL else { return nil }
+        // `${workspaceFolder}` is the task's own folder.
+        guard let root = task.folder ?? rootURL else { return nil }
         if let running = taskRuns.first(where: { $0.task.label == task.label && $0.state.isRunning }) { running.terminate() }
         taskHistory.removeAll { $0 == task.label }
         taskHistory.insert(task.label, at: 0)
@@ -122,7 +133,8 @@ extension Workspace {
 
     /// Terminal → Configure Tasks…: opens .omc/tasks.json, writing it first with the found tasks.
     func configureTasks() {
-        guard let root = rootURL else { return }
+        // The active file's folder's (with several folders), else the first's.
+        guard let root = activeDocument.flatMap({ folder(containing: $0.url) }) ?? rootURL else { return }
         do {
             let url = root.appending(path: TaskDefinition.file)
             if !FileManager.default.fileExists(atPath: url.path) {

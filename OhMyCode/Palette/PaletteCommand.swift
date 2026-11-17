@@ -79,6 +79,16 @@ struct PaletteCommand: Identifiable {
                        perform: { $0.showHover() }),
         PaletteCommand(id: "file.openFolder", title: "File: Open Folder…", icon: "folder", key: "cmd+o",
                        isAvailable: { _ in true }, perform: { $0.presentOpenPanel() }),
+        PaletteCommand(id: "workspace.open", title: "File: Open Workspace…", icon: "square.stack.3d.up", key: nil,
+                       isAvailable: { _ in true }, perform: { $0.presentOpenWorkspacePanel() }),
+        PaletteCommand(id: "workspace.addFolder", title: "Workspaces: Add Folder to Workspace…", icon: "folder.badge.plus", key: nil,
+                       isAvailable: { $0.rootURL != nil }, perform: { $0.presentAddFolderPanel() }),
+        PaletteCommand(id: "workspace.removeFolder", title: "Workspaces: Remove Folder from Workspace…", icon: "folder.badge.minus",
+                       key: nil, isAvailable: { $0.folders.count > 1 }, perform: { workspace in
+                           Task { @MainActor in await workspace.pickFolderToRemove() }
+                       }),
+        PaletteCommand(id: "workspace.saveAs", title: "Workspaces: Save Workspace As…", icon: "square.and.arrow.down", key: nil,
+                       isAvailable: { $0.rootURL != nil }, perform: { $0.presentSaveWorkspacePanel() }),
         PaletteCommand(id: "file.save", title: "File: Save", icon: "square.and.arrow.down", key: "cmd+s",
                        isAvailable: { $0.activeDocument != nil }, perform: { $0.saveActive() }),
         PaletteCommand(id: "file.saveAll", title: "File: Save All", icon: "square.and.arrow.down.on.square",

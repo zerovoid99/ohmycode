@@ -88,6 +88,7 @@ final class AgentPanel {
 
 extension Workspace: AgentHost {
     var agentRootURL: URL? { rootURL }
+    var agentFolders: [URL] { folders }
 
     func agentReadText(_ url: URL) throws -> String {
         if let document = document(matching: url) { return document.textStorage.mutableString as String }

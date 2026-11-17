@@ -936,14 +936,14 @@ final class ExtensionHost {
         }
     }
 
-    /// A path (relative to the open folder, or absolute) the extension may use: outside the
-    /// folder needs the fileSystem permission.
+    /// A path (relative to the first open folder, or absolute) the extension may use: outside
+    /// the window's folders needs the fileSystem permission.
     private func resolve(_ path: String?, permissions: Set<ExtensionManifest.Permission>, method: String) throws -> URL {
         guard let path, !path.isEmpty else { throw APIError.badArguments(method) }
         let root = workspace.rootURL
         let url = (path.hasPrefix("/") ? URL(filePath: path) : root.map { $0.appending(path: path) } ?? URL(filePath: path)).standardizedFileURL
         // Links followed, also in a new file's folders.
-        let inside = root.map { url.isWithin($0) } ?? false
+        let inside = workspace.isInsideWorkspace(url)
         if !inside && !permissions.contains(.fileSystem) { throw APIError.outsideWorkspace(path) }
         return url
     }

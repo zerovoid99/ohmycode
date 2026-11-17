@@ -28,6 +28,12 @@ struct TaskDefinition: Codable, Equatable, Identifiable, Sendable {
     var problemMatcher: String?
     /// Where it came from, shown next to found tasks ("Package.swift", "package.json"…).
     var detail: String?
+    /// The workspace folder it's from (`${workspaceFolder}`, where it runs); nil: the first.
+    var folder: URL?
+
+    private enum CodingKeys: String, CodingKey {
+        case label, command, group, isDefault, cwd, env, problemMatcher, detail
+    }
 
     var id: String { label }
     var matchesProblems: Bool { problemMatcher != "none" }

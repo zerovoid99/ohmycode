@@ -151,6 +151,40 @@ Files that aren't text open in a viewer tab instead of the editor, from the Expl
 
 UTF-16 text files with a byte order mark open in the editor and are saved as UTF-16 again.
 
+## Several folders in one window
+*File → Add Folder to Workspace…* (or right-click in the Explorer) adds another folder to the
+window: a frontend and a backend, or a few repositories side by side. Each folder is a top-level
+row in the Explorer with its own git badges; files can be dragged from one folder to another.
+Right-click a folder's row to remove it.
+
+*File → Save Workspace As…* keeps the folders in a `.omc-workspace` file, which then names the
+window. Open it again with *File → Open Workspace…*, ⌘O, Open Recent, Finder or `omc`. VS Code's
+`.code-workspace` files open the same way.
+
+```json
+{
+  "folders": [{ "path": "web" }, { "path": "../api", "name": "API" }],
+  "settings": { "formatOnSave": true }
+}
+```
+
+Paths are relative to the workspace file. Its `settings` (the same names as a folder's
+`.omc/settings.json`) apply to every folder; a folder's own settings win for its files. A window
+with several folders that was never saved still comes back at the next launch.
+
+With several folders:
+- Quick Open and Find in Files cover all of them; paths start with the folder's name. To search
+  one folder, put `name/**` in *Files to include*, or pick it from the folder menu next to it.
+- Source Control lists every repository with its branch; pick one to commit, stage, switch
+  branches or see its history. Two folders in the same repository share it. The status bar
+  shows the branch of the active file's repository.
+- A language server that supports several folders gets all of them; one that doesn't runs once
+  per folder.
+- Tasks and launch configurations are read from every folder, with the folder's name after
+  theirs; `${workspaceFolder}` is that folder. New terminals start in the active file's folder.
+- Agents and extensions may read and write in any of the folders, and nowhere else (unless an
+  extension has the file system permission).
+
 ## Quick fixes and parameter hints
 With a language server, a 💡 appears beside the cursor's line when there are fixes for a problem on
 it; ⌘. lists them with the server's refactorings and source actions (the preferred fix in bold).

@@ -22,6 +22,9 @@ final class TerminalSession: Identifiable {
     /// A name given by the user (Rename Terminal), shown instead of the shell's title.
     var customName: String?
     var displayTitle: String { customName ?? title }
+    /// With several workspace folders, the one it started in (shown on its tab).
+    var folderLabel: String?
+    var tabTitle: String { folderLabel.map { "\(displayTitle) · \($0)" } ?? displayTitle }
     private(set) var isRunning = true
     private(set) var exitCode: Int32?
     private(set) var columns: UInt16

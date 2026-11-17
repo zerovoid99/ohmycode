@@ -2,29 +2,41 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct FileTreeView: View {
-    let root: FileNode
     let workspace: Workspace
     @State private var selection: URL?
 
+    /// One folder: its contents. Several: each folder is a top-level row.
+    private var topLevel: [FileNode] {
+        workspace.isMultiRoot ? workspace.rootNodes : workspace.rootNode?.children ?? []
+    }
+
     var body: some View {
-        List(root.children ?? [], children: \.children, selection: $selection) { node in
-            FileRow(node: node, status: workspace.gitStatus(for: node.url, isDirectory: node.isDirectory),
-                    submodule: node.isDirectory ? workspace.submodule(at: node.url) : nil)
-                .draggable(node.url)
-                // Dropped on a folder: moved into it, or copied from outside the folder (a file's row
-                // takes it to the file's folder).
-                .dropDestination(for: URL.self) { urls, _ in
-                    let folder = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
-                    Task { for url in urls where url.isFileURL { await workspace.move(url, into: folder) } }
-                    return true
+        let roots = Set(workspace.isMultiRoot ? workspace.rootNodes.map(\.url) : [])
+        List(topLevel, children: \.children, selection: $selection) { node in
+            Group {
+                if roots.contains(node.url) {
+                    FolderRootRow(name: workspace.label(of: node.url), url: node.url,
+                                  branch: workspace.repositories.first { $0.folders.contains(node.url) }?.status.branch)
+                } else {
+                    FileRow(node: node, status: workspace.gitStatus(for: node.url, isDirectory: node.isDirectory),
+                            submodule: node.isDirectory ? workspace.submodule(at: node.url) : nil)
+                        .draggable(node.url)
                 }
+            }
+            // Dropped on a folder: moved into it (also from another of the window's folders), or
+            // copied from outside them (a file's row takes it to the file's folder).
+            .dropDestination(for: URL.self) { urls, _ in
+                let folder = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
+                Task { for url in urls where url.isFileURL { await workspace.move(url, into: folder) } }
+                return true
+            }
         }
         .listStyle(.sidebar)
         .contextMenu(forSelectionType: URL.self) { urls in
             ExplorerMenu(workspace: workspace, target: urls.first)
         }
         .onChange(of: selection) { _, url in
-            if let url, !url.hasDirectoryPath {
+            if let url, !url.hasDirectoryPath, !workspace.rootNodes.contains(where: { $0.url == url }) {
                 workspace.open(fileAt: url)
             }
         }
@@ -34,15 +46,28 @@ struct FileTreeView: View {
     }
 }
 
-/// The Explorer's right-click menu: on an item (or, on empty space, the folder itself).
+/// The Explorer's right-click menu: on an item (or, on empty space, the folder itself). On a
+/// workspace's folder: adding and removing folders.
 private struct ExplorerMenu: View {
     let workspace: Workspace
     let target: URL?
 
+    private var isRoot: Bool {
+        guard let target, workspace.isMultiRoot else { return false }
+        return workspace.rootNodes.contains { $0.url == target }
+    }
+
     var body: some View {
         Button("New File…") { workspace.promptNewFile(in: target) }
         Button("New Folder…") { workspace.promptNewFolder(in: target) }
-        if let target {
+        if let target, isRoot {
+            Divider()
+            Button("Add Folder to Workspace…") { workspace.presentAddFolderPanel() }
+            Button("Remove Folder from Workspace") { workspace.removeFolder(target) }
+            Divider()
+            Button("Reveal in Finder") { workspace.revealInFinder(target) }
+            Button("Copy Path") { workspace.copyPath(target, relative: false) }
+        } else if let target {
             Divider()
             Button("Rename…") { workspace.promptRename(target) }
             Button("Move to Trash") { workspace.trash([target]) }
@@ -50,7 +75,34 @@ private struct ExplorerMenu: View {
             Button("Reveal in Finder") { workspace.revealInFinder(target) }
             Button("Copy Path") { workspace.copyPath(target, relative: false) }
             Button("Copy Relative Path") { workspace.copyPath(target, relative: true) }
+        } else {
+            Divider()
+            Button("Add Folder to Workspace…") { workspace.presentAddFolderPanel() }
         }
+    }
+}
+
+/// A workspace folder's top-level row: its name (or the one the workspace gives it) and branch.
+private struct FolderRootRow: View {
+    let name: String
+    let url: URL
+    let branch: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Label {
+                Text(name).fontWeight(.semibold)
+            } icon: {
+                Image(systemName: "folder.fill").foregroundStyle(Color.accentColor)
+            }
+            .lineLimit(1)
+            Spacer(minLength: 4)
+            if let branch {
+                Text(branch).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+        }
+        .transaction { $0.animation = nil }
+        .help((url.path as NSString).abbreviatingWithTildeInPath)
     }
 }
 

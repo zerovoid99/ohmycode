@@ -75,6 +75,21 @@ targets:
             CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             LSItemContentTypes: [public.source-code, public.script, public.shell-script, public.text, public.plain-text, public.json, public.xml, public.yaml, net.daringfireball.markdown]
+          # Workspace files (several folders in one window), and VS Code's, opened the same way.
+          - CFBundleTypeName: Oh My Code Workspace
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes: [dev.zerovoid99.ohmycode.workspace]
+          - CFBundleTypeName: VS Code Workspace
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            CFBundleTypeExtensions: [code-workspace]
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: dev.zerovoid99.ohmycode.workspace
+            UTTypeDescription: Oh My Code Workspace
+            UTTypeConformsTo: [public.json, public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [omc-workspace]
         # Sparkle: the appcast of the latest GitHub release, signed with this key's private half
         # (in the release maker's keychain, account "ohmycode"). Checked at launch and daily.
         SUFeedURL: https://github.com/zerovoid99/ohmycode/releases/latest/download/appcast.xml

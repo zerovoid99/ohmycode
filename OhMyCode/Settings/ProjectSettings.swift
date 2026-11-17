@@ -100,30 +100,45 @@ extension Workspace {
     var effectiveAutoSave: AutoSave { projectSettings.autoSave ?? AppSettings.shared.autoSave }
     var effectiveAutoSaveDelay: Double { projectSettings.autoSaveDelay ?? AppSettings.shared.autoSaveDelay }
 
-    /// Reads `.omc/settings.json` again (opening the folder, or after it changed); editors
-    /// restyle with the new values.
+    /// Reads every folder's `.omc/settings.json` again (opening the folders, or after one
+    /// changed); editors restyle with the new values. The window's own settings (auto save) are
+    /// the first folder's, over the workspace file's.
     func loadProjectSettings() {
-        var settings = ProjectSettings()
-        if let root = rootURL, let data = try? Data(contentsOf: root.appending(path: ProjectSettings.file)) {
-            do {
-                settings = try ProjectSettings(json: data)
-                if !settings.unknownKeys.isEmpty {
-                    let names = settings.unknownKeys.map { "“\($0)”" }.joined(separator: ", ")
-                    Task { _ = await notify(.warning, "\(ProjectSettings.file): \(names) isn't a setting it knows.", source: nil) }
+        var all: [URL: ProjectSettings] = [:]
+        for folder in folders {
+            var settings = ProjectSettings()
+            let name = isMultiRoot ? label(of: folder) + "/" + ProjectSettings.file : ProjectSettings.file
+            if let data = try? Data(contentsOf: folder.appending(path: ProjectSettings.file)) {
+                do {
+                    settings = try ProjectSettings(json: data)
+                    if !settings.unknownKeys.isEmpty {
+                        let names = settings.unknownKeys.map { "“\($0)”" }.joined(separator: ", ")
+                        Task { _ = await notify(.warning, "\(name): \(names) isn't a setting it knows.", source: nil) }
+                    }
+                } catch {
+                    Task { _ = await notify(.warning, "\(name) couldn't be read: it isn't valid JSON.", source: nil) }
                 }
-            } catch {
-                Task { _ = await notify(.warning, "\(ProjectSettings.file) couldn't be read: it isn't valid JSON.", source: nil) }
             }
+            all[folder] = settings
         }
-        guard settings != projectSettings else { return }
-        projectSettings = settings
+        let primary = (rootURL.flatMap { all[$0] } ?? ProjectSettings()).over(workspaceSettings)
+        guard all != folderSettings || primary != projectSettings else { return }
+        folderSettings = all
+        projectSettings = primary
         // Editors apply settings when they change: the same path as the app's.
         for document in documents { document.editors.forEach { $0.projectSettingsChanged() } }
     }
 
-    /// Preferences: Open Folder Settings: `.omc/settings.json`, written from a template first.
+    /// Whether a file is one of the folders' `.omc/settings.json`.
+    func isProjectSettingsFile(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return folders.contains { $0.appending(path: ProjectSettings.file).standardizedFileURL.path == path }
+    }
+
+    /// Preferences: Open Folder Settings: `.omc/settings.json` (the active file's folder's, or
+    /// the first folder's), written from a template first.
     func openProjectSettings() {
-        guard let root = rootURL else { NSSound.beep(); return }
+        guard let root = activeDocument.flatMap({ folder(containing: $0.url) }) ?? rootURL else { NSSound.beep(); return }
         let url = root.appending(path: ProjectSettings.file)
         do {
             if !FileManager.default.fileExists(atPath: url.path) {
@@ -138,6 +153,6 @@ extension Workspace {
 }
 
 extension EditorDocument {
-    /// The folder's settings (none outside a folder).
-    var projectSettings: ProjectSettings { workspace?.projectSettings ?? ProjectSettings() }
+    /// The settings of the folder it's in (over the workspace file's); none outside a folder.
+    var projectSettings: ProjectSettings { workspace?.settings(for: url) ?? ProjectSettings() }
 }

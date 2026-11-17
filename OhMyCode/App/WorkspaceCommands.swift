@@ -19,17 +19,27 @@ struct WorkspaceCommands: Commands {
             Button("Open Folder…") { workspace?.presentOpenPanel() }
                 .keyboardShortcut(keys.shortcut("file.openFolder"))
                 .disabled(workspace == nil)
+            Button("Open Workspace…") { workspace?.presentOpenWorkspacePanel() }
+                .disabled(workspace == nil)
             Menu("Open Recent") {
                 let recent = RecentFolders.shared.existing
                 ForEach(recent, id: \.self) { url in
-                    Button(url.lastPathComponent + "  —  " + (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath) {
+                    Button {
                         OpenRouter.shared.open(OpenRequest(url: url))
+                    } label: {
+                        Label(RecentFolders.title(for: url) + "  —  " + (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath,
+                              systemImage: RecentFolders.symbol(for: url))
                     }
                 }
                 if !recent.isEmpty { Divider() }
                 Button("Clear Menu") { RecentFolders.shared.clear() }
                     .disabled(recent.isEmpty)
             }
+            Divider()
+            Button("Add Folder to Workspace…") { workspace?.presentAddFolderPanel() }
+                .disabled(workspace?.rootURL == nil)
+            Button("Save Workspace As…") { workspace?.presentSaveWorkspacePanel() }
+                .disabled(workspace?.rootURL == nil)
         }
 
         CommandGroup(after: .appInfo) {

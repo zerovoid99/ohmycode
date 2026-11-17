@@ -5,8 +5,10 @@ import Observation
 /// write files, show where it's working.
 @MainActor
 protocol AgentHost: AnyObject {
-    /// The folder the agent works in; it may read and write only inside it.
+    /// The folder the agent works in (its session's `cwd`).
     var agentRootURL: URL? { get }
+    /// The folders it may read and write in: the window's (`agentRootURL` first).
+    var agentFolders: [URL] { get }
     /// The file's text as the editor has it (an open file's unsaved changes included).
     func agentReadText(_ url: URL) throws -> String
     /// Replaces the file's text (an open file's, as one undo step, then saved).
@@ -661,17 +663,23 @@ final class AgentClient {
         ["exitCode": status.exitCode.map { Int($0) as Any } ?? NSNull(), "signal": status.signal ?? NSNull()]
     }
 
-    /// An absolute path inside the workspace folder.
+    /// An absolute path inside one of the workspace's folders.
     private func fileURL(_ value: Any?) throws -> URL {
         guard let path = value as? String, path.hasPrefix("/") else { throw AgentError(code: -32602, message: "The path must be absolute") }
         let url = URL(filePath: path).standardizedFileURL
-        let root = rootURL.standardizedFileURL.path
+        let folders = host?.agentFolders ?? [rootURL]
         // Both as given and with links followed (also in a new file's folders): a link inside
         // pointing outside doesn't count.
-        guard url.path == root || url.path.hasPrefix(root + "/"), url.isWithin(rootURL) else {
+        guard folders.contains(where: { Self.isInside(url, $0) }) else {
             throw AgentError(code: -32602, message: "\(path) is outside the workspace")
         }
         return url
+    }
+
+    /// `url` is `folder` or in it, both as written and with links followed.
+    static func isInside(_ url: URL, _ folder: URL) -> Bool {
+        let root = folder.standardizedFileURL.path
+        return (url.path == root || url.path.hasPrefix(root + "/")) && url.isWithin(folder)
     }
 }
 

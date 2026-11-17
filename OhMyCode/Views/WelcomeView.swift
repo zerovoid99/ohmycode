@@ -90,9 +90,11 @@ private struct RecentFolderRow: View {
     var body: some View {
         Button(action: open) {
             HStack(spacing: 10) {
-                Image(systemName: "folder").foregroundStyle(Color(nsColor: .systemBlue).opacity(0.8)).frame(width: 18)
+                Image(systemName: RecentFolders.symbol(for: url))
+                    .foregroundStyle(Color(nsColor: WorkspaceFile.isWorkspaceFile(url) ? .systemPurple : .systemBlue).opacity(0.8))
+                    .frame(width: 18)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(url.lastPathComponent).foregroundStyle(.primary).lineLimit(1)
+                    Text(RecentFolders.title(for: url)).foregroundStyle(.primary).lineLimit(1)
                     Text((url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath)
                         .font(.caption)
                         .foregroundStyle(.secondary)

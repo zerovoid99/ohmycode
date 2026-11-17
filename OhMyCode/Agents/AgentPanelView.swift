@@ -595,11 +595,15 @@ private struct AgentLogView: View {
 extension Workspace {
     /// `text` with paths inside the folder made relative to it (agents name files by their
     /// full paths, too long for the sidebar).
+    /// With several folders, a path is shortened to its folder's label and the rest.
     func shortenedPaths(in text: String) -> String {
-        guard let root = rootURL else { return text }
         var result = text
-        for prefix in Set([root.path, root.resolvingSymlinksInPath().path, "/private" + root.path]) {
-            result = result.replacingOccurrences(of: prefix + "/", with: "")
+        // Deeper folders first (one may be inside another).
+        for root in folders.sorted(by: { $0.path.count > $1.path.count }) {
+            let replacement = isMultiRoot ? label(of: root) + "/" : ""
+            for prefix in Set([root.path, root.resolvingSymlinksInPath().path, "/private" + root.path]) {
+                result = result.replacingOccurrences(of: prefix + "/", with: replacement)
+            }
         }
         return result
     }

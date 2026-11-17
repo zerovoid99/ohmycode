@@ -274,11 +274,11 @@ final class PaletteModel {
     }
 
     private func recentAndFirstFiles(in index: FileIndex) -> [PaletteItem] {
-        let rootPath = index.root.standardizedFileURL.path + "/"
+        // Recent files in the folders (with several, their paths start with the folder's label).
         let recent = workspace.recentFiles.compactMap { url -> PaletteItem? in
-            let path = url.standardizedFileURL.path
-            guard path.hasPrefix(rootPath) else { return nil }
-            return Self.fileItem(FuzzyCandidate(String(path.dropFirst(rootPath.count))), index: index, positions: [])
+            guard let path = index.roots.path(of: url), !path.isEmpty,
+                  !index.roots.folders.contains(where: { $0.url.standardizedFileURL == url.standardizedFileURL }) else { return nil }
+            return Self.fileItem(FuzzyCandidate(path), index: index, positions: [])
         }
         let recentIDs = Set(recent.map(\.id))
         let rest = index.files.lazy

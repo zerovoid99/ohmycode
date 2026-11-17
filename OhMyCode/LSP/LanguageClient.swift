@@ -42,9 +42,19 @@ final class LanguageClient {
     /// The server failed to start or exited (not after `shutdown`).
     @ObservationIgnored var onFailure: (() -> Void)?
 
-    init(name: String, command: [String], rootURL: URL, environment: [String: String]) throws {
+    /// The folders the server works on (sent in `initialize`; changes are sent if it takes
+    /// them): the folder it starts in, or, for a server shared by a window's folders, all of them.
+    @ObservationIgnored private(set) var workspaceFolders: [URL]
+    /// Folder changes made while it was starting, sent once it says it takes them.
+    @ObservationIgnored private var pendingFolderChange: (added: [URL], removed: [URL])?
+
+    /// The folder the server was started in (its `rootUri`).
+    var rootFolder: URL { rootURL }
+
+    init(name: String, command: [String], rootURL: URL, workspaceFolders: [URL] = [], environment: [String: String]) throws {
         self.name = name
         self.rootURL = rootURL
+        self.workspaceFolders = workspaceFolders.isEmpty ? [rootURL] : workspaceFolders
         connection = try LanguageServerConnection(command: command, directory: rootURL, environment: environment, parsesMessages: true)
         connection.onParsedMessage = { [weak self] message in self?.handle(message) }
         connection.onExit = { [weak self] status in self?.serverDidExit(status) }
@@ -62,7 +72,7 @@ final class LanguageClient {
             "processId": Int(ProcessInfo.processInfo.processIdentifier),
             "clientInfo": ["name": "Oh My Code"],
             "rootUri": rootURL.absoluteString,
-            "workspaceFolders": [["uri": rootURL.absoluteString, "name": rootURL.lastPathComponent]],
+            "workspaceFolders": workspaceFolders.map(Self.folderJSON),
             "capabilities": [
                 "general": ["positionEncodings": ["utf-16"]],
                 "window": ["workDoneProgress": true],
@@ -135,6 +145,10 @@ final class LanguageClient {
             state = .ready
             queued.forEach(connection.send)
             queued.removeAll()
+            if let change = pendingFolderChange {
+                pendingFolderChange = nil
+                sendFolderChange(added: change.added, removed: change.removed)
+            }
         } catch {
             fail(error.localizedDescription)
         }
@@ -380,6 +394,46 @@ final class LanguageClient {
         case rangeFormatting = "documentRangeFormattingProvider"
         case foldingRange = "foldingRangeProvider"
         case codeLens = "codeLensProvider"
+    }
+
+    /// The server works on several folders at once (`workspace.workspaceFolders.supported`):
+    /// one is shared by all a window's folders. Known once it's ready.
+    var supportsWorkspaceFolders: Bool {
+        let folders = (capabilities["workspace"] as? [String: Any])?["workspaceFolders"] as? [String: Any]
+        return folders?["supported"] as? Bool == true
+    }
+
+    /// The window's folders changed: the server hears it (`workspace/didChangeWorkspaceFolders`)
+    /// if it takes several; asked for its folders, it lists the new ones either way.
+    func changeWorkspaceFolders(added: [URL], removed: [URL]) {
+        let added = added.filter { !workspaceFolders.contains($0) }
+        let removed = removed.filter { workspaceFolders.contains($0) }
+        guard !added.isEmpty || !removed.isEmpty else { return }
+        workspaceFolders = workspaceFolders.filter { !removed.contains($0) } + added
+        switch state {
+        case .starting:
+            let earlier = pendingFolderChange ?? ([], [])
+            pendingFolderChange = (earlier.added.filter { !removed.contains($0) } + added,
+                                   earlier.removed.filter { !added.contains($0) } + removed)
+        case .ready:
+            sendFolderChange(added: added, removed: removed)
+        case .failed, .stopped:
+            break
+        }
+    }
+
+    private func sendFolderChange(added: [URL], removed: [URL]) {
+        let folders = (capabilities["workspace"] as? [String: Any])?["workspaceFolders"] as? [String: Any]
+        // `changeNotifications`: true, or an id to register them under; either means it wants them.
+        let notifications = folders?["changeNotifications"]
+        guard supportsWorkspaceFolders, (notifications as? Bool) == true || notifications is String else { return }
+        notify("workspace/didChangeWorkspaceFolders", params: ["event": [
+            "added": added.map(Self.folderJSON), "removed": removed.map(Self.folderJSON),
+        ]])
+    }
+
+    private static func folderJSON(_ url: URL) -> [String: Any] {
+        ["uri": url.absoluteString, "name": url.lastPathComponent]
     }
 
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
@@ -715,7 +769,7 @@ final class LanguageClient {
                 response["result"] = ["applied": applied]
             }
         case "workspace/workspaceFolders":
-            response["result"] = [["uri": rootURL.absoluteString, "name": rootURL.lastPathComponent]]
+            response["result"] = workspaceFolders.map(Self.folderJSON)
         case "window/workDoneProgress/create", "client/registerCapability", "client/unregisterCapability",
              "window/showMessageRequest", "window/showDocument":
             response["result"] = NSNull()

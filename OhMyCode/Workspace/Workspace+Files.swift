@@ -124,27 +124,34 @@ extension Workspace {
         }
     }
 
-    /// Dropped on a folder in the Explorer: moves there (keeping the name). From outside the
-    /// folder (Finder, another window), it's copied: the original stays where it was.
+    /// The window's folders as their real paths (links followed).
+    private var canonicalFolderPaths: [String] { folders.map(FileWatcher.canonicalPath) }
+
+    /// Whether a real path is one of the window's folders or inside one.
+    private func isInsideFolders(_ path: String) -> Bool {
+        canonicalFolderPaths.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
+    /// Dropped on a folder in the Explorer: moves there (keeping the name), also from one of the
+    /// window's folders to another. From outside them (Finder, another window), it's copied:
+    /// the original stays where it was.
     @discardableResult
     func move(_ url: URL, into folder: URL) async -> URL? {
-        guard folder.standardizedFileURL != url.deletingLastPathComponent().standardizedFileURL else { return nil }
-        guard let root = rootURL else { return nil }
-        let rootPath = FileWatcher.canonicalPath(root)
+        guard folder.standardizedFileURL != url.deletingLastPathComponent().standardizedFileURL, !folders.isEmpty else { return nil }
         let sourcePath = FileWatcher.canonicalPath(url)
-        guard sourcePath != rootPath else { return nil }
-        guard sourcePath.hasPrefix(rootPath + "/") else { return copy(url, into: folder) }
+        // A workspace folder itself isn't moved.
+        guard !canonicalFolderPaths.contains(sourcePath) else { return nil }
+        guard isInsideFolders(sourcePath) else { return copy(url, into: folder) }
         return await move(url, to: folder.appending(path: url.lastPathComponent))
     }
 
-    /// Copies a file or folder from elsewhere into one of the folder's.
+    /// Copies a file or folder from elsewhere into one of the window's folders.
     @discardableResult
     func copy(_ source: URL, into folder: URL) -> URL? {
         do {
-            guard let root = rootURL else { throw FileOperationError.outsideFolder }
+            guard !folders.isEmpty else { throw FileOperationError.outsideFolder }
             let folderPath = FileWatcher.canonicalPath(folder)
-            let rootPath = FileWatcher.canonicalPath(root)
-            guard folderPath == rootPath || folderPath.hasPrefix(rootPath + "/"),
+            guard isInsideFolders(folderPath),
                   // Not a folder into itself.
                   !(folderPath + "/").hasPrefix(FileWatcher.canonicalPath(source) + "/") else { throw FileOperationError.outsideFolder }
             let destination = folder.appending(path: source.lastPathComponent)
@@ -165,10 +172,9 @@ extension Workspace {
     @discardableResult
     func move(_ source: URL, to destination: URL) async -> URL? {
         do {
-            guard let root = rootURL else { throw FileOperationError.outsideFolder }
-            let rootPath = FileWatcher.canonicalPath(root) + "/"
+            guard !folders.isEmpty else { throw FileOperationError.outsideFolder }
             let destinationFolder = FileWatcher.canonicalPath(destination.deletingLastPathComponent()) + "/"
-            guard destinationFolder.hasPrefix(rootPath) else { throw FileOperationError.outsideFolder }
+            guard isInsideFolders(String(destinationFolder.dropLast())) else { throw FileOperationError.outsideFolder }
             // Into itself (a folder dropped on its own child).
             guard !destinationFolder.hasPrefix(FileWatcher.canonicalPath(source) + "/") else { throw FileOperationError.outsideFolder }
             guard !FileManager.default.fileExists(atPath: destination.path)
@@ -282,12 +288,13 @@ extension Workspace {
 
     /// Shows a change in the tree at once (the file watcher catches up too).
     func reloadTree(around url: URL) {
-        guard let rootNode, let root = rootURL else { return }
-        let rootPath = FileWatcher.canonicalPath(root)
         let parent = FileWatcher.canonicalPath(url.deletingLastPathComponent())
-        guard parent == rootPath || parent.hasPrefix(rootPath + "/") else { return }
-        let relative = parent == rootPath ? "" : String(parent.dropFirst(rootPath.count + 1))
-        let components = relative.isEmpty ? [] : relative.split(separator: "/").map(String.init)
-        rootNode.loadedNode(atRelativePath: components)?.reloadChildren()
+        // Every folder it's in (one may be inside another: both trees show it).
+        for (index, rootPath) in canonicalFolderPaths.enumerated() where index < rootNodes.count {
+            guard parent == rootPath || parent.hasPrefix(rootPath + "/") else { continue }
+            let relative = parent == rootPath ? "" : String(parent.dropFirst(rootPath.count + 1))
+            let components = relative.isEmpty ? [] : relative.split(separator: "/").map(String.init)
+            rootNodes[index].loadedNode(atRelativePath: components)?.reloadChildren()
+        }
     }
 }

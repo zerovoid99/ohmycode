@@ -135,6 +135,26 @@ struct ClaudeCodeServerTests {
         return claude
     }
 
+    /// Several folders: the lock file and getWorkspaceFolders list all of them.
+    @Test func listsEveryWorkspaceFolder() async throws {
+        let fixture = try makeFixture()
+        defer { tearDown(fixture) }
+        let second = FileManager.default.temporaryDirectory.appending(path: "omc-claude-second-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        fixture.workspace.addFolder(second)
+        let (port, _) = try await lockFile(fixture)
+        let url = fixture.lockDirectory.appending(path: "\(port).lock")
+        let lock = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        #expect(lock["workspaceFolders"] as? [String] == [fixture.root.path, second.path])
+
+        let claude = try await connect(fixture)
+        defer { claude.close() }
+        let folders = try #require(try await tool(claude, "getWorkspaceFolders").json as? [String: Any])
+        #expect(folders["rootPath"] as? String == fixture.root.path)
+        let listed = (folders["folders"] as? [[String: Any]])?.compactMap { $0["path"] as? String }
+        #expect(listed == [fixture.root.path, second.path])
+    }
+
     @Test func writesALockFileAndTakesOnlyItsToken() async throws {
         let fixture = try makeFixture()
         defer { tearDown(fixture) }
@@ -293,6 +313,7 @@ struct ClaudeCodeServerTests {
 
         let folders = try #require(try await tool(claude, "getWorkspaceFolders").json as? [String: Any])
         #expect(folders["rootPath"] as? String == fixture.root.path)
+        #expect((folders["folders"] as? [[String: Any]])?.count == 1)
 
         // The selection: 0-based lines, the end exclusive.
         fixture.controller.textView.setSelectedRange(NSRange(location: 14, length: 9)) // "b = 2\nlet"

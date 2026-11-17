@@ -136,6 +136,7 @@ struct ExtensionHostTests {
       register('basic.require', () => require('fs'));
       register('basic.throw', () => { throw new Error('boom'); });
       register('basic.outside', () => omc.workspace.fs.readFile('/etc/hosts'));
+      register('basic.readPath', (path) => omc.workspace.fs.readFile(path));
       register('basic.throughLink', () => omc.workspace.fs.writeFile('link/escaped.txt', 'escaped'));
       register('basic.gitConfig', () => omc.workspace.fs.writeFile('.git/config', '[core]\\n\\tfsmonitor = /tmp/evil'));
       register('basic.gitHook', () => omc.workspace.fs.writeFile('sub/../.GIT/hooks/pre-commit', 'evil'));
@@ -281,6 +282,21 @@ struct ExtensionHostTests {
         // Still running after all that.
         #expect(workspace.extensions.extensions.first?.state == .active)
         #expect(try await run(workspace, "basic.timer") == .string("fired"))
+        withExtendedLifetime(window) {}
+    }
+
+    /// With several folders, files in any of them are inside; others still need the permission.
+    @Test func everyWorkspaceFolderIsInside() async throws {
+        let (workspace, _, _, _, window) = try await makeBasic()
+        let second = FileManager.default.temporaryDirectory.appending(path: "omc-ext-second-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        try "second".write(to: second.appending(path: "b.txt"), atomically: true, encoding: .utf8)
+        let path = JSONValue.string(second.appending(path: "b.txt").path)
+        var refused: String?
+        do { _ = try await workspace.extensions.executeCommand("basic.readPath", arguments: [path]) } catch { refused = error.localizedDescription }
+        #expect(refused?.contains("outside the open folder") == true)
+        workspace.addFolder(second)
+        #expect(try await workspace.extensions.executeCommand("basic.readPath", arguments: [path]) == .string("second"))
         withExtendedLifetime(window) {}
     }
 

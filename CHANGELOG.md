@@ -19,6 +19,18 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
   objects, registers (with the system clipboard as `"+`), `.` to repeat, `u` and ⌃R, search with
   `/` and `*`, and `:w`, `:q`, `:s` and other commands. The status bar shows the mode and the
   command line, and Normal mode has a block cursor. ⌘ shortcuts keep working in every mode.
+- Several folders in one window: File ▸ Add Folder to Workspace… adds one (right-click a folder
+  in the Explorer to remove it), and each shows as its own top-level folder with its git badges.
+  Files can be dragged between folders.
+- Workspace files: File ▸ Save Workspace As… keeps the folders (and settings for all of them) in
+  a `.omc-workspace` file, and File ▸ Open Workspace… opens one. VS Code's `.code-workspace` files
+  open too, also from Finder, `omc` and Open Recent, where workspaces have their own icon. A
+  window with several folders that wasn't saved comes back at the next launch.
+- With several folders, Quick Open and Find in Files search all of them and show each file's
+  folder; `name/**` (or the folder menu) searches just one. Source Control lists each repository
+  with its branch, and the status bar shows the branch of the active file's repository.
+- Language servers, tasks, launch configurations, agents and the Claude Code integration work
+  with every folder of the window; `${workspaceFolder}` is the task's own folder.
 
 ## [0.1.9] - 2026-11-18
 

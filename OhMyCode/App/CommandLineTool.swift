@@ -112,7 +112,7 @@ extension Workspace {
     /// File: Open Recent…: picks a recent folder (opened in its window, or this one if empty).
     func pickRecentFolder() async {
         let folders = RecentFolders.shared.existing
-        let items = folders.map { QuickPickItem(label: $0.lastPathComponent,
+        let items = folders.map { QuickPickItem(label: RecentFolders.title(for: $0),
                                                 description: ($0.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath) }
         guard let index = await showQuickPick(items, placeholder: "Folder to open"), folders.indices.contains(index) else { return }
         OpenRouter.shared.open(OpenRequest(url: folders[index]))

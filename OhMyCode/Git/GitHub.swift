@@ -148,7 +148,7 @@ enum GitHub {
 extension Workspace {
     /// Pull Requests: the repository's open pull requests (`gh pr list`).
     func refreshPullRequests() async {
-        guard let root = rootURL else { return }
+        guard let root = gitRootURL else { return }
         isLoadingPullRequests = true
         defer { isLoadingPullRequests = false }
         do {
@@ -162,7 +162,7 @@ extension Workspace {
 
     /// Opens one: its description, files, reviews and comments.
     func showPullRequest(_ number: Int) async {
-        guard let root = rootURL else { return }
+        guard let root = gitRootURL else { return }
         do {
             openPullRequest = try await GitHub.details(of: number, in: root)
         } catch {
@@ -172,7 +172,7 @@ extension Workspace {
 
     /// Checks out its branch (`gh pr checkout`), then reads git again.
     func checkoutPullRequest(_ number: Int) async {
-        guard let root = rootURL else { return }
+        guard let root = gitRootURL else { return }
         isRunningGitCommand = true
         defer { isRunningGitCommand = false }
         do {
@@ -197,7 +197,7 @@ extension Workspace {
     /// Returns its URL.
     @discardableResult
     func createPullRequest(title: String, body: String, draft: Bool) async -> String? {
-        guard let root = rootURL, let repository = gitRepository else { return nil }
+        guard let root = gitRootURL, let repository = gitRepository else { return nil }
         isRunningGitCommand = true
         defer { isRunningGitCommand = false }
         do {

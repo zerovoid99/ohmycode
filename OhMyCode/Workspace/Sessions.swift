@@ -33,6 +33,12 @@ struct WindowSession: Codable, Equatable {
     }
 
     var root: String?
+    /// A workspace's folders (all of them, `root` first) and their given names; its file, or
+    /// for an unsaved one, its id. Absent for a single folder.
+    var folders: [String]?
+    var folderNames: [String: String]?
+    var workspaceFile: String?
+    var untitledWorkspaceID: String?
     /// Open files, in tab order; the active one.
     var files: [String]
     var activeFile: String?
@@ -155,7 +161,12 @@ final class SessionStore {
 }
 
 extension Workspace {
-    var sessionKey: String { SessionStore.key(root: rootURL, windowID: id) }
+    /// The workspace file's key, an unsaved workspace's, or the folder's (or the window's).
+    var sessionKey: String {
+        if let workspaceFile { return SessionStore.key(workspaceFile: workspaceFile) }
+        if let untitledWorkspaceID { return SessionStore.key(untitledWorkspace: untitledWorkspaceID) }
+        return SessionStore.key(root: rootURL, windowID: id)
+    }
 
     /// What the window has open now, and the texts of unsaved files changed since their last
     /// backup (`all`: every unsaved file's).
@@ -173,8 +184,15 @@ extension Workspace {
         // Viewer tabs too: opening their files again makes viewers of them.
         let files = groups.flatMap(\.documentIDs).compactMap { id in (document(id: id)?.url ?? viewer(id: id)?.url)?.path }
         var seen = Set<String>()
-        let session = WindowSession(root: rootURL?.path, files: files.filter { seen.insert($0).inserted },
+        var session = WindowSession(root: rootURL?.path, files: files.filter { seen.insert($0).inserted },
                                     activeFile: (activeDocument?.url ?? activeViewer?.url)?.path, unsaved: buffers, wasOpen: wasOpen)
+        if workspaceFile != nil || untitledWorkspaceID != nil {
+            session.folders = folders.map(\.path)
+            session.folderNames = folderNames.isEmpty ? nil
+                : Dictionary(folderNames.map { ($0.key.path, $0.value) }, uniquingKeysWith: { a, _ in a })
+            session.workspaceFile = workspaceFile?.path
+            session.untitledWorkspaceID = untitledWorkspaceID?.uuidString
+        }
         return (session, texts)
     }
 
@@ -345,7 +363,20 @@ extension Workspace {
     /// At launch: the windows open when the app last quit (or crashed) come back.
     static func reopenLastSessions(open: (OpenRequest) -> Void) {
         for (key, session) in SessionStore.shared.all() where session.wasOpen {
-            if let root = session.root {
+            if let file = session.workspaceFile {
+                guard FileManager.default.fileExists(atPath: file) else { SessionStore.shared.remove(key); continue }
+                open(OpenRequest(url: URL(fileURLWithPath: file)))
+            } else if let id = session.untitledWorkspaceID.flatMap(UUID.init(uuidString:)), let folders = session.folders {
+                // An unsaved workspace: its folders that are still there, in their window.
+                let existing = folders.filter { FileManager.default.fileExists(atPath: $0) }.map { URL(fileURLWithPath: $0, isDirectory: true) }
+                guard let first = existing.first else { SessionStore.shared.remove(key); continue }
+                var request = OpenRequest(url: first)
+                let names = session.folderNames ?? [:]
+                request.workspace = .init(id: id, folders: existing,
+                                          names: Dictionary(existing.compactMap { url in names[url.path].map { (url, $0) } },
+                                                            uniquingKeysWith: { a, _ in a }))
+                open(request)
+            } else if let root = session.root {
                 guard FileManager.default.fileExists(atPath: root) else { SessionStore.shared.remove(key); continue }
                 open(OpenRequest(url: URL(fileURLWithPath: root, isDirectory: true)))
             } else {

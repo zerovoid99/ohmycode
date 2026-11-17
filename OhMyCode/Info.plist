@@ -38,6 +38,30 @@
 				<string>net.daringfireball.markdown</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Oh My Code Workspace</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>dev.zerovoid99.ohmycode.workspace</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>code-workspace</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>VS Code Workspace</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
@@ -72,5 +96,26 @@
 	<string>tqZm2sCnQ1764jVbYkup8gdfdcXwWg1ADqhr7K8dAfc=</string>
 	<key>SUScheduledCheckInterval</key>
 	<integer>86400</integer>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Oh My Code Workspace</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.zerovoid99.ohmycode.workspace</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>omc-workspace</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

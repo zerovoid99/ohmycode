@@ -2,11 +2,25 @@ import Foundation
 
 /// Flat list of a workspace's files, prepared for fuzzy matching.
 struct FileIndex: Sendable {
-    let root: URL
+    /// The folders; with several, each path starts with its folder's label (see `WorkspaceRoots`).
+    let roots: WorkspaceRoots
     let files: [FuzzyCandidate]
 
+    init(root: URL, files: [FuzzyCandidate]) {
+        roots = WorkspaceRoots(single: root)
+        self.files = files
+    }
+
+    init(roots: WorkspaceRoots, files: [FuzzyCandidate]) {
+        self.roots = roots
+        self.files = files
+    }
+
+    /// The primary folder.
+    var root: URL { roots.folders.first?.url ?? URL(filePath: "/") }
+
     func url(for candidate: FuzzyCandidate) -> URL {
-        root.appending(path: candidate.text, directoryHint: .notDirectory)
+        roots.url(for: candidate.text) ?? root.appending(path: candidate.text, directoryHint: .notDirectory)
     }
 }
 
@@ -22,6 +36,19 @@ enum FileIndexer {
         let paths = gitFiles(root: root) ?? walk(root: root)
         let sorted = paths.prefix(maxFiles).sorted()
         return FileIndex(root: root, files: sorted.map(FuzzyCandidate.init))
+    }
+
+    /// Every folder's files, each folder's prefixed with its label when there are several.
+    static func build(roots: WorkspaceRoots) -> FileIndex {
+        guard roots.isMultiRoot, !roots.folders.isEmpty else {
+            return FileIndex(roots: roots, files: build(root: roots.folders.first?.url ?? URL(filePath: "/")).files)
+        }
+        var paths: [String] = []
+        for folder in roots.folders {
+            let own = gitFiles(root: folder.url) ?? walk(root: folder.url)
+            paths += roots.paths(own.prefix(maxFiles / roots.folders.count).sorted(), in: folder)
+        }
+        return FileIndex(roots: roots, files: paths.map(FuzzyCandidate.init))
     }
 
     private static func gitFiles(root: URL) -> [String]? {
