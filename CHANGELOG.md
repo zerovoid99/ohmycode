@@ -5,6 +5,8 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-18
+
 ### Changed
 - Saving (⌘S) a file that changed on disk since it was opened asks first: overwrite it, revert
   to what's on disk, or cancel.
@@ -130,7 +132,8 @@ tree-sitter highlighting, language servers, git, an integrated terminal and exte
 - The gutter and overlays redraw only the rows and marks that change, and line numbers are drawn
   from cached glyphs.
 
-[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/zerovoid99/ohmycode/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/zerovoid99/ohmycode/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/zerovoid99/ohmycode/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/zerovoid99/ohmycode/compare/v0.1.3...v0.1.4
