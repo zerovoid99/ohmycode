@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<!-- Written by scripts/icon/generate.py: change it there. -->
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#161616"/><stop offset="1" stop-color="#050505"/></linearGradient></defs>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+<rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#F5F5F5" stroke-opacity="0.1" stroke-width="3"/>
+<g transform="translate(512 512) scale(1.4) translate(-256 -256)">
+  <path d="M256 66 L420.5 161 V351 L256 446 L91.5 351 V161 Z" fill="none" stroke="#F5F5F5" stroke-width="22" stroke-linejoin="round"/>
+  <path d="M53.19 352.30 A222 90 -24 0 1 94.20 260.25 A222 90 -24 0 1 244.38 169.39" fill="none" stroke="#C5FF4A" stroke-width="18" stroke-linecap="butt" stroke-linejoin="round"/>
+  <path d="M325.70 145.65 A222 90 -24 0 1 458.81 171.70" fill="none" stroke="#C5FF4A" stroke-width="18" stroke-linecap="butt" stroke-linejoin="round"/>
+  <path d="M190.5 218.3 L223.2 218.3 L181.1 262.0 L223.2 305.7 L190.5 305.7 L148.4 262.0 Z M321.5 218.3 L288.8 218.3 L330.9 262.0 L288.8 305.7 L321.5 305.7 L363.6 262.0 Z M272.0 142.0 L308.0 142.0 L231.2 398.0 L195.2 398.0 Z" fill="#F5F5F5"/>
+  <path d="M458.03 170.08 A222 90 -24 0 1 390.15 287.26 A222 90 -24 0 1 185.01 378.60 A222 90 -24 0 1 52.50 350.63" fill="none" stroke="#C5FF4A" stroke-width="18" stroke-linecap="butt" stroke-linejoin="round"/>
+</g>
+</svg>

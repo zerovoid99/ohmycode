@@ -9,11 +9,7 @@ struct WelcomeView: View {
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Image(systemName: "chevron.left.forwardslash.chevron.right")
-                        .font(.system(size: 30, weight: .medium))
-                        .foregroundStyle(.tint)
-                        .frame(width: 64, height: 64)
-                        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 15))
+                    AppIconImage(size: 78)
                     Text("Oh My Code").font(.largeTitle.weight(.semibold))
                     Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")")
                         .font(.callout).foregroundStyle(.secondary)
@@ -118,5 +114,20 @@ private struct RecentFolderRow: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .help(url.path)
+    }
+}
+
+/// The app's logo, as its icon looks (scripts/icon draws both). Its artwork sits inside a margin,
+/// as icons on macOS do, so it's drawn a little larger than the space it takes.
+struct AppIconImage: View {
+    let size: CGFloat
+
+    var body: some View {
+        Image("AppLogo")
+            .resizable()
+            .interpolation(.high)
+            .frame(width: size, height: size)
+            .padding(-size * 0.1)
+            .accessibilityHidden(true)
     }
 }

@@ -59,11 +59,7 @@ struct StartPageView: View {
 
     private var header: some View {
         HStack(spacing: 14) {
-            Image(systemName: "chevron.left.forwardslash.chevron.right")
-                .font(.system(size: 26, weight: .medium))
-                .foregroundStyle(.tint)
-                .frame(width: 52, height: 52)
-                .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            AppIconImage(size: 64)
             VStack(alignment: .leading, spacing: 3) {
                 Text(workspace.rootURL?.lastPathComponent ?? "Oh My Code").font(.title2.weight(.semibold))
                 if let branch = workspace.gitStatus?.branch {

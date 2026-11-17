@@ -227,6 +227,7 @@
 		D3F4C2A897DA315C7F9495F4 /* AutoEditTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D6B8D0EC034E95570487FEE /* AutoEditTests.swift */; };
 		D3FBB6809B020C010DBE4836 /* SplitEditorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761D7DD6B19C1B92A0D77DE6 /* SplitEditorTests.swift */; };
 		D477F7BD99917931B16AB872 /* Workspace+Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CE2146BEDE3433D4D023C59 /* Workspace+Language.swift */; };
+		D4AE68ED9E04BFA9C017B2C9 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = 10B08B411D5C99AF73C54ADD /* AppIcon.icon */; };
 		D7A7FF2C9BF229A9AD1993F2 /* VSCodeThemeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBBF87613B590ECB033147D6 /* VSCodeThemeTests.swift */; };
 		D86FB78730A855286043A1FF /* TabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7257FD6D9E15285EEF71E95 /* TabBarView.swift */; };
 		D8C6ABCE8BA051908B8BCA37 /* ProcessIOTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 466601DA9EFFBBFF52428B7A /* ProcessIOTests.swift */; };
@@ -294,6 +295,7 @@
 		0E90646D54E679A22AC13D7A /* GhosttyVt */ = {isa = PBXFileReference; lastKnownFileType = folder; name = GhosttyVt; path = Packages/GhosttyVt; sourceTree = SOURCE_ROOT; };
 		0F5E515CEC7CB5BC366E1A8B /* BranchOperationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BranchOperationTests.swift; sourceTree = "<group>"; };
 		1025706C8AB204994FD662CA /* LocalHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHistory.swift; sourceTree = "<group>"; };
+		10B08B411D5C99AF73C54ADD /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		155FAF90197AF2C001C46171 /* AppliedColorsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppliedColorsTests.swift; sourceTree = "<group>"; };
 		1564029D78A9D5DCDEF90529 /* CommitSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommitSearchTests.swift; sourceTree = "<group>"; };
 		15BB3E9E7834F35EE7BD779D /* AgentMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMarkdown.swift; sourceTree = "<group>"; };
@@ -835,6 +837,7 @@
 		7FCCF6589EF07CA1B2FD72E9 /* OhMyCode */ = {
 			isa = PBXGroup;
 			children = (
+				10B08B411D5C99AF73C54ADD /* AppIcon.icon */,
 				7E1225A18A0B61C5F13530A4 /* Info.plist */,
 				859EF35AC76909181C5071A2 /* OhMyCode.entitlements */,
 				61E814BA247E4E52D646DA4F /* Agents */,
@@ -1116,6 +1119,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D4AE68ED9E04BFA9C017B2C9 /* AppIcon.icon in Resources */,
 				8DE8BE5D6654BDB6C1BF6D03 /* Assets.xcassets in Resources */,
 				B853DD05756C3701A4ABD234 /* omc in Resources */,
 				C076F2FE5746C22E917921F1 /* omc.d.ts in Resources */,
