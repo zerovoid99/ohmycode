@@ -509,6 +509,7 @@ final class EditorDocument: Identifiable {
         }
         // The edited lines may be the widest now (the text view widens without word wrap).
         if noteWidth(ofLines: startLine...newEndLine) { editors.forEach { $0.updateTextWidth() } }
+        for editor in editors { editor.textEdited(fromLine: startLine, lineDelta: count - old.count) }
         if old.count != count {
             onLinesReplaced?(old, count)
             shiftFoldRegions(replacing: old, with: count)
@@ -686,12 +687,15 @@ final class EditorDocument: Identifiable {
         for editor in editors { editor.refreshAfterEdit() }
     }
 
-    /// Drops the text elements after what the editors show. TextKit 2's content storage keeps
+    /// Drops the text elements outside what the editors show. TextKit 2's content storage keeps
     /// the element (paragraph) of every line a viewport has laid out, and after each edit moves
     /// every one that comes after the edit: once the viewport had been to 400 places in a file,
-    /// a keystroke at its top took 77 ms instead of 1.5. An attribute-only edit of the text
-    /// after the viewports makes it forget those (no undo entry, not dirty, nothing for the
-    /// parser or the language server); they're made again when scrolled to.
+    /// a keystroke at its top took 77 ms instead of 1.5; typing in one half of a split, above
+    /// where the other half had scrolled through a 3 MB file, 307 ms. An attribute-only edit
+    /// of the text around the viewports makes it forget those (no undo entry, not dirty,
+    /// nothing for the parser or the language server); they're made again when scrolled to.
+    /// The editors keep their top lines: forgetting the lines above changes TextKit's estimate
+    /// of their height.
     func trimTextElements() {
         let length = textStorage.length
         var inUse: [NSRange] = []
@@ -700,12 +704,17 @@ final class EditorDocument: Identifiable {
             guard let range = editor.textRangeInUse else { return }
             inUse.append(range)
         }
-        // Only what's after the last viewport. Those are the ones an edit in view moves; and
-        // forgetting lines laid out above a viewport changes TextKit's estimate of how tall the
-        // text above it is, which moves the viewport to other lines (thousands of lines away,
-        // in a big file).
-        guard let end = inUse.map(NSMaxRange).max(), end < length, !isReplacingBatch else { return }
-        textStorage.edited(.editedAttributes, range: NSRange(location: end, length: length - end), changeInLength: 0)
+        guard !inUse.isEmpty, !isReplacingBatch else { return }
+        // Above the first, between them, below the last.
+        var gaps: [NSRange] = [], position = 0
+        for range in inUse.sorted(by: { $0.location < $1.location }) + [NSRange(location: length, length: 0)] {
+            if range.location > position { gaps.append(NSRange(location: position, length: range.location - position)) }
+            position = max(position, NSMaxRange(range))
+        }
+        guard !gaps.isEmpty else { return }
+        for editor in editors { editor.keepTopLine() }
+        // Separately: one edit would cover the text in use too.
+        for gap in gaps { textStorage.edited(.editedAttributes, range: gap, changeInLength: 0) }
     }
 
     /// Registers an editor showing this document (without making it the target of actions).

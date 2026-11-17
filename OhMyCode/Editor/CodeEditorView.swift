@@ -85,6 +85,12 @@ final class EditorController: NSObject {
     /// Lines edited since the last layout pass (in the new text), and whether lines after them
     /// moved: what the gutter and the overlay redraw once the edit is laid out.
     private var editedLines: (lines: ClosedRange<Int>, moved: Bool)?
+    /// The line at the top of the view and how far into it the view is scrolled, as last laid
+    /// out or scrolled to (see `textEdited(fromLine:lineDelta:)`).
+    private var topAnchor: (line: Int, offset: CGFloat)?
+    /// The line to put back at the top after the next layout, unless the view is scrolled
+    /// from `y` before then.
+    private var pendingTopAnchor: (line: Int, offset: CGFloat, y: CGFloat)?
 
     init(document: EditorDocument, group: EditorGroup? = nil) {
         self.document = document
@@ -214,6 +220,7 @@ final class EditorController: NSObject {
         gutter.onBlameClick = { [weak self] line in self?.handleBlameColumnClick(line: line) }
         gutter.menuForLine = { [weak self] line in self?.gutterMenu(line: line) }
         textView.onLayout = { [weak self] in
+            self?.restoreTopLine()
             self?.layoutDidChange()
             self?.refreshHighlights(force: false)
             self?.minimapView?.refresh()
@@ -461,12 +468,12 @@ final class EditorController: NSObject {
         return max(1, document.lineIndex.line(containing: offset) - topVisibleLine + 1)
     }
 
-    /// Scrolls so `line` (zero-based) is the first visible line.
-    func scrollLineToTop(_ line: Int) {
+    /// Scrolls so `line` (zero-based) is the first visible line, `offset` points into it.
+    func scrollLineToTop(_ line: Int, offset: CGFloat = 0) {
         guard let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager else { return }
         let index = document.lineIndex
-        let offset = index.lineStarts[min(max(0, line), index.lineCount - 1)]
-        guard let location = contentManager.location(contentManager.documentRange.location, offsetBy: offset) else { return }
+        let start = index.lineStarts[min(max(0, line), index.lineCount - 1)]
+        guard let location = contentManager.location(contentManager.documentRange.location, offsetBy: start) else { return }
         // Heights above the line may be estimates (wrapped lines): laying out the new viewport
         // corrects them and moves the line, so measure again until it stays put.
         for _ in 0..<4 {
@@ -475,11 +482,68 @@ final class EditorController: NSObject {
                 y = fragment.layoutFragmentFrame.minY
                 return false
             }
-            let target = y + textView.textContainerOrigin.y
+            let target = y + textView.textContainerOrigin.y + offset
             if abs(textView.visibleRect.minY - target) < 0.5 { break }
             textView.scroll(NSPoint(x: textView.visibleRect.minX, y: target))
             layoutManager.textViewportLayoutController.layoutViewport()
         }
+    }
+
+    // MARK: Keeping the top line
+
+    /// Notes which line is at the top (unless one is waiting to be put back there).
+    private func noteTopLine() {
+        guard pendingTopAnchor == nil, let layoutManager = textView.textLayoutManager,
+              let contentManager = layoutManager.textContentManager else { return }
+        let y = max(0, textView.visibleRect.minY - textView.textContainerOrigin.y)
+        guard let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: y)) else { return }
+        let start = contentManager.documentRange.location
+        let frame = fragment.layoutFragmentFrame
+        // Within a pixel of the next line's top (the view scrolls by whole pixels): that line.
+        if frame.maxY - y < 1, fragment.rangeInElement.endLocation.compare(contentManager.documentRange.endLocation) == .orderedAscending {
+            topAnchor = (document.lineIndex.line(containing: contentManager.offset(from: start, to: fragment.rangeInElement.endLocation)), 0)
+        } else {
+            let offset = y - frame.minY
+            topAnchor = (document.lineIndex.line(containing: contentManager.offset(from: start, to: fragment.rangeInElement.location)),
+                         offset < 1 ? 0 : offset)
+        }
+    }
+
+    /// The text changed from `startLine` (before the change) on, `lineDelta` lines added (or
+    /// removed). Above the top line, TextKit would keep the view where it was in points; but the
+    /// heights it has for the lines above are estimates the edit makes it revise, so the view
+    /// would show other lines, thousands away in a long file (in a split, as one types in the
+    /// other half). The top line stays at the top instead.
+    func textEdited(fromLine startLine: Int, lineDelta: Int) {
+        guard let anchor = pendingTopAnchor.map({ (line: $0.line, offset: $0.offset) }) ?? topAnchor,
+              startLine < anchor.line else { return }
+        keepTopLine(max(startLine, anchor.line + lineDelta), offset: anchor.offset)
+    }
+
+    /// Keeps the line at the top there through the next layout (text elements above it dropped).
+    func keepTopLine() {
+        guard let anchor = pendingTopAnchor.map({ (line: $0.line, offset: $0.offset) }) ?? topAnchor else { return }
+        keepTopLine(anchor.line, offset: anchor.offset)
+    }
+
+    private func keepTopLine(_ line: Int, offset: CGFloat) {
+        guard textView != nil else { return }
+        pendingTopAnchor = (line, offset, pendingTopAnchor?.y ?? textView.visibleRect.minY)
+        textView.needsLayout = true
+    }
+
+    /// After a layout: the line kept at the top goes back there, unless the view was scrolled
+    /// meanwhile (revealing the edit, going to a line).
+    private func restoreTopLine() {
+        if let anchor = pendingTopAnchor {
+            pendingTopAnchor = nil
+            if abs(textView.visibleRect.minY - anchor.y) < 0.5 {
+                // At least half a point in: the view stops at whole pixels, and TextKit's heights
+                // aren't whole, so exactly at the line's top could stop a hair above it.
+                scrollLineToTop(min(anchor.line, document.lineIndex.lineCount - 1), offset: max(anchor.offset, 0.5))
+            }
+        }
+        noteTopLine()
     }
 
     /// Puts the cursor at the start of `line` with that line at the top, below any sticky lines.
@@ -833,6 +897,7 @@ final class EditorController: NSObject {
         NotificationCenter.default.post(name: Self.didScrollNotification, object: self)
         lightbulb.viewportMoved()
         layoutDidChange(isLayout: false)
+        noteTopLine()
         minimapView?.refresh()
         stickyView?.update()
         scheduleTextElementTrim()

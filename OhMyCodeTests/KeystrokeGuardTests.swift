@@ -314,17 +314,69 @@ struct KeystrokeGuardTests {
         }
         let color = try #require(controller.renderedColor(at: keyword))
         #expect(color != EditorTheme.current.foreground)
-        let top = controller.topVisibleLine, rect = view.visibleRect
+        let top = controller.topVisibleLine
         document.trimTextElements()
         view.layoutSubtreeIfNeeded()
-        #expect(controller.topVisibleLine == top && view.visibleRect == rect,
-                "top line \(top) -> \(controller.topVisibleLine), \(rect.minY) -> \(view.visibleRect.minY)")
+        // (The scroller may move: TextKit's estimate of the height above changes.)
+        #expect(controller.topVisibleLine == top, "top line \(top) -> \(controller.topVisibleLine)")
         #expect(controller.renderedColor(at: keyword) == color)
         // The text is all there, wherever one goes next.
         controller.reveal(NSRange(location: document.lineIndex.lineStarts[lines / 3], length: 0))
         view.layoutSubtreeIfNeeded()
         #expect(abs(controller.topVisibleLine - lines / 3) < 100)
         withExtendedLifetime(window) {}
+    }
+
+    /// A split: typing in one half, above where the other half has been. The other half keeps
+    /// its top line (TextKit would keep its position in points, and revise its estimate of the
+    /// height above: it showed lines 5,000 away), and once the text elements between them are
+    /// dropped, a keystroke stops moving those (307 ms each, in a 3 MB file).
+    @Test func typingAboveTheOtherHalfOfASplit() async throws {
+        let (document, top, topWindow, url) = try open(bytes: 3_000_000)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let delay = EditorController.textElementTrimDelay
+        EditorController.textElementTrimDelay = .seconds(3600)
+        defer { EditorController.textElementTrimDelay = delay }
+        let other = EditorController(document: document)
+        let otherWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        otherWindow.contentView = other.makeView()
+        otherWindow.layoutIfNeeded()
+        document.attach(other)
+        let view = other.textView!
+        let lines = document.lineIndex.lineCount
+        for place in 0..<300 {
+            other.reveal(NSRange(location: document.lineIndex.lineStarts[place * (lines - 1) / 300], length: 0))
+            view.layoutSubtreeIfNeeded()
+        }
+        other.scrollLineToTop(lines * 2 / 3)
+        view.layoutSubtreeIfNeeded()
+        top.textView.setSelectedRange(NSRange(location: document.lineIndex.lineStarts[5] + 4, length: 0))
+        top.textView.layoutSubtreeIfNeeded()
+
+        func type(_ text: String) -> Duration {
+            clock.measure {
+                top.textView.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
+                top.textView.layoutSubtreeIfNeeded()
+                view.layoutSubtreeIfNeeded()
+            }
+        }
+        let first = other.topVisibleLine
+        var before: [Duration] = []
+        for _ in 0..<5 { before.append(type("a")) }
+        _ = type("\n")
+        #expect(other.topVisibleLine == first + 1, "the other half's top line \(first) -> \(other.topVisibleLine), not \(first + 1)")
+
+        let kept = other.topVisibleLine
+        document.trimTextElements()
+        view.layoutSubtreeIfNeeded()
+        top.textView.layoutSubtreeIfNeeded()
+        #expect(other.topVisibleLine == kept, "dropping the text elements moved the other half: \(kept) -> \(other.topVisibleLine)")
+        var after: [Duration] = []
+        for _ in 0..<5 { after.append(type("a")) }
+        let slow = before.sorted()[2], fast = after.sorted()[2]
+        #expect(fast * 4 < slow, "a keystroke took \(slow) before dropping the text elements between them, \(fast) after")
+        #expect(other.topVisibleLine == kept)
+        withExtendedLifetime((topWindow, otherWindow)) {}
     }
 
     /// Scrolling schedules it.
