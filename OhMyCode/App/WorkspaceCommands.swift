@@ -255,6 +255,18 @@ struct WorkspaceCommands: Commands {
                 }
             }
             .disabled(workspace?.activeDocument?.editor == nil)
+            // AI: no menu shortcuts either (the editor handles ⌘I and ⌥\ itself).
+            Button(keys.display(for: "ai.editSelection").map { "Edit Selection with AI…  \($0)" } ?? "Edit Selection with AI…") {
+                workspace?.activeDocument?.editor?.inlineEdit.begin()
+            }
+            .disabled(workspace?.activeDocument?.editor == nil)
+            Button(keys.display(for: "ai.triggerSuggestion").map { "Trigger Inline Suggestion  \($0)" } ?? "Trigger Inline Suggestion") {
+                workspace?.activeDocument?.editor?.inlineSuggestions.trigger()
+            }
+            .disabled(workspace?.activeDocument?.editor == nil)
+            Button(AISettings.shared.inlineSuggestionsEnabled ? "Turn Off Inline Suggestions" : "Turn On Inline Suggestions") {
+                AISettings.shared.inlineSuggestionsEnabled.toggle()
+            }
             Button("Go to Next Symbol Highlight") { workspace?.activeDocument?.editor?.moveToOccurrence(forward: true) }
                 .keyboardShortcut(keys.shortcut("go.nextHighlight"))
                 .disabled(workspace?.activeDocument == nil)

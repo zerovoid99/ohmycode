@@ -58,6 +58,9 @@ final class EditorController: NSObject {
     private(set) lazy var completion = CompletionController(editor: self)
     private(set) lazy var hover = HoverController(editor: self)
     private(set) lazy var blameHover = BlameHoverController(editor: self)
+    /// AI suggestions at the caret (ghost text) and ⌘I edits.
+    private(set) lazy var inlineSuggestions = InlineSuggestionController(editor: self)
+    private(set) lazy var inlineEdit = InlineEditController(editor: self)
     /// The word wrap the view is laid out for (nil: not yet).
     var appliedWordWrap: Bool?
     /// Strings and comments in the highlighted text (brackets there don't match), for `nonCodeVersion`.
@@ -155,6 +158,7 @@ final class EditorController: NSObject {
         overlay.blameAnnotation = { [weak self] in self?.blameAnnotation() }
         overlay.executionLine = { [weak self] in self?.executionLineRect() }
         overlay.inlayHints = { [weak self] in self?.inlayHintRects() ?? [] }
+        overlay.ghostText = { [weak self] in self?.inlineSuggestions.drawing() ?? GhostDrawing() }
         overlay.conflictBands = { [weak self] in self?.conflictBands() ?? [] }
         overlay.conflictActions = { [weak self] in self?.conflictActionRects() ?? [] }
         overlay.cursorMarks = { [weak self] in self?.cursorMarks() ?? [] }
@@ -162,7 +166,10 @@ final class EditorController: NSObject {
         let gutter = GutterView(textView: textView, document: document)
         self.gutterView = gutter
         // Not textDidEndEditing: AppKit sends that after every edit while the window isn't key.
-        textView.onResignFocus = { [weak self] in self?.completion.dismiss() }
+        textView.onResignFocus = { [weak self] in
+            self?.completion.dismiss()
+            self?.inlineSuggestions.dismiss()
+        }
         textView.onBecomeFocus = { [weak self] in self?.didBecomeFocused() }
         textView.onCommandClick = { [weak self] in
             guard let self else { return }
@@ -191,6 +198,7 @@ final class EditorController: NSObject {
                 self.insertAtAllCursors(text)
                 return true
             }
+            if self.inlineSuggestions.typed(text) { return true }
             return self.handleTyped(text)
         }
         textView.onClick = { [weak self] point in
@@ -674,11 +682,13 @@ final class EditorController: NSObject {
         extraSelections = []
         refreshAfterEdit()
         completion.dismiss()
+        inlineSuggestions.textChangedElsewhere()
         hover.dismiss()
     }
 
     /// Another editor (split view) changed the shared text.
     func refreshAfterEdit() {
+        inlineSuggestions.textChangedElsewhere()
         occurrences.update()
         gutterView.updateWidth()
         minimapView?.refresh(textChanged: true)
@@ -871,6 +881,8 @@ final class EditorController: NSObject {
         hover.dismiss()
         blameHover.dismiss()
         signatureHelp.dismiss()
+        inlineSuggestions.dismiss()
+        inlineEdit.cancel()
     }
 
     func reveal(_ range: NSRange) {
@@ -897,6 +909,7 @@ final class EditorController: NSObject {
     @objc private func viewportDidScroll() {
         NotificationCenter.default.post(name: Self.didScrollNotification, object: self)
         lightbulb.viewportMoved()
+        inlineSuggestions.viewportDidScroll()
         layoutDidChange(isLayout: false)
         noteTopLine()
         minimapView?.refresh()
@@ -1025,6 +1038,7 @@ extension EditorController: NSTextViewDelegate {
         pendingTypedText = nil
         completion.textDidChange(typed: typed)
         signatureHelp.textDidChange(typed: typed)
+        inlineSuggestions.textDidChange()
         minimapView?.refresh(textChanged: true)
         updateStickyAfterLayout()
         for other in document.editors where other !== self {
@@ -1046,6 +1060,7 @@ extension EditorController: NSTextViewDelegate {
 
     func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
         textWillChange()
+        inlineSuggestions.textWillChange()
         pendingTypedText = (replacementString?.isEmpty == false) ? replacementString : nil
         if let replacementString { document.pendingReplacement = (range, (replacementString as NSString).length) }
         return true
@@ -1053,6 +1068,7 @@ extension EditorController: NSTextViewDelegate {
 
     func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if completion.handle(selector) { return true }
+        if inlineSuggestions.handle(selector) { return true }
         if signatureHelp.handle(selector) { return true }
         if handleSnippetCommand(selector) { return true }
         if handleMultiCursorCommand(selector) { return true }
@@ -1074,6 +1090,7 @@ extension EditorController: NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) {
         NotificationCenter.default.post(name: Self.selectionDidChangeNotification, object: self)
         snippetSelectionChanged()
+        inlineSuggestions.selectionDidChange()
         lightbulb.update()
         signatureHelp.selectionChanged()
         occurrences.update()

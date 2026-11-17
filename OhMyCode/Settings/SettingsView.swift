@@ -19,6 +19,7 @@ struct SettingsView: View {
                 KeyboardShortcutsView().frame(width: 760, height: 520)
             }
             Tab("Agents", systemImage: "sparkles", value: "agents") { AgentSettingsView().frame(width: 560, height: 560) }
+            Tab("AI", systemImage: "wand.and.stars", value: "ai") { AISettingsView().frame(width: 560) }
             Tab("Updates", systemImage: "arrow.down.circle", value: "updates") { UpdatesSettingsView().frame(width: 520) }
         }
     }

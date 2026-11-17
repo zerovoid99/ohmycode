@@ -92,6 +92,8 @@ extension EditorController {
               let id = Keybindings.shared.command(for: event) else { return false }
         if id == "go.bracket" { jumpToBracket(); return true }
         if id == "view.toggleWordWrap" { toggleWordWrap(); return true }
+        if id == "ai.triggerSuggestion" { inlineSuggestions.trigger(); return true }
+        if id == "ai.editSelection" { inlineEdit.begin(); return true }
         guard let command = LineCommand.command(id: id) else { return false }
         perform(command)
         return true

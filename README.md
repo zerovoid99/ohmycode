@@ -208,6 +208,36 @@ terminal elsewhere, in the window's folder, type `/ide`. ⌥⌘K sends the selec
 `@file#L…` mention. The window listens on 127.0.0.1 only, and Claude Code finds it through a lock
 file in `~/.claude/ide` that holds a token it must send. Turn it off in *Settings ▸ Agents*.
 
+## AI suggestions and edits
+Set up in *Settings ▸ AI*, with one of two providers:
+
+- **Claude API**: paste an API key. Suggestions use `claude-haiku-5-5` and edits
+  `claude-opus-5-5` unless you name other models.
+- **OpenAI-compatible**: any server with the Chat Completions API. The base URL has presets for
+  Ollama, LM Studio, OpenRouter and OpenAI; the key is optional (local servers need none), and
+  you name the models.
+
+Keys are kept in the macOS Keychain (service `dev.zerovoid99.ohmycode.ai`), never in the
+settings file, and the field never shows a saved key. *Test* sends a tiny request to check the
+setup.
+
+**Inline suggestions** (off until you turn them on): after a pause in typing, at the end of a
+line (or before closing brackets and quotes), a suggestion appears in grey at the cursor. Tab
+inserts it as one undo step, ⌘→ inserts its next word, Esc dismisses it; typing what it starts
+with keeps the rest. Tab still moves through a snippet's stops and picks from the completion
+list when those are showing. ⌥\ asks for a suggestion right away (also with suggestions off).
+The *AI* item in the status bar shows when a request runs or the last one failed; clicking it
+turns suggestions on or off (also *AI: Toggle Inline Suggestions* in the command palette).
+
+**⌘I edits the selection** (*AI: Edit Selection…*): describe the change, press Enter, and the
+reply streams in as a diff against the selection. ⌘↩ accepts it (one undo step), Esc rejects it,
+*Open as Diff* opens it as a proposed change in a diff tab. Without a selection, ⌘I on a blank
+line writes code there; on another line it edits that line.
+
+**Privacy**: the code around the cursor (up to 6,000 characters before it and 2,000 after) is
+sent to the chosen provider for suggestions; for edits, the selection with up to 40 lines on
+each side. Nothing is sent until a provider is set up, and suggestions only while they're on.
+
 ## GitHub pull requests
 The Pull Requests sidebar lists the repository's open pull requests through the GitHub CLI
 (`brew install gh`, then `gh auth login`). Each one shows its author, branch, draft state and

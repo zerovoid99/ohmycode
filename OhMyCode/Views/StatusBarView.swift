@@ -101,6 +101,7 @@ struct StatusBarView: View {
             ForEach(items.filter(\.isLeft)) { ExtensionStatusItemView(item: $0, run: run) }
             Spacer()
             ForEach(items.filter { !$0.isLeft }) { ExtensionStatusItemView(item: $0, run: run) }
+            AIStatusItem()
             if let client = document?.languageClient {
                 LanguageServerBadge(client: client)
             }
@@ -144,6 +145,40 @@ struct StatusBarButtonStyle: ButtonStyle {
                 .contentShape(Rectangle())
                 .onHover { isHovering = $0 }
         }
+    }
+}
+
+/// AI inline suggestions: on or off (click to switch), working, or the last error.
+private struct AIStatusItem: View {
+    private let settings = AISettings.shared
+
+    var body: some View {
+        if settings.inlineSuggestionsEnabled || settings.isConfigured {
+            Button { settings.inlineSuggestionsEnabled.toggle() } label: {
+                HStack(spacing: 4) {
+                    if settings.requestsInFlight > 0 {
+                        ProgressView().controlSize(.mini)
+                    } else if settings.lastError != nil {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    } else {
+                        Image(systemName: "sparkles")
+                            .opacity(settings.inlineSuggestionsEnabled ? 1 : 0.45)
+                    }
+                    Text("AI").opacity(settings.inlineSuggestionsEnabled ? 1 : 0.45)
+                }
+            }
+            .buttonStyle(StatusBarButtonStyle())
+            .help(help)
+        }
+    }
+
+    private var help: String {
+        var lines = [settings.inlineSuggestionsEnabled
+            ? "Inline suggestions are on (\(settings.provider.title)). Click to turn them off."
+            : "Inline suggestions are off. Click to turn them on."]
+        if let problem = settings.configurationProblem { lines.append(problem) }
+        if let error = settings.lastError { lines.append("Last error: \(error)") }
+        return lines.joined(separator: "\n")
     }
 }
 

@@ -5,6 +5,17 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- AI inline suggestions: after a pause in typing, a suggestion shows in grey at the cursor. Tab
+  inserts it, ⌘→ its next word, Esc dismisses it, ⌥\ asks for one right away. Off until turned
+  on; the status bar shows when one is being asked for, or why the last one failed.
+- ⌘I edits the selection with AI: describe the change and the reply streams in as a diff to
+  accept (⌘↩), reject (Esc) or open as a diff tab. Without a selection it writes code on a blank
+  line.
+- Settings ▸ AI: the Claude API or any OpenAI-compatible server (Ollama, LM Studio, OpenRouter,
+  OpenAI), the models for suggestions and edits, and a Test button. API keys are kept in the
+  Keychain.
+
 ## [0.1.8] - 2026-11-18
 
 ### Added

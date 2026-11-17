@@ -218,6 +218,10 @@ final class FoldingDelegate: NSObject, NSTextContentStorageDelegate, @unchecked 
         let style = NSMutableParagraphStyle()
         style.tabStops = []
         style.defaultTabInterval = interval
+        // The room an AI suggestion below the line takes (see InlineSuggestions.swift).
+        if let spacing = (storage.attribute(.paragraphStyle, at: range.location, effectiveRange: nil) as? NSParagraphStyle)?.paragraphSpacing {
+            style.paragraphSpacing = spacing
+        }
         paragraph.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: paragraph.length))
         return NSTextParagraph(attributedString: paragraph)
     }

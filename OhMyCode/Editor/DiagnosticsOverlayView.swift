@@ -29,6 +29,8 @@ final class DiagnosticsOverlayView: NSView {
     var extraCursors: (() -> (carets: [NSRect], selections: [NSRect]))?
     /// Inlay hints: their labels' rects.
     var inlayHints: (() -> [(rect: NSRect, mark: InlayHintMark)])?
+    /// An AI suggestion at the caret: its lines and where each starts (and the caret, in its gap).
+    var ghostText: (() -> GhostDrawing)?
     /// The line the debugger is stopped at, highlighted across the editor.
     var executionLine: (() -> NSRect?)?
     /// Git blame of the cursor's line, drawn after its end.
@@ -333,6 +335,18 @@ final class DiagnosticsOverlayView: NSView {
                 let text = mark.text as NSString
                 let size = text.size(withAttributes: attributes)
                 text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
+            }
+        }
+        if let ghost = ghostText?(), !ghost.lines.isEmpty {
+            let attributes = GhostTextStyle.attributes
+            for (origin, text) in ghost.lines {
+                let size = (text as NSString).size(withAttributes: attributes)
+                guard NSRect(origin: origin, size: size).intersects(dirtyRect) else { continue }
+                (text as NSString).draw(at: origin, withAttributes: attributes)
+            }
+            if let caret = ghost.caret, caret.intersects(dirtyRect) {
+                theme.cursor.setFill()
+                caret.fill()
             }
         }
         let lensHovered = hoveredCodeLens?()
