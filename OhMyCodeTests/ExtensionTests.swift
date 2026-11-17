@@ -15,7 +15,7 @@ private func makeExtension(_ manifest: String, source: String, main: String = "m
 private func makeStore() -> ExtensionStore {
     let name = "omc-ext-tests-\(UUID().uuidString)"
     return ExtensionStore(directory: FileManager.default.temporaryDirectory.appending(path: name),
-                          defaults: UserDefaults(suiteName: name)!)
+                          defaults: ScratchDefaults.named(name))
 }
 
 @MainActor

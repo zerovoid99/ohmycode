@@ -16,7 +16,7 @@ private func eventually(_ timeout: Duration = .seconds(30), _ condition: @MainAc
 struct BreakpointStoreTests {
     @Test func breakpointsFollowEditsAndPersist() {
         let name = "omc-bp-\(UUID().uuidString)"
-        let store = BreakpointStore(defaults: UserDefaults(suiteName: name)!)
+        let store = BreakpointStore(defaults: ScratchDefaults.named(name))
         let root = URL(filePath: "/tmp/\(name)")
         store.load(for: root)
         var changed: [String] = []
@@ -45,7 +45,7 @@ struct BreakpointStoreTests {
         #expect(store.breakpoints(in: "/f.c").map(\.line) == [11])
 
         // Saved per folder.
-        let reopened = BreakpointStore(defaults: UserDefaults(suiteName: name)!)
+        let reopened = BreakpointStore(defaults: ScratchDefaults.named(name))
         reopened.load(for: root)
         #expect(reopened.breakpoints(in: "/f.c") == [BreakpointStore.Breakpoint(line: 11, condition: nil, isEnabled: false)])
         reopened.load(for: URL(filePath: "/elsewhere"))

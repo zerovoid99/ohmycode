@@ -13,6 +13,20 @@ extension URL {
     }
 }
 
+/// Named UserDefaults stores for tests (the test host is the app itself, so tests never touch the
+/// user's own). Each is a plist in a temporary folder of the run's own, named by its path: a
+/// suite named the usual way would land in ~/Library/Preferences and stay there. So every run
+/// starts with empty stores.
+enum ScratchDefaults {
+    static let folder = FileManager.default.temporaryDirectory
+        .appending(path: "omc-test-defaults/\(ProcessInfo.processInfo.processIdentifier)")
+
+    static func named(_ name: String) -> UserDefaults {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return UserDefaults(suiteName: folder.appending(path: name).path)!
+    }
+}
+
 /// User preferences (Settings window, ⌘,), persisted in UserDefaults and applied live: views
 /// listen for `AppSettings.didChange`.
 @MainActor
@@ -28,10 +42,7 @@ final class AppSettings {
     }
 
     private static func scratchDefaults() -> UserDefaults {
-        let name = "dev.zerovoid99.ohmycode.tests"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
-        return defaults
+        ScratchDefaults.named("dev.zerovoid99.ohmycode.tests")
     }
     static let didChange = Notification.Name("omcSettingsDidChange")
 

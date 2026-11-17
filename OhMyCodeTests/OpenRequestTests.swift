@@ -77,7 +77,7 @@ struct OpenRequestTests {
 
     @Test func remembersRecentFolders() throws {
         let suite = "omc-recent-test-\(UUID().uuidString)"
-        let recent = RecentFolders(defaults: UserDefaults(suiteName: suite)!)
+        let recent = RecentFolders(defaults: ScratchDefaults.named(suite))
         let a = try makeFolder([:]), b = try makeFolder([:])
         recent.add(a)
         recent.add(b)
@@ -87,7 +87,7 @@ struct OpenRequestTests {
         #expect(recent.urls.count == RecentFolders.limit && recent.urls.first?.path == "/nonexistent/19")
         #expect(recent.existing.isEmpty) // a and b fell off the end
         recent.add(b)
-        #expect(RecentFolders(defaults: UserDefaults(suiteName: suite)!).urls.first?.path == b.path)
+        #expect(RecentFolders(defaults: ScratchDefaults.named(suite)).urls.first?.path == b.path)
         recent.remove(b)
         recent.clear()
         #expect(recent.urls.isEmpty)

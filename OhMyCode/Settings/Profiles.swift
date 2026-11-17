@@ -37,7 +37,7 @@ struct SettingsProfile: Codable, Equatable {
 @Observable
 final class ProfileManager {
     static let shared = ProfileManager(
-        defaults: AppSettings.isRunningTests ? UserDefaults(suiteName: "dev.zerovoid99.ohmycode.tests.profiles")! : .standard,
+        defaults: AppSettings.isRunningTests ? ScratchDefaults.named("dev.zerovoid99.ohmycode.tests.profiles") : .standard,
         appFolder: AppSettings.isRunningTests
             ? FileManager.default.temporaryDirectory.appending(path: "omc-test-profiles-\(ProcessInfo.processInfo.processIdentifier)")
             : URL.omcApplicationSupport.appending(path: "OhMyCode/Profiles"))

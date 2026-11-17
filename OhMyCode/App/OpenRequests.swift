@@ -230,7 +230,7 @@ final class OpenRouter {
 @MainActor
 @Observable
 final class RecentFolders {
-    static let shared = RecentFolders(defaults: AppSettings.isRunningTests ? UserDefaults(suiteName: "omc-tests-recent-\(ProcessInfo.processInfo.processIdentifier)")! : .standard)
+    static let shared = RecentFolders(defaults: AppSettings.isRunningTests ? ScratchDefaults.named("recent") : .standard)
     static let limit = 15
     private let defaults: UserDefaults
     private(set) var urls: [URL]

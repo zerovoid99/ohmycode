@@ -7,7 +7,7 @@ import Testing
 struct SettingsTests {
     private func scratch() -> UserDefaults {
         let name = "omc-settings-\(UUID().uuidString)"
-        return UserDefaults(suiteName: name)!
+        return ScratchDefaults.named(name)
     }
 
     @Test func persistsAndClamps() {

@@ -8,12 +8,12 @@ struct ProfileTests {
     private func makeMac(syncFolder: URL? = nil) -> (ProfileManager, ProfileManager.Parts) {
         let id = UUID().uuidString
         let base = FileManager.default.temporaryDirectory.appending(path: "omc-profiles-\(id)")
-        let settings = AppSettings(defaults: UserDefaults(suiteName: "omc-profile-settings-\(id)")!)
+        let settings = AppSettings(defaults: ScratchDefaults.named("omc-profile-settings-\(id)"))
         let parts = ProfileManager.Parts(settings: settings, keybindings: Keybindings(file: base.appending(path: "keybindings.json")),
                                          snippets: SnippetLibrary(userDirectory: base.appending(path: "Snippets")),
                                          extensions: ExtensionStore(directory: base.appending(path: "Extensions"),
-                                                                    defaults: UserDefaults(suiteName: "omc-profile-ext-\(id)")!))
-        let manager = ProfileManager(defaults: UserDefaults(suiteName: "omc-profile-manager-\(id)")!, appFolder: base.appending(path: "Profiles"))
+                                                                    defaults: ScratchDefaults.named("omc-profile-ext-\(id)")))
+        let manager = ProfileManager(defaults: ScratchDefaults.named("omc-profile-manager-\(id)"), appFolder: base.appending(path: "Profiles"))
         if let syncFolder { manager.setSyncFolder(syncFolder) }
         manager.attach(parts)
         return (manager, parts)

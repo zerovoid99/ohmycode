@@ -54,7 +54,7 @@ final class BreakpointStore {
     @ObservationIgnored private var defaults: UserDefaults
     @ObservationIgnored private var key: String?
 
-    init(defaults: UserDefaults = AppSettings.isRunningTests ? UserDefaults(suiteName: "dev.zerovoid99.ohmycode.tests.breakpoints")! : .standard) {
+    init(defaults: UserDefaults = AppSettings.isRunningTests ? ScratchDefaults.named("dev.zerovoid99.ohmycode.tests.breakpoints") : .standard) {
         self.defaults = defaults
     }
 

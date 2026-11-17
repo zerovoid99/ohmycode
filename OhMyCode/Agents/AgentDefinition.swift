@@ -66,8 +66,7 @@ final class AgentStore {
     static let shared: AgentStore = {
         guard AppSettings.isRunningTests else { return AgentStore(defaults: .standard) }
         let name = "dev.zerovoid99.ohmycode.tests.agents"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
+        let defaults = ScratchDefaults.named(name)
         defaults.set(false, forKey: integrationKey)
         return AgentStore(defaults: defaults)
     }()

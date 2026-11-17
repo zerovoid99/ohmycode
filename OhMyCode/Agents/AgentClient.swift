@@ -68,7 +68,7 @@ final class AgentClient {
     /// Earlier sessions in this folder, newest first (when the agent can reopen them).
     private(set) var recentSessions: [AgentSessionSummary] = []
     /// Where this editor keeps the sessions it opened (agents that can't list theirs).
-    @ObservationIgnored var historyDefaults: UserDefaults = AppSettings.isRunningTests ? UserDefaults(suiteName: "dev.zerovoid99.ohmycode.tests.agents")! : .standard
+    @ObservationIgnored var historyDefaults: UserDefaults = AppSettings.isRunningTests ? ScratchDefaults.named("dev.zerovoid99.ohmycode.tests.agents") : .standard
     /// The session has had a prompt (it's recorded in the history then).
     @ObservationIgnored private var sessionHasPrompt = false
 
