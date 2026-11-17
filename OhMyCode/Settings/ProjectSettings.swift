@@ -37,7 +37,8 @@ struct ProjectSettings: Equatable {
         showsInlayHints = object["showsInlayHints"] as? Bool
         semanticHighlighting = object["semanticHighlighting"] as? Bool
         showsCodeLens = object["showsCodeLens"] as? Bool
-        unknownKeys = object.keys.filter { !Self.keys.contains($0) }.sorted()
+        // REST Client's environments are read by the HTTP client (see `HTTPEnvironments`).
+        unknownKeys = object.keys.filter { !Self.keys.contains($0) && !$0.hasPrefix("rest-client.") }.sorted()
     }
 
     /// Names in the file it didn't understand.

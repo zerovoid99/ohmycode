@@ -5,6 +5,17 @@ extension EditorDocument {
     /// call), resolving the ones that come without a command.
     func refreshCodeLenses(after delay: Duration = .zero) {
         codeLensesTask?.cancel()
+        if language == .http {
+            // Ours, not a server's: Send Request on each request (and the file's problems).
+            codeLensesTask = Task { [weak self] in
+                if delay > .zero {
+                    try? await Task.sleep(for: min(delay, .milliseconds(250)))
+                    guard !Task.isCancelled else { return }
+                }
+                self?.refreshHTTPFeatures()
+            }
+            return
+        }
         codeLensesTask = Task { [weak self] in
             if delay > .zero {
                 try? await Task.sleep(for: delay)
@@ -116,6 +127,10 @@ extension Workspace {
     /// Runs a lens's command: references are shown here (VS Code's own command, which
     /// servers use for "N references"); anything else goes to the server.
     func run(_ lens: CodeLens, in document: EditorDocument) {
+        if lens.commandName.hasPrefix(HTTPSyntax.commandPrefix) {
+            runHTTPLens(lens, in: document)
+            return
+        }
         let arguments = lens.command?["arguments"] as? [Any] ?? []
         if lens.commandName == "editor.action.showReferences" || arguments.count >= 3 && arguments[2] is [Any] && lens.commandName.contains("eference") {
             let locations = (arguments.count >= 3 ? arguments[2] as? [Any] : nil)?.compactMap(LSPLocation.init(json:)) ?? []

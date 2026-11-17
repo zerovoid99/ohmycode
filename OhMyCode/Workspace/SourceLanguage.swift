@@ -2,7 +2,7 @@ import Foundation
 
 enum SourceLanguage: String {
     case swift, javascript, typescript, tsx, json, markdown, python, rust, go, c, cpp, objc
-    case html, css, yaml, toml, shell, plaintext
+    case html, css, yaml, toml, shell, http, plaintext
 
     init(fileExtension ext: String) {
         switch ext.lowercased() {
@@ -23,6 +23,7 @@ enum SourceLanguage: String {
         case "yml", "yaml": self = .yaml
         case "toml": self = .toml
         case "sh", "bash", "zsh": self = .shell
+        case "http", "rest": self = .http
         default: self = .plaintext
         }
     }
@@ -31,7 +32,7 @@ enum SourceLanguage: String {
     var lineComment: String? {
         switch self {
         case .swift, .javascript, .typescript, .tsx, .rust, .go, .c, .cpp, .objc: "//"
-        case .python, .yaml, .toml, .shell: "#"
+        case .python, .yaml, .toml, .shell, .http: "#"
         default: nil
         }
     }
@@ -63,6 +64,7 @@ enum SourceLanguage: String {
         case .yaml: "YAML"
         case .toml: "TOML"
         case .shell: "Shell Script"
+        case .http: "HTTP"
         case .plaintext: "Plain Text"
         }
     }

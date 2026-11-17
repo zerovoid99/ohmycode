@@ -162,7 +162,9 @@ private struct ActiveStatusBar: View {
                       agentActivity: agentActivity,
                       showAgent: { workspace.sidebarMode = .agent; workspace.sidebarVisibility = .all },
                       goToLine: { workspace.showPalette(.goToLine) },
-                      showSourceControl: { workspace.sidebarMode = .sourceControl; workspace.sidebarVisibility = .all })
+                      showSourceControl: { workspace.sidebarMode = .sourceControl; workspace.sidebarVisibility = .all },
+                      httpEnvironment: workspace.httpEnvironmentLabel,
+                      switchHTTPEnvironment: { Task { await workspace.http.switchEnvironment(for: workspace.activeHTTPDocument?.url) } })
     }
 
     private var agentActivity: StatusBarView.AgentActivity? {

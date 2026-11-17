@@ -55,7 +55,7 @@ final class CompletionController {
     /// Whether anything can complete here: the language server or an extension.
     private var canComplete: Bool {
         client != nil || editor.document.extensionHost?.hasProviders(.completion, for: editor.document) == true
-            || !snippets.isEmpty
+            || !snippets.isEmpty || editor.document.language == .http
     }
 
     /// The language's snippets (offered while typing a word).
@@ -78,6 +78,7 @@ final class CompletionController {
 
     private var triggerCharacters: Set<String> {
         Set(client?.triggerCharacters ?? []).union(editor.document.extensionHost?.completionTriggers(for: editor.document) ?? [])
+            .union(editor.document.language == .http ? ["{", "/"] : [])
     }
 
     func textDidChange(typed: String?) {
@@ -134,7 +135,13 @@ final class CompletionController {
                 server.cancel()
             }
             guard !Task.isCancelled else { return }
-            self?.finishRequest(server: result, extensions: fromExtensions, trigger: trigger, cursor: cursor)
+            // A `.http` file's own: methods, headers, MIME types, variables.
+            var extra = fromExtensions
+            if document.language == .http {
+                let items = document.httpCompletions(at: cursor, firstID: 3_000_000)
+                if !items.isEmpty { extra = ((extra?.items ?? []) + items, extra?.isIncomplete ?? false) }
+            }
+            self?.finishRequest(server: result, extensions: extra, trigger: trigger, cursor: cursor)
         }
     }
 

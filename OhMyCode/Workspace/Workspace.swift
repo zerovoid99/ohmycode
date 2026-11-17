@@ -34,6 +34,10 @@ final class Workspace {
                 document.workspaceRoot = folder(containing: document.url) ?? rootURL
                 document.workspace = self
                 attachTests(to: document)
+                if document.language == .http { document.refreshCodeLenses() }
+            }
+            for document in oldValue where document.language == .http && !documents.contains(where: { $0 === document }) {
+                problems.set([], for: document.url, source: HTTPSyntax.problemSource)
             }
             // Tell the extensions (only once they're running: opening a folder starts them).
             guard extensionsStarted else { return }
@@ -108,6 +112,8 @@ final class Workspace {
     private(set) var diffSessions: [DiffSession] = []
     /// Open viewer tabs: images, PDFs, binary files (see FileViewer.swift).
     var viewers: [FileViewer] = []
+    /// Requests sent from `.http` files and their response tabs (see Workspace+HTTP.swift).
+    @ObservationIgnored private(set) lazy var http = HTTPWorkspaceClient(workspace: self)
     /// Split editor panes, left to right; there is always at least one.
     private(set) var groups: [EditorGroup]
     var activeGroupID: EditorGroup.ID {
@@ -2481,6 +2487,8 @@ final class Workspace {
             closeDiff(session, in: group)
         } else if let viewer = viewer(id: id) {
             closeViewer(viewer, in: group)
+        } else if let tab = http.responseTab(id: id) {
+            http.closeResponseTab(tab, in: group)
         }
     }
 
@@ -2502,6 +2510,7 @@ final class Workspace {
         if let document = document(id: id) { return (document.fileName, document.url.path, document.isDirty, false) }
         if let session = diffSession(id: id) { return (session.title, session.help, false, true) }
         if let viewer = viewer(id: id) { return (viewer.fileName, viewer.url.path, false, false) }
+        if let tab = http.responseTab(id: id) { return (tab.title, tab.help, false, false) }
         return nil
     }
 
@@ -2604,7 +2613,7 @@ final class Workspace {
 
     /// ⌘\: opens the active document in a new group to the right.
     func splitEditor() {
-        guard let id = activeDocument?.id ?? activeViewer?.id, groups.count < Self.maxGroups,
+        guard let id = activeDocument?.id ?? activeViewer?.id ?? activeResponseTab?.id, groups.count < Self.maxGroups,
               let index = groups.firstIndex(where: { $0.id == activeGroupID }) else { NSSound.beep(); return }
         activeDocument?.editor(inGroup: activeGroup)?.saveViewState()
         let group = EditorGroup()
@@ -2617,7 +2626,7 @@ final class Workspace {
     /// Moves the active tab to the next group (`offset` 1) or previous (-1), creating a group
     /// at the edge if there is none.
     func moveActiveEditor(by offset: Int) {
-        guard let id = activeDocument?.id ?? activeViewer?.id,
+        guard let id = activeDocument?.id ?? activeViewer?.id ?? activeResponseTab?.id,
               let index = groups.firstIndex(where: { $0.id == activeGroupID }) else { return }
         let source = activeGroup
         let targetIndex = index + offset
@@ -2654,6 +2663,28 @@ final class Workspace {
         }
         activeGroupID = target.id
         activeDocumentID = documentID
+    }
+
+    /// Shows a tab in the group right of `source` (made when there's none; the last group's
+    /// tab goes in it when there's no room for another), keeping focus where it was.
+    func showBeside(_ id: UUID, of source: EditorGroup?) {
+        let source = source ?? activeGroup
+        if let current = groups.first(where: { $0.contains(id) }), current !== source {
+            current.show(id)
+            return
+        }
+        guard let index = groups.firstIndex(where: { $0 === source }) else { activeGroup.show(id); return }
+        let target: EditorGroup
+        if index + 1 < groups.count {
+            target = groups[index + 1]
+        } else if groups.count < Self.maxGroups {
+            target = EditorGroup()
+            groups.insert(target, at: index + 1)
+        } else {
+            target = source
+        }
+        if target !== source, source.contains(id) { source.remove(id) }
+        target.show(id)
     }
 
     func group(id: EditorGroup.ID) -> EditorGroup? {

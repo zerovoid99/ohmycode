@@ -5,6 +5,22 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- HTTP requests in `.http` and `.rest` files, in the format of VS Code's REST Client and JetBrains'
+  HTTP Client: click *Send Request* after a request line (or press ⌥⌘R) and the response opens in
+  a tab beside the file, with its status, time, size, a pretty-printed and colored body (or an
+  HTML preview, an image, a hex dump), headers, cookies, a timeline and the request as sent.
+- File, environment, system (`$guid`, `$randomInt`, `$timestamp`, `$datetime`, `$processEnv`,
+  `$dotenv`…) and request variables, so one request can use another's response. Environments come
+  from `.vscode/settings.json` or `.omc/settings.json` and from `http-client.env.json` (with a
+  private file for secrets); pick one in the status bar.
+- Prompts, notes, `@no-redirect`, `@no-cookie-jar`, file bodies, forms, multipart uploads, GraphQL
+  and Basic authentication; a cookie jar and the last 50 requests' history per window (secrets
+  taken out); Copy as cURL, Paste cURL as Request and code snippets for Swift, JavaScript and
+  Python.
+- Syntax colors, completion, problems (unknown variables, malformed lines, missing files),
+  folding and an outline for `.http` files, and Explain Response with AI.
+
 ## [0.2.1] - 2026-11-18
 
 ### Added

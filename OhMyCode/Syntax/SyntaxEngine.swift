@@ -14,7 +14,9 @@ struct TextSnapshot: @unchecked Sendable {
 /// queries are serialized by the actor; the main thread never waits on it.
 actor SyntaxEngine {
     private let parser = Parser()
-    private let query: Query
+    private let query: Query?
+    /// For a language without a grammar (`.http`): highlights straight from the text.
+    private let lineHighlighter: (@Sendable (NSString, NSRange) -> [NamedRange])?
     private var tree: MutableTree?
     private var text: NSString = ""
     /// Where `text` starts in the document.
@@ -25,6 +27,14 @@ actor SyntaxEngine {
     init?(grammar: Grammar) {
         guard (try? parser.setLanguage(grammar.language)) != nil else { return nil }
         query = grammar.highlightsQuery
+        lineHighlighter = nil
+    }
+
+    /// An engine that keeps the text and highlights it with `highlighter` (no syntax tree:
+    /// the outline and folding come from elsewhere).
+    init(lineHighlighter highlighter: @escaping @Sendable (NSString, NSRange) -> [NamedRange]) {
+        query = nil
+        lineHighlighter = highlighter
     }
 
     /// Applies `edits` (made since the previous snapshot) and reparses against `snapshot`, if
@@ -33,7 +43,11 @@ actor SyntaxEngine {
     /// `reset` drops the old tree first (a new window, not an edited one).
     func process(snapshot: TextSnapshot?, edits: [InputEdit], highlightRange: NSRange?,
                  window: TSRange? = nil, reset: Bool = false) -> [NamedRange]? {
-        if let snapshot {
+        if let snapshot, lineHighlighter != nil {
+            text = snapshot.string
+            offset = snapshot.offset
+            isWindowed = window != nil
+        } else if let snapshot {
             if reset { tree = nil }
             if let tree {
                 for edit in edits { tree.edit(edit) }
@@ -54,7 +68,15 @@ actor SyntaxEngine {
     var currentText: NSString { text }
 
     func highlights(in range: NSRange) -> [NamedRange] {
-        guard let tree, let root = tree.rootNode else { return [] }
+        if let lineHighlighter {
+            let local = NSIntersectionRange(NSRange(location: range.location - offset, length: range.length),
+                                            NSRange(location: 0, length: text.length))
+            guard local.length > 0 || text.length == 0 else { return [] }
+            let found = lineHighlighter(text, local)
+            guard offset != 0 else { return found }
+            return found.map { NamedRange(name: $0.name, range: NSRange(location: $0.range.location + offset, length: $0.range.length)) }
+        }
+        guard let query, let tree, let root = tree.rootNode else { return [] }
         let text = text, offset = self.offset
         let length = text.length
         let cursor = query.execute(node: root, in: tree)

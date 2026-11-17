@@ -328,6 +328,65 @@ menu items are disabled and say where to set it up. Replies stream in and can be
   only), up to 30,000 characters; past that, the other files are listed with their added and
   removed line counts. The current branch's name.
 
+## HTTP requests (.http files)
+`.http` and `.rest` files are REST clients, in the format of VS Code's REST Client and JetBrains'
+HTTP Client. Requests are separated by `###`, and each is a request line, headers, a blank line and
+an optional body:
+
+```http
+@host = https://api.example.com
+
+# @name login
+POST {{host}}/login
+Content-Type: application/json
+
+{ "user": "{{user}}", "password": "{{$dotenv PASSWORD}}" }
+
+### Current user
+GET {{host}}/me
+Authorization: Bearer {{login.response.body.$.token}}
+```
+
+Click *Send Request* after a request line, or press ⌥⌘R with the cursor in it. The response opens
+in a tab beside the file: status, time (and time to first byte), size, then the body (pretty JSON
+or XML with syntax colors, raw, a rendered HTML preview, images, or a hex dump), the response and
+request headers, cookies, a timeline (DNS, connect, TLS, waiting, download) and the request exactly
+as sent. Sending the same request again reuses its tab unless you pin it. Bodies over 10 MB are
+written to a temporary file: *Save Body…* or *Open Body in Editor* gets all of it. With AI set up,
+✨ explains the response (its status, headers and the start of the body are sent).
+
+- **Variables**: `@name = value` lines (they can use other variables), the environment's,
+  `{{$guid}}`, `{{$randomInt 1 100}}`, `{{$timestamp -1 d}}`, `{{$datetime iso8601}}`,
+  `{{$datetime "YYYY-MM-DD" 1 w}}`, `{{$localDatetime rfc1123}}`, `{{$processEnv NAME}}`,
+  `{{$dotenv NAME}}` (a `.env` next to the file or in the folder), and earlier responses:
+  `{{login.response.body.$.items[0].id}}`, `{{login.response.headers.X-Token}}`,
+  `{{login.request.body.*}}`. A variable that isn't defined is underlined, listed in Problems, and
+  stops the request with a message before anything is sent.
+- **Comments and options**: `#` and `//` lines (inside a body they're body text), `# @name`,
+  `# @no-redirect`, `# @no-cookie-jar`, `# @prompt name description` (asked before sending) and
+  `# @note` (confirmed before sending).
+- **Bodies**: text, JSON and XML; `< ./file` sends a file and `<@ ./file` sends it with variables
+  filled in (`<@latin1 ./file` for another encoding); form bodies may continue on lines starting
+  with `&`; `multipart/form-data` parts can be files; with `X-Request-Type: GraphQL` the body is a
+  query and, after a blank line, its variables. `Authorization: Basic user:password` (or
+  `Basic user password`) is encoded for you. Digest authentication isn't supported.
+- **Environments**: `rest-client.environmentVariables` in `.vscode/settings.json` or
+  `.omc/settings.json`, with `$shared` variables in every environment, and JetBrains'
+  `http-client.env.json` with `http-client.private.env.json` for secrets (the nearest ones from
+  the file up to the folder). Pick one in the status bar or with *REST: Switch Environment*; the
+  choice is kept per folder.
+- **Commands**: *REST: Send Request* (⌥⌘R), *Rerun Last Request*, *Cancel Request*, *Copy Request
+  as cURL* (also a lens), *Paste cURL as Request* (turns a cURL command on the clipboard into a
+  request at the cursor), *Generate Code Snippet* (Swift URLSession, JavaScript fetch, Python
+  requests), *Show History*, *Clear History*, *Clear Cookies* and *Explain Response*.
+- **Sending**: each window keeps its own cookies (between launches) and the last 50 requests'
+  history; history keeps the request as written, with credentials, cookies and token-like header
+  values taken out. Settings ▸ HTTP sets the timeout (30 s), whether redirects are followed, and
+  whether self-signed certificates are accepted from localhost (never from other hosts).
+- **Editing**: syntax colors (JSON and XML bodies too), completion of methods, headers, content
+  types and `{{` variables, problems for malformed request lines and missing files, a fold and an
+  Outline entry per request.
+
 ## GitHub pull requests
 The Pull Requests sidebar lists the repository's open pull requests through the GitHub CLI
 (`brew install gh`, then `gh auth login`). Each one shows its author, branch, draft state and

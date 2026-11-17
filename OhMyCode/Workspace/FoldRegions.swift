@@ -160,7 +160,8 @@ extension EditorDocument {
             guard let self else { return }
             let version = self.editVersion
             var regions: [FoldRegion]?
-            if let client = self.languageClient, client.state == .ready, client.supports(.foldingRange) {
+            if self.language == .http { regions = HTTPSyntax.foldRegions(HTTPFile(text: self.textStorage.string)) }
+            if regions == nil, let client = self.languageClient, client.state == .ready, client.supports(.foldingRange) {
                 regions = try? await client.foldingRanges(url: self.url)
             }
             if regions?.isEmpty ?? true, let highlighter = self.highlighter {

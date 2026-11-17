@@ -56,6 +56,7 @@ struct FileIcon: View {
         case "py.typed", "d.ts": return ("t.square", .blue)
         case "xcodeproj", "xcworkspace", "pbxproj": return ("hammer", .blue)
         case "sql": return ("cylinder", .teal)
+        case "http", "rest": return ("network", .green)
         default: return ("doc", .secondary)
         }
     }

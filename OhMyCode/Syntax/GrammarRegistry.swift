@@ -89,7 +89,7 @@ enum GrammarRegistry {
             make(tree_sitter_rust(), [QueryFile(bundle: "TreeSitterRust_TreeSitterRust")])
         case .go:
             make(tree_sitter_go(), [QueryFile(bundle: "TreeSitterGo_TreeSitterGo")])
-        case .markdown, .c, .cpp, .objc, .html, .css, .yaml, .toml, .shell, .plaintext:
+        case .markdown, .c, .cpp, .objc, .html, .css, .yaml, .toml, .shell, .http, .plaintext:
             nil
         }
     }

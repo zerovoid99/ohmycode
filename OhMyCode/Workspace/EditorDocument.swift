@@ -905,6 +905,9 @@ extension EditorDocument {
         if language == .markdown {
             return DocumentSymbol.markdown(textStorage.mutableString.copy() as! NSString)
         }
+        if language == .http {
+            return HTTPSyntax.symbols(HTTPFile(text: textStorage.string), lineIndex: lineIndex, length: textStorage.length)
+        }
         if let client = languageClient, client.state == .ready, client.supports(.documentSymbol),
            let result = try? await client.documentSymbols(url: url) {
             let symbols = DocumentSymbol.fromLSP(result) { [weak self] in self?.range(for: $0) ?? NSRange(location: 0, length: 0) }

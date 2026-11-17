@@ -21,6 +21,9 @@ struct StatusBarView: View {
     var goToLine: () -> Void = {}
     /// The Source Control sidebar (clicking the branch).
     var showSourceControl: () -> Void = {}
+    /// A `.http` file's environment ("No Environment" when none is chosen); clicking switches it.
+    var httpEnvironment: String?
+    var switchHTTPEnvironment: () -> Void = {}
 
     enum AgentActivity { case working, waiting }
 
@@ -108,6 +111,13 @@ struct StatusBarView: View {
             ForEach(items.filter(\.isLeft)) { ExtensionStatusItemView(item: $0, run: run) }
             Spacer()
             ForEach(items.filter { !$0.isLeft }) { ExtensionStatusItemView(item: $0, run: run) }
+            if let httpEnvironment {
+                Button(action: switchHTTPEnvironment) {
+                    Label(httpEnvironment, systemImage: "globe")
+                }
+                .buttonStyle(StatusBarButtonStyle())
+                .help("Environment for this folder's requests (REST: Switch Environment)")
+            }
             AIStatusItem()
             if let client = document?.languageClient {
                 LanguageServerBadge(client: client)

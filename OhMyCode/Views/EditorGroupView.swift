@@ -68,6 +68,9 @@ struct EditorGroupView: View {
             } else if let viewer = workspace.viewer(id: group.activeDocumentID) {
                 FileViewerView(viewer: viewer, workspace: workspace)
                     .id(viewer.id)
+            } else if let tab = workspace.http.responseTab(id: group.activeDocumentID) {
+                HTTPResponseView(tab: tab, workspace: workspace)
+                    .id(tab.id)
             } else {
                 StartPageView(workspace: workspace)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
