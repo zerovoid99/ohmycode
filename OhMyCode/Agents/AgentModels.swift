@@ -175,6 +175,60 @@ struct AgentConfigOption: Identifiable, Equatable {
     }
 }
 
+/// An earlier session with the agent in this folder, to reopen.
+struct AgentSessionSummary: Identifiable, Equatable, Codable {
+    let id: String
+    let title: String
+    let updatedAt: Date?
+
+    init(id: String, title: String, updatedAt: Date?) {
+        self.id = id
+        self.title = title
+        self.updatedAt = updatedAt
+    }
+
+    /// From `session/list`'s `SessionInfo`.
+    init?(json: [String: Any]) {
+        guard let id = json["sessionId"] as? String else { return nil }
+        self.id = id
+        let title = (json["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        self.title = title.isEmpty ? "Untitled" : title
+        updatedAt = (json["updatedAt"] as? String).flatMap { Self.date($0) }
+    }
+
+    private static func date(_ text: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: text) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
+    }
+}
+
+/// Sessions this editor opened, per agent and folder: the history of an agent that can reopen
+/// sessions but not list them.
+@MainActor
+enum AgentSessionHistory {
+    private static let key = "agents.sessionHistory"
+    private static let limit = 30
+
+    private static func storeKey(_ agent: AgentDefinition.ID, _ folder: URL) -> String { "\(agent.uuidString)|\(folder.path)" }
+
+    static func sessions(agent: AgentDefinition.ID, folder: URL, defaults: UserDefaults = .standard) -> [AgentSessionSummary] {
+        let all = (defaults.data(forKey: key)).flatMap { try? JSONDecoder().decode([String: [AgentSessionSummary]].self, from: $0) } ?? [:]
+        return all[storeKey(agent, folder)] ?? []
+    }
+
+    static func record(_ session: AgentSessionSummary, agent: AgentDefinition.ID, folder: URL, defaults: UserDefaults = .standard) {
+        var all = (defaults.data(forKey: key)).flatMap { try? JSONDecoder().decode([String: [AgentSessionSummary]].self, from: $0) } ?? [:]
+        var list = all[storeKey(agent, folder)] ?? []
+        list.removeAll { $0.id == session.id }
+        list.insert(session, at: 0)
+        all[storeKey(agent, folder)] = Array(list.prefix(limit))
+        if let data = try? JSONEncoder().encode(all) { defaults.set(data, forKey: key) }
+    }
+}
+
 struct AgentCommand: Identifiable, Equatable {
     var id: String { name }
     let name: String

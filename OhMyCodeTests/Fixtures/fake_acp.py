@@ -17,6 +17,7 @@ import threading
 
 incoming = queue.Queue()
 next_id = [1000]
+sessions = {}  # id -> {"title": str, "history": [updates]}
 config = {"model": "sonnet", "fast": False}
 booleans = [False]
 
@@ -53,7 +54,10 @@ def update(session, body):
 
 
 def say(session, text):
-    update(session, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+    body = {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}
+    if session in sessions:
+        sessions[session]["history"].append(body)
+    update(session, body)
 
 
 backlog = []
@@ -159,10 +163,13 @@ def handle(message):
     params = message.get("params") or {}
     if method == "initialize":
         caps = params.get("clientCapabilities", {})
+        listing = os.environ.get("FAKE_ACP_LIST") == "1"
+        loading = listing or os.environ.get("FAKE_ACP_LOAD") == "1"
         booleans[0] = "boolean" in ((caps.get("session") or {}).get("configOptions") or {})
         send({"id": mid, "result": {
             "protocolVersion": 1,
-            "agentCapabilities": {"loadSession": False, "promptCapabilities": {"embeddedContext": True}},
+            "agentCapabilities": {"loadSession": loading, "promptCapabilities": {"embeddedContext": True},
+                                  "sessionCapabilities": {"list": {}} if listing else {}},
             "agentInfo": {"name": "fake-acp", "title": "Fake Agent", "version": "1.0"},
             "authMethods": [{"id": "token", "name": "Use a token", "description": "Signs in"}]}})
     elif method == "authenticate":
@@ -172,9 +179,11 @@ def handle(message):
         if not authenticated[0]:
             send({"id": mid, "error": {"code": -32000, "message": "Authentication required"}})
             return
-        send({"id": mid, "result": {"sessionId": "session-1", "configOptions": config_options(), "modes": {"currentModeId": "default", "availableModes": [
+        sid = "session-%d" % (len(sessions) + 1)
+        sessions[sid] = {"title": None, "history": []}
+        send({"id": mid, "result": {"sessionId": sid, "configOptions": config_options(), "modes": {"currentModeId": "default", "availableModes": [
             {"id": "default", "name": "Default"}, {"id": "plan", "name": "Plan", "description": "Plans only"}]}}})
-        update("session-1", {"sessionUpdate": "available_commands_update", "availableCommands": [
+        update(sid, {"sessionUpdate": "available_commands_update", "availableCommands": [
             {"name": "review", "description": "Review the changes", "input": {"hint": "what to review"}}]})
     elif method == "session/set_config_option":
         if params["configId"] == "model" and params["value"] not in ("sonnet", "opus", "small"):
@@ -188,7 +197,28 @@ def handle(message):
     elif method == "session/set_mode":
         send({"id": mid, "result": {}})
         update(params["sessionId"], {"sessionUpdate": "current_mode_update", "currentModeId": params["modeId"]})
+    elif method == "session/list":
+        send({"id": mid, "result": {"sessions": [
+            {"sessionId": sid, "cwd": params.get("cwd"), "title": s["title"], "updatedAt": "2026-11-17T10:00:0%dZ" % i}
+            for i, (sid, s) in enumerate(sessions.items()) if s["title"]]}})
+    elif method == "session/load":
+        s = sessions.get(params["sessionId"])
+        if s is None:
+            send({"id": mid, "error": {"code": -32002, "message": "No such session"}})
+            return
+        for body in s["history"]:
+            update(params["sessionId"], body)
+        send({"id": mid, "result": {"configOptions": config_options()}})
     elif method == "session/prompt":
+        s = sessions.get(params["sessionId"])
+        if s is not None:
+            text = " ".join(b.get("text", "") for b in params.get("prompt", []) if b.get("type") == "text")
+            if s["title"] is None:
+                s["title"] = text
+            # As agents replay a user message: in pieces.
+            for piece in (text[:3], text[3:]):
+                if piece:
+                    s["history"].append({"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": piece}})
         reason = prompt(params["sessionId"], params.get("prompt", []))
         send({"id": mid, "result": {"stopReason": reason}})
     elif method == "session/cancel":

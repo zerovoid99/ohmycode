@@ -35,6 +35,20 @@ struct AgentPanelView: View {
             Menu {
                 Button("New Thread") { panel.newThread() }
                     .disabled(workspace.rootURL == nil)
+                if let client = panel.client, client.canLoadSessions {
+                    Menu("Open Earlier Thread") {
+                        if client.recentSessions.isEmpty { Text("None in this folder") }
+                        ForEach(client.recentSessions) { session in
+                            Button {
+                                Task { await client.loadSession(session) }
+                            } label: {
+                                Text(session.title)
+                                if let date = session.updatedAt { Text(date.formatted(.relative(presentation: .named))) }
+                            }
+                        }
+                    }
+                    .disabled(client.state == .starting)
+                }
                 Button("Restart Agent") { panel.start() }
                     .disabled(workspace.rootURL == nil)
                 Button("Stop Agent") { panel.stop() }
@@ -223,7 +237,7 @@ private struct AgentToolCallView: View {
             Button { isExpanded.toggle() } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Image(systemName: call.symbolName).foregroundStyle(.secondary).frame(width: 14)
-                    Text(call.title).lineLimit(isExpanded ? nil : 2).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(workspace.shortenedPaths(in: call.title)).lineLimit(isExpanded ? nil : 2).frame(maxWidth: .infinity, alignment: .leading)
                     status
                 }
                 .contentShape(Rectangle())
@@ -373,7 +387,7 @@ private struct AgentPermissionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(permission.title, systemImage: "hand.raised").font(.callout.weight(.medium))
+            Label(workspace.shortenedPaths(in: permission.title), systemImage: "hand.raised").font(.callout.weight(.medium))
             ForEach(Array(permission.content.enumerated()), id: \.offset) { _, content in
                 if case .diff(let path, let old, let new) = content {
                     AgentDiffSummary(path: path, old: old, new: new, source: client.definition.name, workspace: workspace)
@@ -573,6 +587,17 @@ private struct AgentLogView: View {
 }
 
 extension Workspace {
+    /// `text` with paths inside the folder made relative to it (agents name files by their
+    /// full paths, too long for the sidebar).
+    func shortenedPaths(in text: String) -> String {
+        guard let root = rootURL else { return text }
+        var result = text
+        for prefix in Set([root.path, root.resolvingSymlinksInPath().path, "/private" + root.path]) {
+            result = result.replacingOccurrences(of: prefix + "/", with: "")
+        }
+        return result
+    }
+
     /// Opens a file an agent points at (at a 1-based line).
     func agentOpen(path: String, line: Int?) {
         let url = URL(filePath: path)

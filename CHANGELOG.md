@@ -5,6 +5,14 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- Earlier agent threads can be reopened (Agent sidebar ▸ ⋯ ▸ Open Earlier Thread), with the
+  conversation shown again, for agents that can reopen sessions (Claude Code's adapter can).
+
+### Changed
+- Tool calls and permission requests in the Agent sidebar name files inside the folder by their
+  path in it, not their full path.
+
 ## [0.1.5] - 2026-11-17
 
 ### Added

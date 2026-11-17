@@ -62,6 +62,15 @@ final class AgentClient {
     private(set) var terminals: [String: AgentTerminal] = [:]
     /// The agent accepts files' text in prompts (else only links to them).
     private(set) var acceptsEmbeddedContext = false
+    /// The agent can reopen an earlier session (`session/load`), and list them (`session/list`).
+    private(set) var canLoadSessions = false
+    private(set) var canListSessions = false
+    /// Earlier sessions in this folder, newest first (when the agent can reopen them).
+    private(set) var recentSessions: [AgentSessionSummary] = []
+    /// Where this editor keeps the sessions it opened (agents that can't list theirs).
+    @ObservationIgnored var historyDefaults: UserDefaults = AppSettings.isRunningTests ? UserDefaults(suiteName: "dev.zerovoid99.ohmycode.tests.agents")! : .standard
+    /// The session has had a prompt (it's recorded in the history then).
+    @ObservationIgnored private var sessionHasPrompt = false
 
     @ObservationIgnored private var connection: LanguageServerConnection?
     @ObservationIgnored private weak var host: AgentHost?
@@ -132,6 +141,8 @@ final class AgentClient {
             }
             let capabilities = result["agentCapabilities"] as? [String: Any] ?? [:]
             acceptsEmbeddedContext = (capabilities["promptCapabilities"] as? [String: Any])?["embeddedContext"] as? Bool ?? false
+            canLoadSessions = capabilities["loadSession"] as? Bool ?? false
+            canListSessions = (capabilities["sessionCapabilities"] as? [String: Any])?["list"] != nil
             if let info = result["agentInfo"] as? [String: Any], let name = info["title"] as? String ?? info["name"] as? String {
                 agentTitle = [name, info["version"] as? String].compactMap { $0 }.joined(separator: " ")
             }
@@ -159,7 +170,9 @@ final class AgentClient {
             sessionTitle = nil
             setModes(result["modes"])
             setConfigOptions(result["configOptions"])
+            sessionHasPrompt = false
             state = .ready
+            Task { await refreshRecentSessions() }
             let early = earlyUpdates
             earlyUpdates = []
             for item in early where item.session == id { sessionUpdate(item.update) }
@@ -168,6 +181,55 @@ final class AgentClient {
         } catch {
             fail(error.localizedDescription)
         }
+    }
+
+    /// The agent's sessions in this folder, newest first (with `canListSessions`).
+    func listSessions() async -> [[String: Any]] {
+        let result = try? await request("session/list", params: ["cwd": rootURL.path]) as? [String: Any]
+        return result?["sessions"] as? [[String: Any]] ?? []
+    }
+
+    /// Reads the earlier sessions again: the agent's list, or the ones this editor opened.
+    func refreshRecentSessions() async {
+        guard canLoadSessions else { recentSessions = []; return }
+        var sessions: [AgentSessionSummary]
+        if canListSessions {
+            sessions = await listSessions().compactMap(AgentSessionSummary.init(json:))
+                .sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+        } else {
+            sessions = AgentSessionHistory.sessions(agent: definition.id, folder: rootURL, defaults: historyDefaults)
+        }
+        sessions.removeAll { $0.id == sessionID }
+        recentSessions = Array(sessions.prefix(30))
+    }
+
+    /// Reopens an earlier session: the agent replays it into the conversation.
+    func loadSession(_ session: AgentSessionSummary) async {
+        guard connection != nil, canLoadSessions, state != .starting else { return }
+        if state == .working { cancel() }
+        cancelPermissions()
+        entries = []
+        plan = []
+        toolIndex = [:]
+        lastMessageID = nil
+        sessionTitle = session.title
+        // Before asking: the replayed history comes, as updates of this session, before the answer.
+        let previous = sessionID
+        sessionID = session.id
+        sessionHasPrompt = true
+        state = .starting
+        do {
+            let result = try await request("session/load", params: ["sessionId": session.id, "cwd": rootURL.path,
+                                                                    "mcpServers": [Any]()]) as? [String: Any] ?? [:]
+            if result["modes"] != nil { setModes(result["modes"]) }
+            if result["configOptions"] != nil { setConfigOptions(result["configOptions"]) }
+            state = .ready
+        } catch {
+            sessionID = previous
+            state = .ready
+            addNotice("Couldn't reopen \"\(session.title)\": \(error.localizedDescription)")
+        }
+        await refreshRecentSessions()
     }
 
     func authenticate(_ method: AgentAuthMethod) async {
@@ -225,6 +287,13 @@ final class AgentClient {
         append(.user(text, attachments: attachments.map(\.label)))
         lastMessageID = nil
         state = .working
+        if !sessionHasPrompt, canLoadSessions, !canListSessions {
+            // The first prompt names it, in this editor's own history.
+            let title = text.isEmpty ? attachments.map(\.label).joined(separator: ", ") : String(text.prefix(80))
+            AgentSessionHistory.record(AgentSessionSummary(id: sessionID, title: title, updatedAt: Date()),
+                                       agent: definition.id, folder: rootURL, defaults: historyDefaults)
+        }
+        sessionHasPrompt = true
         do {
             let result = try await request("session/prompt", params: ["sessionId": sessionID, "prompt": blocks]) as? [String: Any]
             switch result?["stopReason"] as? String {
@@ -238,6 +307,7 @@ final class AgentClient {
             if connection != nil { addNotice("The prompt failed: \(error.localizedDescription)") }
         }
         if state == .working { state = .ready }
+        if canListSessions { Task { await refreshRecentSessions() } }
     }
 
     /// Stops the turn: the agent is told, and every question it's waiting on is cancelled.
@@ -330,7 +400,14 @@ final class AgentClient {
         case "agent_thought_chunk":
             appendChunk(update, thought: true)
         case "user_message_chunk":
-            if let text = AgentContent.text(of: update["content"]) { append(.user(text, attachments: [])) }
+            // Replayed history (`session/load`): chunks of one message make one entry.
+            guard let text = AgentContent.text(of: update["content"]) else { return }
+            if let last = entries.indices.last, case .user(let existing, let attachments) = entries[last].kind, lastMessageID == "user" {
+                entries[last].kind = .user(existing + text, attachments: attachments)
+            } else {
+                append(.user(text, attachments: []))
+                lastMessageID = "user"
+            }
         case "tool_call":
             guard let id = update["toolCallId"] as? String else { return }
             var call = AgentToolCall(id: id, title: update["title"] as? String ?? "Tool", kind: update["kind"] as? String ?? "other",
@@ -384,7 +461,7 @@ final class AgentClient {
         guard let text = AgentContent.text(of: update["content"]) else { return }
         let messageID = update["messageId"] as? String
         let continues = messageID == nil || messageID == lastMessageID
-        lastMessageID = messageID ?? lastMessageID
+        lastMessageID = messageID ?? (lastMessageID == "user" ? nil : lastMessageID)
         if continues, let last = entries.indices.last {
             switch entries[last].kind {
             case .message(let existing) where !thought:

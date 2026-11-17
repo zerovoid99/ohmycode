@@ -192,7 +192,8 @@ the commands it runs (with their output). Before it edits a file or runs a comma
 *Allow* or *Reject* on the card above the prompt, and *View Diff* shows a proposed edit side by
 side. ⌘↩ sends, ⌘. stops the turn; the paperclip attaches the selection (or the current file),
 and `/` lists the agent's commands. The agent's model and other settings it offers are menus
-above the prompt. The agent reads files as the editor has them, unsaved
+above the prompt. *⋯ ▸ Open Earlier Thread* reopens an earlier conversation in the folder (for
+agents that can reopen sessions; Claude Code's adapter can). The agent reads files as the editor has them, unsaved
 changes included, and only inside the folder; what it writes to an open file is one undo step.
 
 Agents are set up in *Settings ▸ Agents*: a name and a command line, run with your login

@@ -214,6 +214,31 @@ struct AgentClientTests {
         })
     }
 
+    @Test(arguments: [true, false])
+    func reopensEarlierSessions(agentLists: Bool) async throws {
+        let (workspace, root) = try makeWorkspace()
+        let client = try await start(workspace, root: root, environment: [agentLists ? "FAKE_ACP_LIST" : "FAKE_ACP_LOAD": "1"])
+        client.historyDefaults.removeObject(forKey: "agents.sessionHistory")
+        defer { client.stop() }
+        #expect(client.canLoadSessions && client.canListSessions == agentLists)
+        await client.send("hello")
+        await client.newSession()
+        await client.send("config")
+        // The other session is listed (by the agent, or from this editor's own history).
+        #expect(try await eventually { client.recentSessions.map(\.title) == ["hello"] })
+
+        let earlier = try #require(client.recentSessions.first)
+        await client.loadSession(earlier)
+        #expect(client.state == .ready)
+        // Replayed: the user's message in one entry (it came in pieces), then the reply.
+        if case .user(let text, _) = client.entries.first?.kind { #expect(text == "hello") } else { Issue.record("no user entry") }
+        #expect(client.entries.count == 2 && messages(client) == ["Hello there"])
+        // Prompts go to the reopened session.
+        await client.send("config")
+        #expect(messages(client).last?.hasPrefix("model=") == true)
+        #expect(try await eventually { client.recentSessions.map(\.title) == ["config"] })
+    }
+
     @Test func markdownBlocks() {
         let text = """
         # Plan
