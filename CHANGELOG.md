@@ -5,6 +5,8 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-11-17
+
 ### Added
 - Earlier agent threads can be reopened (Agent sidebar ▸ ⋯ ▸ Open Earlier Thread), with the
   conversation shown again, for agents that can reopen sessions (Claude Code's adapter can).
@@ -98,7 +100,8 @@ tree-sitter highlighting, language servers, git, an integrated terminal and exte
 - The gutter and overlays redraw only the rows and marks that change, and line numbers are drawn
   from cached glyphs.
 
-[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/zerovoid99/ohmycode/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/zerovoid99/ohmycode/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/zerovoid99/ohmycode/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/zerovoid99/ohmycode/compare/v0.1.2...v0.1.3
