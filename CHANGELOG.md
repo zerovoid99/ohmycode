@@ -5,6 +5,8 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-11-18
+
 ### Added
 - AI inline suggestions: after a pause in typing, a suggestion shows in grey at the cursor. Tab
   inserts it, ⌘→ its next word, Esc dismisses it, ⌥\ asks for one right away. Off until turned
@@ -154,7 +156,8 @@ tree-sitter highlighting, language servers, git, an integrated terminal and exte
 - The gutter and overlays redraw only the rows and marks that change, and line numbers are drawn
   from cached glyphs.
 
-[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/zerovoid99/ohmycode/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/zerovoid99/ohmycode/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/zerovoid99/ohmycode/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/zerovoid99/ohmycode/compare/v0.1.5...v0.1.6
