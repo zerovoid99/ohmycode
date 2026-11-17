@@ -46,6 +46,9 @@ final class AgentClient {
     /// Questions the agent is waiting on, oldest first.
     private(set) var permissions: [AgentPermissionRequest] = []
     private(set) var modes: [AgentMode] = []
+    /// The session's settings (model, …), in the agent's order. When there are any, they
+    /// replace `modes` (which they supersede; agents keep both in step).
+    private(set) var configOptions: [AgentConfigOption] = []
     private(set) var currentModeID: String?
     private(set) var commands: [AgentCommand] = []
     private(set) var authMethods: [AgentAuthMethod] = []
@@ -63,7 +66,8 @@ final class AgentClient {
     @ObservationIgnored private var connection: LanguageServerConnection?
     @ObservationIgnored private weak var host: AgentHost?
     @ObservationIgnored private var nextID = 1
-    @ObservationIgnored private var pending: [Int: CheckedContinuation<JSONValueBox, Error>] = [:]
+    /// Requests waiting for their answers.
+    @ObservationIgnored private var pending: [Int: (Result<Any?, Error>) -> Void] = [:]
     @ObservationIgnored private var sessionID: String?
     /// Updates for a session not known yet: an agent may send some (its commands) right after
     /// answering `session/new`, before the answer is read here.
@@ -118,6 +122,7 @@ final class AgentClient {
                 "clientCapabilities": [
                     "fs": ["readTextFile": true, "writeTextFile": true],
                     "terminal": true,
+                    "session": ["configOptions": ["boolean": [String: Any]()]],
                 ],
                 "clientInfo": ["name": "oh-my-code", "title": "Oh My Code",
                                "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"],
@@ -153,6 +158,7 @@ final class AgentClient {
             toolIndex = [:]
             sessionTitle = nil
             setModes(result["modes"])
+            setConfigOptions(result["configOptions"])
             state = .ready
             let early = earlyUpdates
             earlyUpdates = []
@@ -189,8 +195,8 @@ final class AgentClient {
     }
 
     private func agentDidExit(_ status: Int32) {
-        for continuation in pending.values {
-            continuation.resume(throwing: AgentError(code: -1, message: "\(definition.name) exited"))
+        for answer in pending.values {
+            answer(.failure(AgentError(code: -1, message: "\(definition.name) exited")))
         }
         pending.removeAll()
         cancelPermissions()
@@ -251,8 +257,35 @@ final class AgentClient {
         guard let sessionID, id != currentModeID else { return }
         let previous = currentModeID
         currentModeID = id
-        Task {
-            do { _ = try await request("session/set_mode", params: ["sessionId": sessionID, "modeId": id]) } catch { currentModeID = previous }
+        // Sent now: a prompt sent next is answered in the new mode.
+        send("session/set_mode", params: ["sessionId": sessionID, "modeId": id]) { [weak self] result in
+            if case .failure = result { self?.currentModeID = previous }
+        }
+    }
+
+    /// Sets one of the session's settings (a select's value, or a boolean).
+    func setConfigOption(_ id: String, to value: Any) {
+        guard let sessionID, let index = configOptions.firstIndex(where: { $0.id == id }) else { return }
+        let previous = configOptions
+        var params: [String: Any] = ["sessionId": sessionID, "configId": id, "value": value]
+        switch (configOptions[index].kind, value) {
+        case (.select(_, let choices), let value as String):
+            configOptions[index].kind = .select(current: value, choices: choices)
+        case (.boolean, let value as Bool):
+            configOptions[index].kind = .boolean(value)
+            params["type"] = "boolean"
+        default:
+            return
+        }
+        // Sent now: a prompt sent next is answered with the new setting.
+        send("session/set_config_option", params: params) { [weak self] result in
+            switch result {
+            case .success(let result):
+                if let options = (result as? [String: Any])?["configOptions"] { self?.setConfigOptions(options) }
+            case .failure(let error):
+                self?.configOptions = previous
+                self?.addNotice("Couldn't change \(previous[index].name): \(error.localizedDescription)")
+            }
         }
     }
 
@@ -276,6 +309,10 @@ final class AgentClient {
     }
 
     private func addNotice(_ text: String) { append(.notice(text)) }
+
+    private func setConfigOptions(_ json: Any?) {
+        configOptions = (json as? [Any] ?? []).compactMap(AgentConfigOption.init(json:))
+    }
 
     private func setModes(_ json: Any?) {
         guard let object = json as? [String: Any] else { modes = []; currentModeID = nil; return }
@@ -331,6 +368,8 @@ final class AgentClient {
                 return AgentCommand(name: name, description: command["description"] as? String ?? "",
                                     hint: (command["input"] as? [String: Any])?["hint"] as? String)
             }
+        case "config_option_update":
+            setConfigOptions(update["configOptions"])
         case "current_mode_update":
             currentModeID = update["currentModeId"] as? String ?? currentModeID
         case "session_info_update":
@@ -376,15 +415,22 @@ final class AgentClient {
     // MARK: JSON-RPC
 
     private func request(_ method: String, params: Any) async throws -> Any? {
-        guard let connection else { throw AgentError(code: -1, message: "\(definition.name) isn't running") }
-        let id = nextID
-        nextID += 1
-        let data = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "method": method, "params": params])
         let box = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<JSONValueBox, Error>) in
-            pending[id] = continuation
-            connection.send(data)
+            send(method, params: params) { continuation.resume(with: $0.map(JSONValueBox.init)) }
         }
         return box.value
+    }
+
+    /// Sends a request now (in order with what's sent after it); `answer` gets its result.
+    private func send(_ method: String, params: Any, answer: @escaping (Result<Any?, Error>) -> Void) {
+        guard let connection else { return answer(.failure(AgentError(code: -1, message: "\(definition.name) isn't running"))) }
+        let id = nextID
+        nextID += 1
+        guard let data = try? JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "method": method, "params": params]) else {
+            return answer(.failure(AgentError(code: -32700, message: "Couldn't encode \(method)")))
+        }
+        pending[id] = answer
+        connection.send(data)
     }
 
     private func notify(_ method: String, params: Any) {
@@ -405,11 +451,11 @@ final class AgentClient {
 
     private func handle(_ message: [String: Any]) {
         let method = message["method"] as? String
-        if method == nil, let id = message["id"] as? Int, let continuation = pending.removeValue(forKey: id) {
+        if method == nil, let id = message["id"] as? Int, let answer = pending.removeValue(forKey: id) {
             if let error = message["error"] as? [String: Any] {
-                continuation.resume(throwing: AgentError(code: error["code"] as? Int ?? -1, message: error["message"] as? String ?? "Error"))
+                answer(.failure(AgentError(code: error["code"] as? Int ?? -1, message: error["message"] as? String ?? "Error")))
             } else {
-                continuation.resume(returning: JSONValueBox(message["result"]))
+                answer(.success(message["result"]))
             }
             return
         }

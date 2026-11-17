@@ -12,6 +12,8 @@ struct StatusBarView: View {
     /// Extensions' items: left ones after the branch, right ones before the cursor position.
     var items: [ExtensionStatusItem] = []
     var run: (String) -> Void = { _ in }
+    /// Claude Code sessions connected to the window (shown when there are any).
+    var claudeCodeSessions = 0
 
     var body: some View {
         HStack(spacing: 16) {
@@ -52,6 +54,11 @@ struct StatusBarView: View {
                         .truncationMode(.tail)
                         .help(diagnostic.message)
                 }
+            }
+            if claudeCodeSessions > 0 {
+                Label(claudeCodeSessions > 1 ? "Claude Code ×\(claudeCodeSessions)" : "Claude Code", systemImage: "link")
+                    .foregroundStyle(.secondary)
+                    .help("Claude Code is connected: it sees the open files and the selection, and its edits open as diffs here. ⌥⌘K sends the selected lines to it.")
             }
             if let task = tasks.last {
                 Button(action: showTasks) {

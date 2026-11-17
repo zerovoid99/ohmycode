@@ -186,6 +186,70 @@ struct AgentClientTests {
         if case .user(_, let attachments) = client.entries.first?.kind { #expect(attachments == ["d.swift:2-3"]) }
     }
 
+    @Test func changesTheSessionsSettings() async throws {
+        let (workspace, root) = try makeWorkspace()
+        let client = try await start(workspace, root: root)
+        defer { client.stop() }
+        // The slider is a type this editor doesn't know: left out. The boolean is there because
+        // the editor said it takes booleans.
+        #expect(client.configOptions.map(\.id) == ["model", "fast"])
+        let model = try #require(client.configOptions.first)
+        guard case .select(let current, let choices) = model.kind else { Issue.record("not a select"); return }
+        #expect(current == "sonnet" && model.currentName == "Sonnet" && model.category == "model")
+        #expect(choices.map(\.value) == ["sonnet", "opus", "small"])
+        #expect(choices.map(\.group) == ["Claude", "Claude", "Other"])
+
+        client.setConfigOption("model", to: "opus")
+        #expect(client.configOptions.first?.currentName == "Opus") // at once
+        client.setConfigOption("fast", to: true)
+        await client.send("config")
+        #expect(messages(client).last == "model=opus fast=True")
+        #expect(client.configOptions.last?.kind == .boolean(true))
+
+        // Refused: back to what it was, and said.
+        client.setConfigOption("model", to: "huge")
+        #expect(try await eventually { client.configOptions.first?.currentName == "Opus" })
+        #expect(try await eventually {
+            if case .notice(let text) = client.entries.last?.kind { text.contains("No such model") } else { false }
+        })
+    }
+
+    @Test func markdownBlocks() {
+        let text = """
+        # Plan
+        Some **bold** text
+        on two lines.
+
+        - one
+          - nested
+        - [x] done
+        2. second
+        > quoted
+        ---
+        | a | b |
+        |---|---|
+        ```swift
+        let x = 1
+        ```
+        ```
+        still streaming
+        """
+        #expect(AgentMarkdown.blocks(text) == [
+            .heading(level: 1, text: "Plan"),
+            .paragraph("Some **bold** text\non two lines."),
+            .listItem(marker: "•", depth: 0, text: "one"),
+            .listItem(marker: "•", depth: 1, text: "nested"),
+            .listItem(marker: "☑", depth: 0, text: "done"),
+            .listItem(marker: "2.", depth: 0, text: "second"),
+            .quote("quoted"),
+            .rule,
+            .table("| a | b |\n|---|---|"),
+            .code(language: "swift", text: "let x = 1"),
+            .code(language: nil, text: "still streaming"),
+        ])
+        #expect(AgentMarkdown.blocks("#hashtag and 1.5 apples") == [.paragraph("#hashtag and 1.5 apples")])
+    }
+
     @Test func commandLinesSplitLikeAShell() {
         #expect(AgentDefinition.words("npx -y @scope/pkg") == ["npx", "-y", "@scope/pkg"])
         #expect(AgentDefinition.words("'/path with/space' \"a b\" c\\ d ''") == ["/path with/space", "a b", "c d", ""])

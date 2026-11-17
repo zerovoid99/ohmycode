@@ -191,7 +191,8 @@ something in the window's folder. Its reply streams in, with its plan, the files
 the commands it runs (with their output). Before it edits a file or runs a command it asks:
 *Allow* or *Reject* on the card above the prompt, and *View Diff* shows a proposed edit side by
 side. ⌘↩ sends, ⌘. stops the turn; the paperclip attaches the selection (or the current file),
-and `/` lists the agent's commands. The agent reads files as the editor has them, unsaved
+and `/` lists the agent's commands. The agent's model and other settings it offers are menus
+above the prompt. The agent reads files as the editor has them, unsaved
 changes included, and only inside the folder; what it writes to an open file is one undo step.
 
 Agents are set up in *Settings ▸ Agents*: a name and a command line, run with your login

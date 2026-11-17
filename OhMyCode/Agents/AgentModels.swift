@@ -110,6 +110,71 @@ struct AgentMode: Identifiable, Equatable {
     let description: String?
 }
 
+/// A setting of the session the agent offers (its model, how hard it thinks, its mode).
+struct AgentConfigOption: Identifiable, Equatable {
+    struct Choice: Identifiable, Equatable {
+        var id: String { value }
+        let value: String
+        let name: String
+        let description: String?
+        /// The group's name, when the choices are grouped.
+        let group: String?
+    }
+
+    enum Kind: Equatable {
+        case select(current: String, choices: [Choice])
+        case boolean(Bool)
+    }
+
+    let id: String
+    let name: String
+    let description: String?
+    /// `mode`, `model`, `model_config`, `thought_level`, `other`, or the agent's own.
+    let category: String?
+    var kind: Kind
+
+    /// From the agent's JSON; nil for a type this editor doesn't know (left alone).
+    init?(json: Any?) {
+        guard let object = json as? [String: Any], let id = object["id"] as? String else { return nil }
+        self.id = id
+        name = object["name"] as? String ?? id
+        description = object["description"] as? String
+        category = object["category"] as? String
+        switch object["type"] as? String {
+        case "select":
+            guard let current = object["currentValue"] as? String else { return nil }
+            var choices: [Choice] = []
+            for entry in object["options"] as? [[String: Any]] ?? [] {
+                if let groupOptions = entry["options"] as? [[String: Any]] {
+                    let group = entry["name"] as? String ?? entry["group"] as? String
+                    choices += groupOptions.compactMap { Self.choice($0, group: group) }
+                } else if let choice = Self.choice(entry, group: nil) {
+                    choices.append(choice)
+                }
+            }
+            kind = .select(current: current, choices: choices)
+        case "boolean":
+            guard let current = object["currentValue"] as? Bool else { return nil }
+            kind = .boolean(current)
+        default:
+            return nil
+        }
+    }
+
+    private static func choice(_ json: [String: Any], group: String?) -> Choice? {
+        guard let value = json["value"] as? String else { return nil }
+        return Choice(value: value, name: json["name"] as? String ?? value, description: json["description"] as? String, group: group)
+    }
+
+    /// The current choice's name (selects).
+    var currentName: String {
+        switch kind {
+        case .select(let current, let choices): choices.first { $0.value == current }?.name ?? current
+        case .boolean(let on): on ? "On" : "Off"
+        }
+    }
+}
+
 struct AgentCommand: Identifiable, Equatable {
     var id: String { name }
     let name: String

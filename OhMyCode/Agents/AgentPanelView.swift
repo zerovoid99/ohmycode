@@ -212,50 +212,6 @@ private struct AgentEntryView: View {
     }
 }
 
-/// A reply: Markdown inline formatting, with fenced code blocks set in monospace.
-private struct AgentMarkdownView: View {
-    let text: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(Self.segments(text).enumerated()), id: \.offset) { _, segment in
-                if segment.isCode {
-                    ScrollView(.horizontal) {
-                        Text(segment.text).font(.system(size: 11, design: .monospaced)).textSelection(.enabled).padding(6)
-                    }
-                    .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 5))
-                } else if !segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(Self.markdown(segment.text)).textSelection(.enabled)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    static func markdown(_ text: String) -> AttributedString {
-        let trimmed = text.trimmingCharacters(in: .newlines)
-        return (try? AttributedString(markdown: trimmed, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(trimmed)
-    }
-
-    /// Text and ``` code blocks, in order (an unclosed block runs to the end: it's streaming).
-    static func segments(_ text: String) -> [(text: String, isCode: Bool)] {
-        var result: [(String, Bool)] = []
-        var current: [Substring] = [], inCode = false
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                if !current.isEmpty || inCode { result.append((current.joined(separator: "\n"), inCode)) }
-                current = []
-                inCode.toggle()
-                continue
-            }
-            current.append(line)
-        }
-        if !current.isEmpty { result.append((current.joined(separator: "\n"), inCode)) }
-        return result
-    }
-}
-
 private struct AgentToolCallView: View {
     let call: AgentToolCall
     let client: AgentClient
@@ -510,10 +466,19 @@ private struct AgentPromptView: View {
                 }
                 .padding(.horizontal, 10)
             }
+            if !client.configOptions.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(client.configOptions) { AgentConfigControl(option: $0, client: client) }
+                    }
+                    .padding(.horizontal, 8)
+                }
+            }
             HStack(spacing: 8) {
                 Button { panel.attachSelection() } label: { Image(systemName: "paperclip") }
                     .help("Attach the Selection (or the Current File)")
-                if !client.modes.isEmpty {
+                // Settings supersede modes: shown instead, when the agent has them.
+                if client.configOptions.isEmpty, !client.modes.isEmpty {
                     Picker("Mode", selection: Binding(get: { client.currentModeID ?? "" }, set: { client.setMode($0) })) {
                         ForEach(client.modes) { Text($0.name).tag($0.id) }
                     }
@@ -545,6 +510,45 @@ private struct AgentPromptView: View {
         let typed = panel.draft.dropFirst().prefix { !$0.isWhitespace }.lowercased()
         guard !panel.draft.contains(" ") else { return [] }
         return client.commands.filter { typed.isEmpty || $0.name.lowercased().hasPrefix(typed) }
+    }
+}
+
+/// One of the session's settings: a menu of its choices (grouped as the agent groups them), or
+/// a checkbox.
+private struct AgentConfigControl: View {
+    let option: AgentConfigOption
+    let client: AgentClient
+
+    var body: some View {
+        switch option.kind {
+        case .select(let current, let choices):
+            Menu {
+                let groups = choices.reduce(into: [String?]()) { if !$0.contains($1.group) { $0.append($1.group) } }
+                ForEach(groups, id: \.self) { group in
+                    Section(group ?? "") {
+                        ForEach(choices.filter { $0.group == group }) { choice in
+                            Button {
+                                client.setConfigOption(option.id, to: choice.value)
+                            } label: {
+                                if choice.value == current { Label(choice.name, systemImage: "checkmark") } else { Text(choice.name) }
+                            }
+                            .help(choice.description ?? "")
+                        }
+                    }
+                }
+            } label: {
+                Text(option.currentName).font(.caption)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help([option.name, option.description].compactMap { $0 }.joined(separator: ": "))
+        case .boolean(let on):
+            Toggle(option.name, isOn: Binding(get: { on }, set: { client.setConfigOption(option.id, to: $0) }))
+                .toggleStyle(.checkbox)
+                .font(.caption)
+                .fixedSize()
+                .help(option.description ?? option.name)
+        }
     }
 }
 

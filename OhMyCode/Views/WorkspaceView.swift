@@ -139,7 +139,9 @@ private struct ActiveStatusBar: View {
                       showProblems: { workspace.toggleProblems() },
                       tasks: workspace.taskRuns.filter { $0.state.isRunning },
                       showTasks: { workspace.showTasks() },
-                      items: workspace.extensions.statusItems) { workspace.extensions.run($0) }
+                      items: workspace.extensions.statusItems,
+                      run: { workspace.extensions.run($0) },
+                      claudeCodeSessions: workspace.claudeCode.connectedCount)
     }
 }
 

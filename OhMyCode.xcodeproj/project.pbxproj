@@ -145,6 +145,7 @@
 		87D15698304F6760329EEBC4 /* EditorRedrawTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F428138839F8ECDB991241B /* EditorRedrawTests.swift */; };
 		885EB771E5C8AF05523D9F2B /* GitStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35FE1528841757CF0824617C /* GitStatus.swift */; };
 		8917644A068062DA1BE5B14A /* MarkdownRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0390997AD44520B677F5EB9 /* MarkdownRenderer.swift */; };
+		89CCF43BFCF7CB2BB7BF2C1D /* AgentMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15BB3E9E7834F35EE7BD779D /* AgentMarkdown.swift */; };
 		89FF2F3F048DED247C101AA6 /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 1DB02258B857C771FD1F3771 /* Fixtures */; };
 		8AFF7FCE4BF1ADB458FE77C4 /* LineCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3944E6F1AF7EBCD1CD6BEDE2 /* LineCommands.swift */; };
 		8BB0943F46EDE22F089A6289 /* SearchResultsTableTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175726481BF10833461530F3 /* SearchResultsTableTests.swift */; };
@@ -292,6 +293,7 @@
 		1025706C8AB204994FD662CA /* LocalHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalHistory.swift; sourceTree = "<group>"; };
 		155FAF90197AF2C001C46171 /* AppliedColorsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppliedColorsTests.swift; sourceTree = "<group>"; };
 		1564029D78A9D5DCDEF90529 /* CommitSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommitSearchTests.swift; sourceTree = "<group>"; };
+		15BB3E9E7834F35EE7BD779D /* AgentMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMarkdown.swift; sourceTree = "<group>"; };
 		167B9ACEE73607B827E85139 /* PerformanceBenchmarks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceBenchmarks.swift; sourceTree = "<group>"; };
 		16C82EFD3AE3321A63091B6C /* EditorChromeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorChromeTests.swift; sourceTree = "<group>"; };
 		175726481BF10833461530F3 /* SearchResultsTableTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchResultsTableTests.swift; sourceTree = "<group>"; };
@@ -645,6 +647,7 @@
 			children = (
 				D17810DBC0F318780FDB65FF /* AgentClient.swift */,
 				F591C44CD9A255785A48F28E /* AgentDefinition.swift */,
+				15BB3E9E7834F35EE7BD779D /* AgentMarkdown.swift */,
 				47E50E8C95A9A23C5CA33BFA /* AgentModels.swift */,
 				1C0CD16E2ADB4B896E1ECCE5 /* AgentPanel.swift */,
 				B742AEAA3856492F433A301F /* AgentPanelView.swift */,
@@ -1127,6 +1130,7 @@
 			files = (
 				1BE39FA033FE2188208DB6D4 /* AgentClient.swift in Sources */,
 				65FF4C8989654B73330BC0FB /* AgentDefinition.swift in Sources */,
+				89CCF43BFCF7CB2BB7BF2C1D /* AgentMarkdown.swift in Sources */,
 				7745B320F1D28CE55DB80421 /* AgentModels.swift in Sources */,
 				EB6B8A3893AC7F9F70B2D805 /* AgentPanel.swift in Sources */,
 				43C40AC781DBC759C2A2C66B /* AgentPanelView.swift in Sources */,

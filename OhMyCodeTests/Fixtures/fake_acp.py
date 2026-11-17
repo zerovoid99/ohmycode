@@ -17,6 +17,19 @@ import threading
 
 incoming = queue.Queue()
 next_id = [1000]
+config = {"model": "sonnet", "fast": False}
+booleans = [False]
+
+
+def config_options():
+    options = [{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": config["model"],
+                "options": [{"group": "claude", "name": "Claude", "options": [
+                    {"value": "sonnet", "name": "Sonnet"}, {"value": "opus", "name": "Opus", "description": "Slower"}]},
+                            {"group": "other", "name": "Other", "options": [{"value": "small", "name": "Small"}]}]},
+               {"id": "future", "name": "Future", "type": "slider", "currentValue": 3}]
+    if booleans[0]:
+        options.append({"id": "fast", "name": "Fast", "type": "boolean", "currentValue": config["fast"]})
+    return options
 authenticated = [os.environ.get("FAKE_ACP_AUTH") != "1"]
 cancelled = threading.Event()
 
@@ -70,6 +83,9 @@ def prompt(session, blocks):
         say(session, "attached: " + ", ".join(
             (b.get("resource") or {}).get("uri", b.get("uri", "")) for b in links) + "\n")
     words = text.split(" ", 2)
+    if words[0] == "config":
+        say(session, "model=%s fast=%s" % (config["model"], config["fast"]))
+        return "end_turn"
     if words[0] == "hello":
         update(session, {"sessionUpdate": "plan", "entries": [
             {"content": "Say hello", "priority": "high", "status": "completed"},
@@ -142,6 +158,8 @@ def handle(message):
     mid = message.get("id")
     params = message.get("params") or {}
     if method == "initialize":
+        caps = params.get("clientCapabilities", {})
+        booleans[0] = "boolean" in ((caps.get("session") or {}).get("configOptions") or {})
         send({"id": mid, "result": {
             "protocolVersion": 1,
             "agentCapabilities": {"loadSession": False, "promptCapabilities": {"embeddedContext": True}},
@@ -154,10 +172,19 @@ def handle(message):
         if not authenticated[0]:
             send({"id": mid, "error": {"code": -32000, "message": "Authentication required"}})
             return
-        send({"id": mid, "result": {"sessionId": "session-1", "modes": {"currentModeId": "default", "availableModes": [
+        send({"id": mid, "result": {"sessionId": "session-1", "configOptions": config_options(), "modes": {"currentModeId": "default", "availableModes": [
             {"id": "default", "name": "Default"}, {"id": "plan", "name": "Plan", "description": "Plans only"}]}}})
         update("session-1", {"sessionUpdate": "available_commands_update", "availableCommands": [
             {"name": "review", "description": "Review the changes", "input": {"hint": "what to review"}}]})
+    elif method == "session/set_config_option":
+        if params["configId"] == "model" and params["value"] not in ("sonnet", "opus", "small"):
+            send({"id": mid, "error": {"code": -32602, "message": "No such model"}})
+            return
+        if params["configId"] == "fast" and params.get("type") != "boolean":
+            send({"id": mid, "error": {"code": -32602, "message": "Booleans say so"}})
+            return
+        config[params["configId"]] = params["value"]
+        send({"id": mid, "result": {"configOptions": config_options()}})
     elif method == "session/set_mode":
         send({"id": mid, "result": {}})
         update(params["sessionId"], {"sessionUpdate": "current_mode_update", "currentModeId": params["modeId"]})
