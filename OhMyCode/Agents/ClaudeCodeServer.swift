@@ -62,7 +62,7 @@ final class ClaudeCodeServer {
         guard server == nil else { return writeLockFile() }
         let token = authToken
         do {
-            let server = try LocalWebSocketServer { headers in
+            let server = try LocalWebSocketServer(subprotocols: ["mcp"]) { headers in
                 headers.contains { $0.name.lowercased() == Self.headerName && Self.constantTimeEqual($0.value, token) }
             }
             server.onReady = { [weak self, weak server] port in

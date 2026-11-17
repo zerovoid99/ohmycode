@@ -1,4 +1,5 @@
 import AppKit
+import Network
 import Testing
 @testable import Oh_My_Code
 
@@ -29,6 +30,8 @@ struct ClaudeCodeServerTests {
         init(port: UInt16, token: String?) {
             var request = URLRequest(url: URL(string: "ws://127.0.0.1:\(port)")!)
             if let token { request.setValue(token, forHTTPHeaderField: "x-claude-code-ide-authorization") }
+            // As Claude Code does: it gives up on a server that doesn't pick this.
+            request.setValue("mcp", forHTTPHeaderField: "Sec-WebSocket-Protocol")
             task = URLSession.shared.webSocketTask(with: request)
             task.resume()
             receive()
@@ -154,6 +157,36 @@ struct ClaudeCodeServerTests {
         AgentStore.shared.claudeCodeIntegration = false
         #expect(!FileManager.default.fileExists(atPath: fixture.lockDirectory.appending(path: "\(port).lock").path))
         #expect(fixture.workspace.claudeCode.port == nil)
+    }
+
+    /// The HTTP response to a hand-written upgrade request.
+    private func handshake(port: UInt16, headers: [String: String]) async throws -> String {
+        let connection = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: port)!, using: .tcp)
+        defer { connection.cancel() }
+        connection.start(queue: .global())
+        var request = "GET / HTTP/1.1\r\nHost: 127.0.0.1:\(port)\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n"
+            + "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        for (name, value) in headers { request += "\(name): \(value)\r\n" }
+        connection.send(content: Data((request + "\r\n").utf8), completion: .contentProcessed { _ in })
+        let data: Data? = await withCheckedContinuation { continuation in
+            connection.receive(minimumIncompleteLength: 12, maximumLength: 4096) { data, _, _, _ in continuation.resume(returning: data) }
+        }
+        return String(decoding: data ?? Data(), as: UTF8.self)
+    }
+
+    @Test func theHandshakePicksTheMCPSubprotocol() async throws {
+        let fixture = try makeFixture()
+        defer { tearDown(fixture) }
+        let (port, lock) = try await lockFile(fixture)
+        let token = try #require(lock["authToken"] as? String)
+        // Claude Code offers "mcp" and gives up on a server that doesn't pick it.
+        let accepted = try await handshake(port: port, headers: ["x-claude-code-ide-authorization": token,
+                                                                 "Sec-WebSocket-Protocol": "mcp"])
+        #expect(accepted.hasPrefix("HTTP/1.1 101"))
+        #expect(accepted.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n")) // RFC 6455's example
+        #expect(accepted.contains("Sec-WebSocket-Protocol: mcp\r\n"))
+        let refused = try await handshake(port: port, headers: ["Sec-WebSocket-Protocol": "mcp"])
+        #expect(refused.hasPrefix("HTTP/1.1 401"))
     }
 
     @Test func answersTheIDETools() async throws {

@@ -15,15 +15,18 @@ final class LocalWebSocketServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "omc.websocket")
     private let authorize: @Sendable ([(name: String, value: String)]) -> Bool
+    private let subprotocols: [String]
 
     @MainActor var onReady: ((UInt16) -> Void)?
     @MainActor var onFailure: ((String) -> Void)?
     /// A connection that passed the handshake.
     @MainActor var onConnect: ((WebSocketPeer) -> Void)?
 
-    /// `authorize` gets the request's headers (names as sent) and runs off the main thread.
-    init(authorize: @escaping @Sendable ([(name: String, value: String)]) -> Bool) throws {
+    /// `authorize` gets the request's headers (names as sent) and runs off the main thread;
+    /// `subprotocols`: the ones it speaks, picked when a client offers one.
+    init(subprotocols: [String] = [], authorize: @escaping @Sendable ([(name: String, value: String)]) -> Bool) throws {
         self.authorize = authorize
+        self.subprotocols = subprotocols
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
         parameters.acceptLocalOnly = true
@@ -41,7 +44,8 @@ final class LocalWebSocketServer: @unchecked Sendable {
         }
         listener.newConnectionHandler = { [weak self] connection in
             guard let self else { return connection.cancel() }
-            let peer = WebSocketPeer(connection: connection, queue: self.queue, authorize: self.authorize) { [weak self] peer in
+            let peer = WebSocketPeer(connection: connection, queue: self.queue, subprotocols: self.subprotocols,
+                                     authorize: self.authorize) { [weak self] peer in
                 DispatchQueue.main.async { MainActor.assumeIsolated { self?.onConnect?(peer) } }
             }
             peer.start()
@@ -61,6 +65,7 @@ final class WebSocketPeer: @unchecked Sendable {
     private let queue: DispatchQueue
     private let authorize: @Sendable ([(name: String, value: String)]) -> Bool
     private let upgraded: @Sendable (WebSocketPeer) -> Void
+    private let subprotocols: [String]
     private var buffer = Data()
     private var isUpgraded = false
     /// A message arriving in several frames: its opcode and the payload so far.
@@ -75,10 +80,11 @@ final class WebSocketPeer: @unchecked Sendable {
     private static let maxMessage = 64 * 1024 * 1024
     private static let guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-    fileprivate init(connection: NWConnection, queue: DispatchQueue,
+    fileprivate init(connection: NWConnection, queue: DispatchQueue, subprotocols: [String],
                      authorize: @escaping @Sendable ([(name: String, value: String)]) -> Bool,
                      upgraded: @escaping @Sendable (WebSocketPeer) -> Void) {
         self.connection = connection
+        self.subprotocols = subprotocols
         self.queue = queue
         self.authorize = authorize
         self.upgraded = upgraded
@@ -134,7 +140,12 @@ final class WebSocketPeer: @unchecked Sendable {
         }
         guard authorize(headers) else { return refuse("401 Unauthorized") }
         let accept = Data(Insecure.SHA1.hash(data: Data((key + Self.guid).utf8))).base64EncodedString()
-        let response = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n"
+        var response = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n"
+        // A client that asks for subprotocols gives up on a server that picks none (Claude Code
+        // asks for "mcp").
+        let offered = (header("sec-websocket-protocol") ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        if let subprotocol = offered.first(where: subprotocols.contains) { response += "Sec-WebSocket-Protocol: \(subprotocol)\r\n" }
+        response += "\r\n"
         connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in })
         isUpgraded = true
         upgraded(self)
