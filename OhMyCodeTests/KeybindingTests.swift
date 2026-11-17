@@ -3,6 +3,7 @@ import SwiftUI
 import Testing
 @testable import Oh_My_Code
 
+@MainActor
 private func keyEvent(_ code: UInt16, _ modifiers: NSEvent.ModifierFlags, _ characters: String, window: NSWindow? = nil) -> NSEvent {
     NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
                      windowNumber: window?.windowNumber ?? 0, context: nil, characters: characters,

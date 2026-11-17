@@ -146,7 +146,7 @@ struct FormatOnSaveTests {
         // Off: saved as typed.
         workspace.formatOnSave = false
         document.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "x  \n")
-        await workspace.saveActive()?.value
+        _ = await workspace.saveActive()?.value
         #expect(try String(contentsOf: document.url, encoding: .utf8).hasPrefix("x  \n"))
         withExtendedLifetime((workspace, window)) {}
     }

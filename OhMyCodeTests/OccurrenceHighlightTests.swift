@@ -32,7 +32,7 @@ struct OccurrenceHighlightTests {
     }
 
     @Test func wholeWordsWithoutALanguageServer() async throws {
-        let (document, controller, window) = try makeEditor("count = 1\nrecount(count)\ncount_2 + count\n42 + 42\n")
+        let (_, controller, window) = try makeEditor("count = 1\nrecount(count)\ncount_2 + count\n42 + 42\n")
         let highlighter = controller.occurrences
 
         controller.textView.setSelectedRange(NSRange(location: 2, length: 0)) // in "count"

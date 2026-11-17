@@ -281,9 +281,9 @@ struct SearchScaleTests {
         let regex = try TextSearch.replacementRegex(SearchOptions(query: "x", caseSensitive: true))
         let edits = TextSearch.replacements(in: text, regex: regex, template: "xyz")
         #expect(edits.count > 20_000)
-        var storageEdits = 0
+        let storageEdits = Tally()
         let observer = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification,
-                                                              object: document.textStorage, queue: nil) { _ in storageEdits += 1 }
+                                                              object: document.textStorage, queue: nil) { _ in storageEdits.count += 1 }
         defer { NotificationCenter.default.removeObserver(observer) }
         let version = document.editVersion
         let clock = ContinuousClock()
@@ -291,7 +291,7 @@ struct SearchScaleTests {
         // About 3 s in a debug build, most of it the document's own bookkeeping for each of the
         // edits (they were half a minute for TextKit alone, one storage edit each).
         #expect(elapsed < .seconds(6), "took \(elapsed)")
-        #expect(storageEdits == 1)
+        #expect(storageEdits.count == 1)
         #expect(document.editVersion == version + edits.count)
         #expect(document.textStorage.mutableString.isEqual(to: text.replacingOccurrences(of: "x", with: "xyz")))
         #expect(document.lineIndex.lineStarts == LineIndex(string: document.textStorage.mutableString).lineStarts)

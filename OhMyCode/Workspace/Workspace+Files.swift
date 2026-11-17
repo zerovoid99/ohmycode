@@ -171,8 +171,8 @@ extension Workspace {
                 let newURL = destination.appending(path: String(path.dropFirst(oldPath.count)))
                 guard let moved = try? EditorDocument(url: path == oldPath ? destination : newURL) else { continue }
                 if document.isDirty {
-                    try? moved.apply([TextReplacement(range: NSRange(location: 0, length: moved.textStorage.length),
-                                                      text: document.textStorage.string)], actionName: "Unsaved Changes")
+                    _ = try? moved.apply([TextReplacement(range: NSRange(location: 0, length: moved.textStorage.length),
+                                                          text: document.textStorage.string)], actionName: "Unsaved Changes")
                 }
                 replaceDocument(document, with: moved)
             }

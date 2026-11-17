@@ -152,6 +152,7 @@ struct MultiCursorTests {
         controller.textView.insertText("longer", replacementRange: NSRange(location: 0, length: 1))
         undo.endUndoGrouping()
         #expect(document.textStorage.string == "longer" && !controller.hasExtraCursors)
+        withExtendedLifetime(window) {}
     }
 
 }

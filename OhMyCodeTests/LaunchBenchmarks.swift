@@ -102,7 +102,7 @@ struct LaunchBenchmarks {
             try? FileManager.default.removeItem(at: scratch)
             // The copy's own preferences and window state (`-ApplePersistenceIgnoreState` puts
             // the latter in the temporary folder).
-            try? run("/usr/bin/defaults", ["delete", Self.bundleID])
+            _ = try? run("/usr/bin/defaults", ["delete", Self.bundleID])
             for leftover in [URL.libraryDirectory.appending(path: "Preferences/\(Self.bundleID).plist"),
                              URL.libraryDirectory.appending(path: "Saved Application State/\(Self.bundleID).savedState"),
                              FileManager.default.temporaryDirectory.appending(path: "\(Self.bundleID).savedState")] {
@@ -111,7 +111,7 @@ struct LaunchBenchmarks {
         }
         let app = try copyApp(to: scratch)
         defer {
-            try? run("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", ["-u", app.path])
+            _ = try? run("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister", ["-u", app.path])
         }
 
         // Nothing to restore: the welcome window.

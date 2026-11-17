@@ -40,8 +40,8 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
         self.controller = controller
         let updater = controller.updater
         Self.log.info("\("updater started: automatic checks \(updater.automaticallyChecksForUpdates), every \(updater.updateCheckInterval)s, last \(String(describing: updater.lastUpdateCheckDate)), feed \(String(describing: updater.feedURL))", privacy: .public)")
-        observation = controller.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] updater, _ in
-            let can = updater.canCheckForUpdates
+        observation = controller.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) { [weak self] _, change in
+            let can = change.newValue ?? false
             Task { @MainActor in self?.canCheckForUpdates = can }
         }
     }

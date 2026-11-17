@@ -69,6 +69,7 @@ struct MemoryReleaseTests {
             weakDocument = document
             var (controller, window): (EditorController?, NSWindow?) = showEditor(for: document)
             await document.highlighter?.waitUntilIdle()
+            #expect(controller != nil)
             autoreleasepool {
                 workspace.close(document)
                 window?.contentView = nil

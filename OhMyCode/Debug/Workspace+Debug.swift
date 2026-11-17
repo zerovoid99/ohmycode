@@ -95,7 +95,7 @@ extension Workspace {
         guard let root = rootURL else { return }
         do {
             let url = root.appending(path: LaunchConfiguration.file)
-            if !FileManager.default.fileExists(atPath: url.path) { try LaunchConfiguration.writeTemplate(in: root) }
+            if !FileManager.default.fileExists(atPath: url.path) { _ = try LaunchConfiguration.writeTemplate(in: root) }
             open(fileAt: url)
         } catch {
             errorMessage = error.localizedDescription

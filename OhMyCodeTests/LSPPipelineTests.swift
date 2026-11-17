@@ -129,19 +129,19 @@ struct LSPPipelineTests {
         #expect(shown() == ["8: Int", "23: Int", "37: Int"])
         let first = try #require(mark(8)), second = try #require(mark(23)), third = try #require(mark(37))
 
-        var edits = 0
+        let edits = Tally()
         let observer = NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification,
-                                                              object: document.textStorage, queue: nil) { _ in edits += 1 }
+                                                              object: document.textStorage, queue: nil) { _ in edits.count += 1 }
         defer { NotificationCenter.default.removeObserver(observer) }
         document.setInlayHints(hints)
-        #expect(edits == 0)
+        #expect(edits.count == 0)
         #expect(mark(8) === first && mark(23) === second && mark(37) === third)
 
         // One changes, one goes: the third stays as it was.
         hints[0].label = ": Double"
         hints.remove(at: 1)
         document.setInlayHints(hints)
-        #expect(edits == 1)
+        #expect(edits.count == 1)
         #expect(shown() == ["8: Double", "37: Int"])
         #expect(mark(8) !== first && mark(37) === third)
         #expect(mark(23) == nil && kern(23) == nil)
@@ -150,4 +150,9 @@ struct LSPPipelineTests {
         document.setInlayHints([])
         #expect(shown().isEmpty && kern(8) == nil && kern(37) == nil)
     }
+}
+
+/// Counts calls from a notification observer (posted on the thread that edits: here, the main one).
+final class Tally: @unchecked Sendable {
+    var count = 0
 }

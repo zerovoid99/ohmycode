@@ -190,8 +190,8 @@ extension Workspace {
                 open(fileAt: url)
             }
             guard let document = document(matching: url), document.textStorage.string != text else { continue }
-            try? document.apply([TextReplacement(range: NSRange(location: 0, length: document.textStorage.length), text: text)],
-                                actionName: "Restore Unsaved Changes")
+            _ = try? document.apply([TextReplacement(range: NSRange(location: 0, length: document.textStorage.length), text: text)],
+                                    actionName: "Restore Unsaved Changes")
             restored += 1
             if let date = buffer.diskDate, let now = document.diskModificationDate, abs(date.timeIntervalSince(now)) > 0.01 { changedOnDisk += 1 }
         }
@@ -264,8 +264,8 @@ extension Workspace {
             guard let text = SessionStore.shared.backup(buffer, key: key) else { continue }
             if document(matching: url) == nil { open(fileAt: url) }
             if let document = document(matching: url), document.textStorage.string != text {
-                try? document.apply([TextReplacement(range: NSRange(location: 0, length: document.textStorage.length), text: text)],
-                                    actionName: "Restore Unsaved Changes")
+                _ = try? document.apply([TextReplacement(range: NSRange(location: 0, length: document.textStorage.length), text: text)],
+                                        actionName: "Restore Unsaved Changes")
             }
         }
         SessionStore.shared.remove(key)

@@ -24,7 +24,7 @@ final class ExtensionInstance: Identifiable {
     let installed: InstalledExtension
     nonisolated let id: String
     var manifest: ExtensionManifest { installed.manifest }
-    internal(set) var state: State
+    var state: State
     private(set) var log: [LogEntry] = []
     @ObservationIgnored var runtime: ExtensionRuntime?
     @ObservationIgnored var activation: Task<Bool, Never>?
@@ -161,7 +161,7 @@ final class ExtensionHost {
                     "extensionPath": .string(installed.folder.path),
                 ])
                 let timeout = activationTimeout
-                let started = try await Self.within(timeout) {
+                let started: Void? = try await Self.within(timeout) {
                     try await runtime.start(source: source, filename: installed.mainURL.path, contextJSON: context.json)
                 }
                 guard started != nil else {
@@ -198,7 +198,7 @@ final class ExtensionHost {
     /// (its queue may still be busy) rather than holding up reloads.
     private func stop(_ runtime: ExtensionRuntime, of instance: ExtensionInstance) async {
         let timeout = stopTimeout
-        let stopped = try? await Self.within(timeout) { await runtime.stop() }
+        let stopped: Void?? = try? await Self.within(timeout) { await runtime.stop() }
         if stopped == nil {
             instance.append("warning", "deactivate() didn't finish within \(timeout.components.seconds) seconds; the extension was left running in the background.")
         }

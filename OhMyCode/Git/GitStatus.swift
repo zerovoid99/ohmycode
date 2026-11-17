@@ -1085,7 +1085,7 @@ struct GitCommit: Sendable, Hashable, Identifiable {
                 switch parts[0].first {
                 case "A": change = .added; newPath = parts.last; oldPath = nil
                 case "D": change = .deleted; newPath = nil; oldPath = parts.last
-                case "R", "C" where parts.count >= 3: change = .renamed; oldPath = parts[1]; newPath = parts[2]
+                case "R" where parts.count >= 3, "C" where parts.count >= 3: change = .renamed; oldPath = parts[1]; newPath = parts[2]
                 default: newPath = parts.last; oldPath = parts.last
                 }
             }

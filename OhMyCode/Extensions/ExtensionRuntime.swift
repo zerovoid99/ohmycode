@@ -51,7 +51,7 @@ final class ExtensionRuntime: @unchecked Sendable {
 
     /// Loads the extension's main file and runs its `activate(context)`.
     func start(source: String, filename: String, contextJSON: String) async throws {
-        try await perform { token in
+        _ = try await perform { token in
             let context = self.makeContext()
             self.context = context
             context.objectForKeyedSubscript("__omcLoad")
@@ -105,7 +105,7 @@ final class ExtensionRuntime: @unchecked Sendable {
 
     /// Calls `body` on the queue with a token that the script finishes through
     /// `__omcNative.commandDone(token, error, result)`.
-    private func perform(_ body: @escaping (Int) throws -> Void) async throws -> String? {
+    private func perform(_ body: @escaping @Sendable (Int) throws -> Void) async throws -> String? {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 let token = self.nextToken

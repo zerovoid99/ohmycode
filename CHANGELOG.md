@@ -5,6 +5,17 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Fixed
+- Typing in one half of a split no longer moves the other half. With the other half further
+  down a long file, each keystroke above it showed it other lines (thousands away in a 3 MB
+  file); it now keeps its top line. Edits above the view from anywhere else (Replace All, a
+  rename) keep it too.
+- Typing above where another view of the same file has scrolled through stays fast. The lines
+  laid out along the way are now dropped above and between views too, not only below them; a
+  keystroke took 307 ms in a 3 MB file, now about 5.
+- A file's history no longer reads a rename line with too few fields (the check applied only to
+  copies).
+
 ## [0.1.3] - 2026-11-17
 
 ### Fixed

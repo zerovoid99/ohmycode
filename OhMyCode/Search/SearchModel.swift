@@ -162,7 +162,7 @@ final class SearchModel {
                 title: "Replace \(count) occurrence\(count == 1 ? "" : "s") of “\(options.query)” with “\(replacement)”",
                 actionName: "Replace",
                 files: computed.map { EditPreview.FileEdit(url: $0.url, path: $0.path, edits: $0.edits, baseText: $0.text) })
-            preview.onApplied = { [weak self] in self?.refresh() }
+            preview.onApplied = { [weak self = self] in self?.refresh() }
             isReplacing = false
             handle(preview)
             await self.task?.value // the search refreshed by an immediate apply

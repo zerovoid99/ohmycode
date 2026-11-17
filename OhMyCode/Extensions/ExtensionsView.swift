@@ -112,7 +112,7 @@ struct ExtensionStatusItemView: View {
     enum Part: Equatable { case text(String), symbol(String) }
 
     /// "$(clock) 3 min" → symbol "clock", text " 3 min".
-    static func parts(_ text: String) -> [Part] {
+    nonisolated static func parts(_ text: String) -> [Part] {
         var parts: [Part] = []
         var rest = Substring(text)
         while let open = rest.range(of: "$("), let close = rest[open.upperBound...].firstIndex(of: ")") {
