@@ -408,7 +408,7 @@ final class Workspace {
         taskHistory = []
         problems.removeAll()
         launchConfigurations = []
-        breakpoints.load(for: url)
+        breakpoints.load(for: urls)
         breakpoints.onChange = { [weak self] path in self?.breakpointsChanged(in: path) }
         breakpoints.onExceptionFiltersChange = { [weak self] in self?.debugSettingsChanged(watches: false) }
         breakpoints.onWatchesChange = { [weak self] in self?.debugSettingsChanged(watches: true) }
@@ -450,6 +450,8 @@ final class Workspace {
         loadProjectSettings()
         Task { await testing.discover() }
         Task { await loadLaunchConfigurations() }
+        breakpoints.setFolders(urls)
+        extensions.workspaceFoldersChanged()
         workspaceFoldersChanged(added: urls.filter { !old.contains($0) }, removed: old.filter { !urls.contains($0) })
         claudeCode.writeLockFile()
         sessionSignature = nil

@@ -18,9 +18,9 @@ enum TestFramework: String, Sendable, CaseIterable {
 
 /// A test, or a group of them (a file, a class or suite, a describe block).
 struct TestItem: Identifiable, Equatable, Sendable {
-    enum Kind: Sendable { case file, suite, test }
+    enum Kind: Sendable { case folder, file, suite, test }
 
-    /// Unique in the folder. For tests it's also how results are matched:
+    /// Unique in the window. Its `name` is how results are matched:
     /// Swift "Module.Suite/name()" (XCTest "Module.Class/testName"), Go "dir/TestName",
     /// Python "package.module.Class.test_name", Jest/Vitest "file::describe test",
     /// Rust "file::module::name".
@@ -34,6 +34,19 @@ struct TestItem: Identifiable, Equatable, Sendable {
     var children: [TestItem] = []
     /// Swift Testing's display name (`@Test("Adds numbers")`), which its output uses.
     var displayName: String?
+    /// With several folders: the label of the folder it's in, which starts its id
+    /// ("api/calc/TestAdd"), so tests with the same name in two folders stay apart.
+    var scope: String?
+
+    /// The framework's name for it (its id without the folder's label), which commands run
+    /// and output names.
+    var name: String { scope.map { String(id.dropFirst($0.count + 1)) } ?? id }
+
+    /// It and everything under it, in the folder labelled `label`.
+    func scoped(_ label: String) -> TestItem {
+        TestItem(id: label + "/" + name, label: self.label, kind: kind, framework: framework, url: url, line: line,
+                 children: children.map { $0.scoped(label) }, displayName: displayName, scope: label)
+    }
 
     /// Itself and everything under it.
     var allItems: [TestItem] { [self] + children.flatMap(\.allItems) }

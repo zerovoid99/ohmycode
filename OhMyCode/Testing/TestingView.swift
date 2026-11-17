@@ -84,11 +84,12 @@ struct TestingView: View {
             copy.children = item.children.compactMap(keep)
             return copy.children.isEmpty ? nil : copy
         }
-        return testing.files.compactMap(keep)
+        return testing.tree.compactMap(keep)
     }
 
     private func isExpanded(_ item: TestItem) -> Bool {
-        !filter.isEmpty || failedOnly || expanded.contains(item.id) || item.kind == .file && testing.files.count <= 3
+        !filter.isEmpty || failedOnly || expanded.contains(item.id) || item.kind == .folder
+            || item.kind == .file && testing.files.count <= 3
     }
 
     private func row(_ item: TestItem, depth: Int) -> AnyView {
@@ -100,7 +101,7 @@ struct TestingView: View {
                 .tag(item.id)
                 .contextMenu {
                     Button("Run") { testing.run([item]) }
-                    Button("Go to Test") { workspace.open(test: item) }
+                    if item.kind != .folder { Button("Go to Test") { workspace.open(test: item) } }
                     if item.kind == .test, let issue = testing.results[item.id]?.issues.first, let url = issue.url {
                         Button("Go to Failure") {
                             workspace.open(fileAt: workspace.workspaceURL(for: url))
@@ -110,10 +111,10 @@ struct TestingView: View {
                     Divider()
                     Button("Copy Test ID") {
                         NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(item.id, forType: .string)
+                        NSPasteboard.general.setString(item.name, forType: .string)
                     }
                 }
-                .onTapGesture(count: 2) { workspace.open(test: item) }
+                .onTapGesture(count: 2) { if item.kind != .folder { workspace.open(test: item) } }
             if item.kind == .test, let issues = testing.results[item.id]?.issues, testing.results[item.id]?.state == .failed {
                 ForEach(Array(issues.enumerated()), id: \.offset) { _, issue in
                     Text(issue.message)
@@ -159,6 +160,7 @@ private struct TestRow: View {
             }
             TestStateIcon(state: state)
             if item.kind == .file { Image(systemName: "doc.text").foregroundStyle(.secondary) }
+            if item.kind == .folder { Image(systemName: "folder").foregroundStyle(.secondary) }
             Text(item.label).lineLimit(1).truncationMode(.middle)
             if item.kind == .file {
                 Text(item.framework.displayName).font(.caption).foregroundStyle(.tertiary)

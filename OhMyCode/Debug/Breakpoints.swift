@@ -11,7 +11,10 @@ struct BreakpointMark: Equatable {
     var isLogpoint = false
 }
 
-/// The workspace's breakpoints by file, kept across launches (per folder).
+/// The workspace's breakpoints by file (absolute, canonical paths), kept across launches per
+/// folder: each folder's files' breakpoints are saved under that folder, so a folder keeps them
+/// whether it's opened alone or in a workspace with others. Watches and exception breakpoints
+/// are the window's, saved with its first folder.
 @MainActor
 @Observable
 final class BreakpointStore {
@@ -52,7 +55,12 @@ final class BreakpointStore {
     /// Called with the file whose breakpoints changed (the session sends them again).
     @ObservationIgnored var onChange: ((String) -> Void)?
     @ObservationIgnored private var defaults: UserDefaults
+    /// The first folder's key (watches, exception breakpoints, files outside every folder).
     @ObservationIgnored private var key: String?
+    /// Each folder's key and canonical path, innermost first.
+    @ObservationIgnored private var folderKeys: [(key: String, path: String)] = []
+    /// Files outside every folder, and the key they were loaded from (kept there).
+    @ObservationIgnored private var outsideHomes: [String: String] = [:]
 
     init(defaults: UserDefaults = AppSettings.isRunningTests ? ScratchDefaults.named("dev.zerovoid99.ohmycode.tests.breakpoints") : .standard) {
         self.defaults = defaults
@@ -60,11 +68,55 @@ final class BreakpointStore {
 
     /// Loads the breakpoints saved for a folder.
     func load(for root: URL?) {
-        key = root.map { "breakpoints.\($0.standardizedFileURL.path)" }
-        byPath = key.flatMap { defaults.data(forKey: $0) }.flatMap { try? JSONDecoder().decode([String: [Breakpoint]].self, from: $0) } ?? [:]
+        load(for: root.map { [$0] } ?? [])
+    }
+
+    /// Loads the breakpoints saved for a window's folders (the first one's watches and
+    /// exception breakpoints). Breakpoints for another folder's files, saved under the first
+    /// folder before each folder kept its own, move to their folder.
+    func load(for folders: [URL]) {
+        key = folders.first.map(Self.key)
+        folderKeys = folders.map { (Self.key($0), FileWatcher.canonicalPath($0)) }
+            .sorted { $0.path.count > $1.path.count }
+        outsideHomes = [:]
+        var loaded: [String: [Breakpoint]] = [:]
+        var migrated = false
+        for (index, folder) in folders.enumerated() {
+            let folderKey = Self.key(folder)
+            let saved = defaults.data(forKey: folderKey).flatMap { try? JSONDecoder().decode([String: [Breakpoint]].self, from: $0) } ?? [:]
+            for (path, list) in saved {
+                let home = homeKey(of: path)
+                if home == nil { outsideHomes[path] = folderKey }
+                if home != nil, home != folderKey { migrated = true }
+                // A folder's own saved breakpoints win over a copy saved elsewhere.
+                if loaded[path] == nil || home == folderKey || (home == nil && index == 0) { loaded[path] = list }
+            }
+        }
+        byPath = loaded
         enabledExceptionFilters = Set(key.flatMap { defaults.stringArray(forKey: $0 + ".exceptions") } ?? [])
         watches = key.flatMap { defaults.stringArray(forKey: $0 + ".watches") } ?? []
         verified = nil
+        if migrated { save() }
+    }
+
+    /// The window's folders changed (one added or removed): their breakpoints are loaded, and
+    /// the files whose breakpoints that changed are announced (a running debugger gets them).
+    func setFolders(_ folders: [URL]) {
+        let before = byPath, confirmed = verified
+        let oldWatches = watches, oldFilters = enabledExceptionFilters
+        load(for: folders)
+        verified = confirmed
+        Set(before.keys).union(byPath.keys).filter { before[$0] != byPath[$0] }.sorted().forEach { onChange?($0) }
+        if watches != oldWatches { onWatchesChange?() }
+        if enabledExceptionFilters != oldFilters { onExceptionFiltersChange?() }
+    }
+
+    /// Where a folder's breakpoints are saved (a single folder's, as always).
+    static func key(_ folder: URL) -> String { "breakpoints.\(folder.standardizedFileURL.path)" }
+
+    /// The key of the innermost folder a file is in; nil outside every folder.
+    private func homeKey(of path: String) -> String? {
+        folderKeys.first { path == $0.path || path.hasPrefix($0.path == "/" ? "/" : $0.path + "/") }?.key
     }
 
     var all: [(path: String, breakpoint: Breakpoint)] {
@@ -214,8 +266,16 @@ final class BreakpointStore {
         onChange?(path)
     }
 
+    /// Saves each folder's breakpoints under it (files outside every folder where they were
+    /// loaded from, or with the first folder).
     private func save() {
         guard let key else { return }
-        defaults.set(try? JSONEncoder().encode(byPath), forKey: key)
+        var byKey: [String: [String: [Breakpoint]]] = Dictionary(folderKeys.map { ($0.key, [:]) }, uniquingKeysWith: { a, _ in a })
+        for (path, list) in byPath {
+            byKey[homeKey(of: path) ?? outsideHomes[path] ?? key, default: [:]][path] = list
+        }
+        for (folderKey, list) in byKey {
+            if list.isEmpty { defaults.removeObject(forKey: folderKey) } else { defaults.set(try? JSONEncoder().encode(list), forKey: folderKey) }
+        }
     }
 }

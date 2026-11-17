@@ -1,8 +1,10 @@
 import AppKit
 import Observation
 
-/// The folder's tests (the Testing panel): found by reading test files, run through tasks,
-/// with each test's last result; failures go to Problems and the editor.
+/// The window's tests (the Testing panel): found by reading test files in each folder, run
+/// through tasks in their folder, with each test's last result; failures go to Problems and
+/// the editor. With several folders each one is a group in the list, and tests' ids start with
+/// its label (see `TestItem.scope`).
 @MainActor
 @Observable
 final class TestController {
@@ -26,8 +28,20 @@ final class TestController {
     }
 
     @ObservationIgnored private weak var workspace: Workspace?
-    /// Test files, by path.
+    /// A folder's toolchains: what's found and run in it.
+    struct Folder: Sendable {
+        let url: URL
+        /// Its label with several folders (its tests' scope); nil with one.
+        let scope: String?
+        var frameworks: Set<TestFramework> = []
+        /// Its Xcode project, when it has one (its tests run with xcodebuild).
+        var xcode: XcodeProject?
+    }
+
+    /// Test files, by id (every folder's).
     private(set) var files: [TestItem] = []
+    /// The window's folders, in order, as last discovered.
+    private(set) var folders: [Folder] = []
     private(set) var results: [String: Result] = [:]
     private(set) var isDiscovering = false
     /// Runs in progress (one per framework).
@@ -35,9 +49,8 @@ final class TestController {
     /// The tests of the last run (for Rerun).
     @ObservationIgnored private(set) var lastRun: [TestItem]?
     @ObservationIgnored private var lastRunAll = false
-    @ObservationIgnored private var frameworks: Set<TestFramework> = []
-    /// The folder's Xcode project, when it has one (its tests run with xcodebuild).
-    private(set) var xcode: XcodeProject?
+    /// The first folder's Xcode project, when it has one.
+    var xcode: XcodeProject? { folders.first?.xcode }
     @ObservationIgnored private var editTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var observer: NSObjectProtocol?
     @ObservationIgnored private var publishedProblemURLs: Set<URL> = []
@@ -60,6 +73,17 @@ final class TestController {
 
     var isRunning: Bool { runs.contains { $0.state.isRunning } }
     var allTests: [TestItem] { files.flatMap(\.tests) }
+
+    /// What the panel lists: the files, or with several folders a group per folder that has tests.
+    var tree: [TestItem] {
+        guard folders.count > 1 else { return files }
+        return folders.compactMap { folder in
+            let children = files.filter { $0.scope == folder.scope }
+            guard let scope = folder.scope, let first = children.first else { return nil }
+            return TestItem(id: "folder:" + scope, label: scope, kind: .folder, framework: first.framework, url: folder.url,
+                            line: 0, children: children)
+        }
+    }
 
     func item(id: String) -> TestItem? {
         for file in files { if let found = file.allItems.first(where: { $0.id == id }) { return found } }
@@ -85,63 +109,100 @@ final class TestController {
 
     // MARK: Discovery
 
-    private var root: URL? { workspace?.rootURL }
     /// Reading test files changed on disk.
     @ObservationIgnored private var diskTask: Task<Void, Never>?
 
-    private func relativePath(_ url: URL) -> String? {
-        guard let root else { return nil }
-        let rootPath = FileWatcher.canonicalPath(root) + "/"
+    /// The folder (by index) a file is in (the innermost), and its path there.
+    private func locate(_ url: URL) -> (folder: Int, path: String)? {
         let path = FileWatcher.canonicalPath(url)
-        return path.hasPrefix(rootPath) ? String(path.dropFirst(rootPath.count)) : nil
+        var best: (folder: Int, path: String, rootLength: Int)?
+        for (index, folder) in folders.enumerated() {
+            let root = FileWatcher.canonicalPath(folder.url) + "/"
+            guard path.hasPrefix(root), root.count > best?.rootLength ?? 0 else { continue }
+            best = (index, String(path.dropFirst(root.count)), root.count)
+        }
+        return best.map { ($0.folder, $0.path) }
     }
 
-    /// The window's paths (see `WorkspaceRoots`) of files in the first folder, from it: tests
-    /// are found and run there (with several folders, the others' aren't listed).
-    private func primaryFolderPaths(_ paths: [String]) -> [String] {
-        guard let workspace, workspace.isMultiRoot, let root else { return paths }
-        let prefix = workspace.label(of: root) + "/"
-        return paths.compactMap { $0.hasPrefix(prefix) ? String($0.dropFirst(prefix.count)) : nil }
+    /// The folder (by index) a path as the window writes it (see `WorkspaceRoots`) is in, and
+    /// the path there.
+    private func locate(windowPath path: String) -> (folder: Int, path: String)? {
+        guard folders.count > 1 else { return folders.isEmpty ? nil : (0, path) }
+        for (index, folder) in folders.enumerated() {
+            guard let scope = folder.scope, path.hasPrefix(scope + "/") else { continue }
+            return (index, String(path.dropFirst(scope.count + 1)))
+        }
+        return nil
     }
 
-    /// Reads every test file in the folder.
+    /// The id of a file's item in a folder.
+    private func fileID(_ path: String, in folder: Int) -> String {
+        (folders[folder].scope.map { $0 + "/" } ?? "") + "file:" + path
+    }
+
+    /// A file's tests in a folder (scoped with several folders).
+    nonisolated private static func discover(_ text: String, path: String, in folder: Folder, framework: TestFramework) -> TestItem? {
+        let item = TestDiscovery.discover(text, path: path, root: folder.url, framework: framework, xcode: folder.xcode)
+        guard let scope = folder.scope else { return item }
+        return item?.scoped(scope)
+    }
+
+    /// Reads every test file in every folder, each folder with its own toolchains.
     func discover() async {
-        guard let workspace, let root = workspace.rootURL else { files = []; return }
+        guard let workspace, !workspace.folders.isEmpty else { files = []; folders = []; return }
         isDiscovering = true
         defer { isDiscovering = false }
-        let paths = primaryFolderPaths(await workspace.searchableFiles())
-        var detected = TestDiscovery.frameworks(in: root)
-        if XcodeProject.container(in: root) != nil {
-            xcode = await XcodeProject.load(in: root, environment: await ShellEnvironment.shared.environment())
-            if xcode != nil { detected.insert(.xcode) }
-        }
-        let frameworks = detected
-        self.frameworks = frameworks
-        let xcode = self.xcode
-        let found = await Task.detached(priority: .userInitiated) { () -> [TestItem] in
-            paths.compactMap { path in
-                guard let framework = TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode),
-                      let text = try? String(contentsOf: root.appending(path: path), encoding: .utf8) else { return nil }
-                return TestDiscovery.discover(text, path: path, root: root, framework: framework, xcode: xcode)
+        let roots = workspace.roots
+        let windowPaths = await workspace.searchableFiles()
+        var found: [Folder] = []
+        var items: [TestItem] = []
+        for root in roots.folders {
+            var folder = Folder(url: root.url, scope: roots.isMultiRoot ? root.label : nil)
+            folder.frameworks = TestDiscovery.frameworks(in: root.url)
+            if XcodeProject.container(in: root.url) != nil {
+                folder.xcode = await XcodeProject.load(in: root.url, environment: await ShellEnvironment.shared.environment())
+                if folder.xcode != nil { folder.frameworks.insert(.xcode) }
             }
-        }.value
-        guard workspace.rootURL == root else { return }
-        // Open files' text may be newer than the disk's.
-        var byPath = Dictionary(found.map { (String($0.id.dropFirst(5)), $0) }, uniquingKeysWith: { first, _ in first })
-        for document in workspace.documents {
-            guard let path = relativePath(document.url), let framework = TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode) else { continue }
-            byPath[path] = TestDiscovery.discover(document.textStorage.string, path: path, root: root, framework: framework, xcode: xcode)
+            let paths = roots.isMultiRoot
+                ? windowPaths.compactMap { $0.hasPrefix(root.label + "/") ? String($0.dropFirst(root.label.count + 1)) : nil }
+                : windowPaths
+            let current = folder
+            items += await Task.detached(priority: .userInitiated) { () -> [TestItem] in
+                paths.compactMap { path in
+                    guard let framework = TestDiscovery.framework(forFile: path, in: current.frameworks, xcode: current.xcode),
+                          let text = try? String(contentsOf: current.url.appending(path: path), encoding: .utf8) else { return nil }
+                    return Self.discover(text, path: path, in: current, framework: framework)
+                }
+            }.value
+            found.append(folder)
         }
-        files = byPath.keys.sorted().compactMap { byPath[$0] }
+        guard workspace.roots == roots else { return }
+        folders = found
+        // Open files' text may be newer than the disk's.
+        var byID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for document in workspace.documents {
+            guard let (index, path) = locate(document.url),
+                  let framework = TestDiscovery.framework(forFile: path, in: found[index].frameworks, xcode: found[index].xcode) else { continue }
+            byID[fileID(path, in: index)] = Self.discover(document.textStorage.string, path: path, in: found[index], framework: framework)
+        }
+        files = byID.keys.sorted().compactMap { byID[$0] }
         redrawGutters()
     }
 
-    /// A file changed (on disk or in the editor): its tests are read again.
+    /// A file changed (on disk or in the editor; its path as the window writes it): its tests
+    /// are read again.
     func update(path: String, text: String?) {
-        guard let root, let framework = TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode) else { return }
-        let text = text ?? (try? String(contentsOf: root.appending(path: path), encoding: .utf8))
-        let item = text.flatMap { TestDiscovery.discover($0, path: path, root: root, framework: framework, xcode: xcode) }
-        var updated = files.filter { $0.id != "file:" + path }
+        guard let (index, relative) = locate(windowPath: path) else { return }
+        update(folder: index, path: relative, text: text)
+    }
+
+    private func update(folder index: Int, path: String, text: String?) {
+        let folder = folders[index]
+        guard let framework = TestDiscovery.framework(forFile: path, in: folder.frameworks, xcode: folder.xcode) else { return }
+        let text = text ?? (try? String(contentsOf: folder.url.appending(path: path), encoding: .utf8))
+        let item = text.flatMap { Self.discover($0, path: path, in: folder, framework: framework) }
+        let id = fileID(path, in: index)
+        var updated = files.filter { $0.id != id }
         if let item { updated.append(item) }
         updated.sort { $0.id < $1.id }
         if updated != files {
@@ -150,31 +211,36 @@ final class TestController {
         }
     }
 
-    /// Files on disk changed (paths from the folder): the test files among them are read again
-    /// off the main thread, all of them before the list changes, once. A checkout can change
-    /// thousands, and one at a time each was read on the main thread and the list sorted again.
+    /// Files on disk changed (paths as the window writes them, in any folder): the test files
+    /// among them are read again off the main thread, all of them before the list changes,
+    /// once. A checkout can change thousands, and one at a time each was read on the main
+    /// thread and the list sorted again.
     func filesChanged(_ paths: [String]) {
-        guard !files.isEmpty || !frameworks.isEmpty, let workspace, let root else { return }
-        let frameworks = frameworks, xcode = xcode
-        var changed = primaryFolderPaths(paths).compactMap { path in
-            TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode).map { (path: path, framework: $0) }
+        guard !files.isEmpty || folders.contains(where: { !$0.frameworks.isEmpty }), let workspace else { return }
+        let folders = self.folders
+        var changed = paths.compactMap { path -> (folder: Folder, path: String, framework: TestFramework, id: String)? in
+            guard let (index, relative) = locate(windowPath: path),
+                  let framework = TestDiscovery.framework(forFile: relative, in: folders[index].frameworks, xcode: folders[index].xcode)
+            else { return nil }
+            return (folders[index], relative, framework, fileID(relative, in: index))
         }
         guard !changed.isEmpty else { return }
         // Open files' tests follow the editor's text, not the disk's.
-        let open = Set(workspace.documents.compactMap { relativePath($0.url) })
-        changed.removeAll { open.contains($0.path) }
+        let open = Set(workspace.documents.compactMap { document in locate(document.url).map { fileID($0.path, in: $0.folder) } })
+        changed.removeAll { open.contains($0.id) }
         guard !changed.isEmpty else { return }
+        let roots = folders.map(\.url)
         let previous = diskTask
         diskTask = Task { [weak self, changed] in
             await previous?.value // in the order the changes came
             let found = await Task.detached(priority: .utility) {
                 changed.compactMap { file -> TestItem? in
-                    guard let text = try? String(contentsOf: root.appending(path: file.path), encoding: .utf8) else { return nil }
-                    return TestDiscovery.discover(text, path: file.path, root: root, framework: file.framework, xcode: xcode)
+                    guard let text = try? String(contentsOf: file.folder.url.appending(path: file.path), encoding: .utf8) else { return nil }
+                    return Self.discover(text, path: file.path, in: file.folder, framework: file.framework)
                 }
             }.value
-            guard let self, self.root == root else { return }
-            let replaced = Set(changed.map { "file:" + $0.path })
+            guard let self, self.folders.map(\.url) == roots else { return }
+            let replaced = Set(changed.map(\.id))
             var updated = self.files.filter { !replaced.contains($0.id) }
             updated.append(contentsOf: found)
             updated.sort { $0.id < $1.id }
@@ -190,12 +256,15 @@ final class TestController {
 
     private func storageEdited(_ storage: NSTextStorage?) {
         guard let storage, let document = workspace?.documents.first(where: { $0.textStorage === storage }),
-              let path = relativePath(document.url), TestDiscovery.framework(forFile: path, in: frameworks, xcode: xcode) != nil else { return }
-        editTasks[path]?.cancel()
-        editTasks[path] = Task { [weak self, weak document] in
+              let (index, path) = locate(document.url),
+              TestDiscovery.framework(forFile: path, in: folders[index].frameworks, xcode: folders[index].xcode) != nil else { return }
+        let id = fileID(path, in: index)
+        let root = folders[index].url
+        editTasks[id]?.cancel()
+        editTasks[id] = Task { [weak self, weak document] in
             try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled, let self, let document else { return }
-            self.update(path: path, text: document.textStorage.string)
+            guard !Task.isCancelled, let self, let document, let index = self.folders.firstIndex(where: { $0.url == root }) else { return }
+            self.update(folder: index, path: path, text: document.textStorage.string)
         }
     }
 
@@ -205,35 +274,50 @@ final class TestController {
         files = []
         results = [:]
         lastRun = nil
-        frameworks = []
-        xcode = nil
+        folders = []
         publishProblems()
     }
 
     // MARK: Running
 
-    /// Runs tests (nil: all of them), one command per framework.
+    /// Runs tests (nil: all of them), one command per framework in each folder, run there.
     func run(_ selection: [TestItem]?) {
-        guard let workspace, let root = workspace.rootURL else { return }
+        guard let workspace, !folders.isEmpty else { return }
         let tests = selection.map { $0.flatMap(\.tests) }
         lastRun = tests
         lastRunAll = selection == nil
-        let byFramework: [TestFramework: [TestItem]?]
-        if let tests {
-            byFramework = Dictionary(grouping: Self.unique(tests), by: \.framework).mapValues { Optional($0) }
-        } else {
-            let used = Set(allTests.map(\.framework)).union(frameworks.intersection([.swift, .go, .cargo, .xcode]))
-            byFramework = Dictionary(uniqueKeysWithValues: used.map { ($0, nil) })
+        struct Job: Hashable {
+            let folder: Int
+            let framework: TestFramework
         }
-        guard !byFramework.isEmpty else {
+        var jobs: [Job: [TestItem]?] = [:]
+        if let tests {
+            for test in Self.unique(tests) {
+                guard let folder = folderIndex(of: test) else { continue }
+                jobs[Job(folder: folder, framework: test.framework), default: []]?.append(test)
+            }
+        } else {
+            for (index, folder) in folders.enumerated() {
+                let used = Set(allTests.filter { folderIndex(of: $0) == index }.map(\.framework))
+                    .union(folder.frameworks.intersection([.swift, .go, .cargo, .xcode]))
+                for framework in used { jobs[Job(folder: index, framework: framework)] = .some(nil) }
+            }
+        }
+        guard !jobs.isEmpty else {
             workspace.errorMessage = "No tests found: the Testing panel lists Swift, Go, Python, Jest, Vitest and Rust tests."
             return
         }
-        for (framework, list) in byFramework.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
-            let members = list ?? allTests.filter { $0.framework == framework }
+        for (job, list) in jobs.sorted(by: { ($0.key.folder, $0.key.framework.rawValue) < ($1.key.folder, $1.key.framework.rawValue) }) {
+            let members = list ?? allTests.filter { $0.framework == job.framework && folderIndex(of: $0) == job.folder }
             for test in members { results[test.id, default: Result()].state = .queued }
-            Task { await start(framework, tests: list, members: members, root: root) }
+            let folder = folders[job.folder]
+            Task { await start(job.framework, tests: list, members: members, folder: folder) }
         }
+    }
+
+    /// The folder (by index) a test was found in.
+    private func folderIndex(of test: TestItem) -> Int? {
+        folders.firstIndex { $0.scope == test.scope }
     }
 
     private static func unique(_ tests: [TestItem]) -> [TestItem] {
@@ -254,13 +338,17 @@ final class TestController {
         }
     }
 
-    private func start(_ framework: TestFramework, tests: [TestItem]?, members: [TestItem], root: URL) async {
+    private func start(_ framework: TestFramework, tests: [TestItem]?, members: [TestItem], folder: Folder) async {
+        let root = folder.url
         let pytest = framework == .python ? await hasPytest() : false
-        let command = TestRunner.command(framework, tests: tests, root: root, hasPytest: pytest, xcode: xcode)
+        let command = TestRunner.command(framework, tests: tests, root: root, hasPytest: pytest, xcode: folder.xcode)
         var parser = TestOutputParser(framework: framework, goModule: framework == .go ? Self.goModule(in: root) : nil)
-        // One label per framework: running again replaces the last run (and its task problems).
-        let label = "Tests: " + framework.displayName
-        guard let workspace, let run = workspace.runTask(TaskDefinition(label: label, command: command.command, group: .test), reveal: false) else { return }
+        // One label per framework (and folder): running again replaces the last run (and its
+        // task problems).
+        let label = "Tests: " + framework.displayName + (folder.scope.map { " (\($0))" } ?? "")
+        var definition = TaskDefinition(label: label, command: command.command, group: .test)
+        definition.folder = root
+        guard let workspace, let run = workspace.runTask(definition, reveal: false) else { return }
         // Its tasks panel shows the run; the Testing panel the results.
         runs.removeAll { !$0.state.isRunning }
         runs.append(run)
@@ -268,13 +356,13 @@ final class TestController {
         run.displayLine = { line in parser.display(line) }
         run.onLine = { [weak self] line in
             guard let self else { return }
-            self.apply(parser.consume(line), among: members)
+            self.apply(parser.consume(line), among: members, root: root)
         }
         run.onEnd = { [weak self] _ in
             guard let self else { return }
-            self.apply(parser.finish(), among: members)
+            self.apply(parser.finish(), among: members, root: root)
             if let report = command.reportFile {
-                if let data = try? Data(contentsOf: report) { self.apply(TestOutputParser.report(data, root: root), among: members) }
+                if let data = try? Data(contentsOf: report) { self.apply(TestOutputParser.report(data, root: root), among: members, root: root) }
                 try? FileManager.default.removeItem(at: report)
             }
             var anyResult = false
@@ -315,9 +403,9 @@ final class TestController {
     private func resolve(_ name: String?, file: String?, line: Int?, among members: [TestItem]) -> [TestItem] {
         let fileName = file.map { ($0 as NSString).lastPathComponent }
         if let name {
-            if let exact = members.first(where: { $0.id == name }) { return [exact] }
+            if let exact = members.first(where: { $0.name == name }) { return [exact] }
             var candidates = members.filter { test in
-                test.displayName == name || test.id.hasSuffix("::" + name) || test.id.hasSuffix("/" + name)
+                test.displayName == name || test.name.hasSuffix("::" + name) || test.name.hasSuffix("/" + name)
             }
             if candidates.count > 1, let fileName { candidates = candidates.filter { $0.url.lastPathComponent == fileName } }
             if !candidates.isEmpty { return candidates }
@@ -328,7 +416,8 @@ final class TestController {
         return inFile.max { $0.line < $1.line }.map { [$0] } ?? []
     }
 
-    private func apply(_ events: [TestEvent], among members: [TestItem]) {
+    /// What a run in the folder `root` reported (relative paths are from there).
+    private func apply(_ events: [TestEvent], among members: [TestItem], root: URL) {
         guard !events.isEmpty else { return }
         for event in events {
             switch event {
@@ -354,7 +443,7 @@ final class TestController {
                     let url = file.map { path -> URL in
                         if path.hasPrefix("/") { return URL(filePath: path) }
                         if (path as NSString).lastPathComponent == path { return test.url } // a bare file name: the test's
-                        return root?.appending(path: path) ?? URL(filePath: path)
+                        return root.appending(path: path)
                     }
                     let issue = Issue(message: message, url: url ?? test.url, line: line.map { max(0, $0 - 1) })
                     var result = results[test.id] ?? Result()
@@ -395,7 +484,7 @@ final class TestController {
 
     /// The gutter marks of a file's tests and suites (by zero-based line).
     func marks(for url: URL) -> [Int: State] {
-        guard let path = relativePath(url), let file = files.first(where: { $0.id == "file:" + path }) else { return [:] }
+        guard let file = file(for: url) else { return [:] }
         var marks: [Int: State] = [:]
         for item in file.allItems where item.kind != .file { marks[item.line] = state(of: item) }
         return marks
@@ -403,20 +492,20 @@ final class TestController {
 
     /// Runs the test (or suite) declared on a line of a file.
     func runTest(at line: Int, in url: URL) {
-        guard let path = relativePath(url), let file = files.first(where: { $0.id == "file:" + path }),
-              let item = file.allItems.first(where: { $0.kind != .file && $0.line == line }) else { return }
+        guard let file = file(for: url), let item = file.allItems.first(where: { $0.kind != .file && $0.line == line }) else { return }
         run([item])
     }
 
     /// The test or suite the cursor is in (the closest declaration above it).
     func item(at line: Int, in url: URL) -> TestItem? {
-        guard let path = relativePath(url), let file = files.first(where: { $0.id == "file:" + path }) else { return nil }
+        guard let file = file(for: url) else { return nil }
         return file.allItems.filter { $0.kind != .file && $0.line <= line }.max { $0.line < $1.line }
     }
 
     func file(for url: URL) -> TestItem? {
-        guard let path = relativePath(url) else { return nil }
-        return files.first { $0.id == "file:" + path }
+        guard let (index, path) = locate(url) else { return nil }
+        let id = fileID(path, in: index)
+        return files.first { $0.id == id }
     }
 
     private func redrawGutters() {

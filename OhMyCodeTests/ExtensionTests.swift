@@ -156,6 +156,9 @@ struct ExtensionHostTests {
         const doc = omc.workspace.textDocuments[0];
         return [doc.fileName, doc.lineCount, doc.lineAt(0).text, omc.workspace.rootPath.length > 0];
       });
+      register('basic.folders', (path) => [omc.workspace.folders, omc.workspace.getWorkspaceFolder(path) || null, omc.workspace.rootPath]);
+      omc.workspace.onDidChangeWorkspaceFolders((e) => record(context, 'folders:' + e.added.map((f) => '+' + f.name + '@' + f.index)
+        .concat(e.removed.map((f) => '-' + f.name)).join(',')), null, context.subscriptions);
       omc.workspace.onDidSaveTextDocument((d) => record(context, 'save:' + d.fileName), null, context.subscriptions);
       omc.workspace.onDidChangeTextDocument((e) => record(context, 'change:' + e.document.fileName), null, context.subscriptions);
       omc.workspace.onDidOpenTextDocument((d) => record(context, 'open:' + d.fileName), null, context.subscriptions);
@@ -297,6 +300,41 @@ struct ExtensionHostTests {
         #expect(refused?.contains("outside the open folder") == true)
         workspace.addFolder(second)
         #expect(try await workspace.extensions.executeCommand("basic.readPath", arguments: [path]) == .string("second"))
+        withExtendedLifetime(window) {}
+    }
+
+    /// `omc.workspace.folders`, `getWorkspaceFolder` and `onDidChangeWorkspaceFolders`; relative
+    /// paths stay the first folder's, `rootPath` stays the first folder.
+    @Test func workspaceFoldersAndTheirChanges() async throws {
+        let (workspace, root, _, _, window) = try await makeBasic()
+        func events() -> [String] {
+            workspace.extensions.store.stored("events", of: "test.basic")?.array?.compactMap(\.string).filter { $0.hasPrefix("folders:") } ?? []
+        }
+        func folder(_ url: URL, _ name: String, _ index: Int) -> JSONValue {
+            .object(["path": .string(url.standardizedFileURL.path), "name": .string(name), "index": .number(Double(index))])
+        }
+        let first = try #require(workspace.rootURL)
+        let firstFolder = folder(first, root.lastPathComponent, 0)
+        #expect(try await workspace.extensions.executeCommand("basic.folders", arguments: [.string("a.txt")])
+            == .array([.array([firstFolder]), firstFolder, .string(first.path)]))
+
+        let second = FileManager.default.temporaryDirectory.appending(path: "omc-ext-api-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        try "second".write(to: second.appending(path: "b.txt"), atomically: true, encoding: .utf8)
+        workspace.addFolder(second, name: "API")
+        #expect(try await eventually { events() == ["folders:+API@1"] })
+        let secondURL = Workspace.folderURL(second)
+        let inSecond = JSONValue.string(second.appending(path: "b.txt").path)
+        #expect(try await workspace.extensions.executeCommand("basic.folders", arguments: [inSecond])
+            == .array([.array([firstFolder, folder(secondURL, "API", 1)]), folder(secondURL, "API", 1), .string(first.path)]))
+        // Outside every folder: nothing.
+        #expect(try await workspace.extensions.executeCommand("basic.folders", arguments: [.string("/etc/hosts")])?.array?[1] == .null)
+        // Relative paths are still the first folder's; absolute ones anywhere inside are inside.
+        #expect(try await workspace.extensions.executeCommand("basic.readPath", arguments: [.string("a.txt")]) == .string("hello world\n"))
+        #expect(try await workspace.extensions.executeCommand("basic.readPath", arguments: [inSecond]) == .string("second"))
+
+        workspace.removeFolder(secondURL)
+        #expect(try await eventually { events() == ["folders:+API@1", "folders:-API"] })
         withExtendedLifetime(window) {}
     }
 

@@ -40,13 +40,13 @@ enum TestRunner {
             guard let tests else { return TestCommand(framework: framework, command: "swift test") }
             // Swift Testing's ids ("Module.Suite/name()") match with more after them (where
             // they're declared): anchored at the start only. XCTest's at both ends.
-            let filter = tests.map { "^" + escapeRegex($0.id) + ($0.id.hasSuffix(")") ? "" : "$") }.joined(separator: "|")
+            let filter = tests.map { "^" + escapeRegex($0.name) + ($0.name.hasSuffix(")") ? "" : "$") }.joined(separator: "|")
             return TestCommand(framework: framework, command: "swift test --filter \(quote(filter))")
         case .go:
             guard let tests else { return TestCommand(framework: framework, command: "go test -json ./...") }
-            let packages = Array(Set(tests.map { "./" + ($0.id as NSString).deletingLastPathComponent })).sorted()
+            let packages = Array(Set(tests.map { "./" + ($0.name as NSString).deletingLastPathComponent })).sorted()
                 .map { $0 == "./." ? "." : $0 }
-            let names = Array(Set(tests.map { ($0.id as NSString).lastPathComponent })).sorted()
+            let names = Array(Set(tests.map { ($0.name as NSString).lastPathComponent })).sorted()
             return TestCommand(framework: framework,
                                command: "go test -json -run \(quote("^(" + names.joined(separator: "|") + ")$")) " + packages.joined(separator: " "))
         case .python:
@@ -55,15 +55,15 @@ enum TestRunner {
                 return TestCommand(framework: framework, command: "python3 -m pytest -v --tb=line -p no:cacheprovider " + ids)
             }
             guard let tests else { return TestCommand(framework: framework, command: "python3 -m unittest -v") }
-            return TestCommand(framework: framework, command: "python3 -m unittest -v " + tests.map { quote($0.id) }.joined(separator: " "))
+            return TestCommand(framework: framework, command: "python3 -m unittest -v " + tests.map { quote($0.name) }.joined(separator: " "))
         case .jest, .vitest:
             let report = FileManager.default.temporaryDirectory.appending(path: "omc-tests-\(UUID().uuidString).json")
             var command = framework == .jest
                 ? "npx jest --json --outputFile=\(quote(report.path))"
                 : "npx vitest run --reporter=default --reporter=json --outputFile=\(quote(report.path))"
             if let tests {
-                let files = Array(Set(tests.map { $0.id.components(separatedBy: "::")[0] })).sorted()
-                let names = tests.map { "^" + escapeRegex($0.id.components(separatedBy: "::").dropFirst().joined(separator: "::")) + "$" }
+                let files = Array(Set(tests.map { $0.name.components(separatedBy: "::")[0] })).sorted()
+                let names = tests.map { "^" + escapeRegex($0.name.components(separatedBy: "::").dropFirst().joined(separator: "::")) + "$" }
                 command += " " + files.map(quote).joined(separator: " ") + " -t " + quote(names.joined(separator: "|"))
             }
             return TestCommand(framework: framework, command: command, reportFile: report)
@@ -85,12 +85,12 @@ enum TestRunner {
             if canonical.hasPrefix(rootPath) { path = String(canonical.dropFirst(rootPath.count)) }
         }
         let module = TestDiscovery.pythonModule(for: path)
-        let rest = test.id.hasPrefix(module + ".") ? String(test.id.dropFirst(module.count + 1)) : test.label
+        let rest = test.name.hasPrefix(module + ".") ? String(test.name.dropFirst(module.count + 1)) : test.label
         return path + "::" + rest.replacingOccurrences(of: ".", with: "::")
     }
 
     static func rustName(_ test: TestItem) -> String {
-        test.id.components(separatedBy: "::").dropFirst().joined(separator: "::")
+        test.name.components(separatedBy: "::").dropFirst().joined(separator: "::")
     }
 }
 

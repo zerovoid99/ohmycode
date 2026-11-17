@@ -104,7 +104,7 @@ struct XcodeProject: Equatable, Sendable {
         var command = "xcodebuild test \(isWorkspace ? "-workspace" : "-project") \(TestRunner.quote(container))"
             + " -scheme \(TestRunner.quote(scheme)) -destination \(TestRunner.quote(destination))"
         for test in tests ?? [] {
-            command += " -only-testing:" + TestRunner.quote(Self.onlyTesting(test.id))
+            command += " -only-testing:" + TestRunner.quote(Self.onlyTesting(test.name))
         }
         return command
     }

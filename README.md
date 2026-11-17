@@ -182,6 +182,11 @@ With several folders:
   per folder.
 - Tasks and launch configurations are read from every folder, with the folder's name after
   theirs; `${workspaceFolder}` is that folder. New terminals start in the active file's folder.
+- The Testing sidebar lists each folder's tests under the folder's name, found with that
+  folder's own toolchain (a Swift package in one, npm or Go in another); ⌘U runs every folder's
+  tests, each in its own folder.
+- Breakpoints are kept per folder, so a folder keeps its breakpoints whether it's opened alone
+  or with others, and the debugger gets the breakpoints of every folder's files.
 - Agents and extensions may read and write in any of the folders, and nowhere else (unless an
   extension has the file system permission).
 
@@ -547,7 +552,7 @@ local images). It updates as you type and scrolls with the editor both ways; dou
 of the preview to go to its source. Scripts in the Markdown don't run.
 
 ## Testing
-The Testing sidebar lists the folder's tests, found by reading test files: Swift packages and Xcode
+The Testing sidebar lists the folder's tests (every folder's, with several), found by reading test files: Swift packages and Xcode
 projects (XCTest and Swift Testing), Go, Python (pytest if it's installed, else unittest), Jest, Vitest and Rust.
 ⌘U runs them all, ⌃⌥⌘U the test at the cursor; the ▶ in the gutter runs one test or suite and
 then shows ✓ or ✗. Failures appear under the test, in the editor and in Problems; the run's output
@@ -645,9 +650,14 @@ An extension is a folder with an `extension.json` and its compiled main file:
   diagnostics for any language, shown together with the language server's.
 - **Limits:** JavaScript that runs 5 seconds without returning is stopped (the extension keeps
   running); `activate()` gets 10 seconds, providers 1.5 seconds.
-- **Permissions:** the extension can always use the editor and files in the open folder. It needs
+- **Permissions:** the extension can always use the editor and files in the open folders. It needs
   `process` to run programs, `network` to make requests, and `fileSystem` for files elsewhere. The
   permissions are shown before installing.
+- **Several folders:** `omc.workspace.folders` lists the window's folders as `{ path, name, index }`,
+  `omc.workspace.getWorkspaceFolder(path)` says which one a file is in, and
+  `omc.workspace.onDidChangeWorkspaceFolders` reports folders added and removed. `rootPath` is the
+  first folder, and relative paths (in `fs` calls, `openTextDocument`) are relative to it; an
+  absolute path in any of the folders is inside the workspace.
 - **New extension:** *Extensions: New Extension…* (palette, or **+** in the Extensions sidebar)
   writes a Hello World in TypeScript, already compiled, installs it for development and opens it
   in a new window. `npm install && npm run build` compiles changes.

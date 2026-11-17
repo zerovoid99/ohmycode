@@ -124,11 +124,25 @@ declare module "omc" {
     function createStatusBarItem(alignment?: StatusBarAlignment, priority?: number): StatusBarItem;
   }
 
+  /** One of the window's folders. */
+  export interface WorkspaceFolder {
+    /** Absolute. */
+    readonly path: string;
+    /** Its label in the Explorer (unique among the window's folders). */
+    readonly name: string;
+    /** Its place in `workspace.folders`. */
+    readonly index: number;
+  }
+
   export namespace workspace {
-    /** The open folder. */
+    /** The open folder; with several, the first. */
     const rootPath: string | undefined;
+    /** The window's folders, in order (empty with none open). */
+    const folders: WorkspaceFolder[];
+    /** The folder a file is in (the innermost); relative paths are from the first folder. */
+    function getWorkspaceFolder(path: string): WorkspaceFolder | undefined;
     const textDocuments: TextDocument[];
-    /** Paths are relative to the open folder, or absolute. */
+    /** Paths are relative to the first folder, or absolute. */
     function openTextDocument(path: string): Promise<TextDocument>;
     /** Settings the extension declares in "contributes.configuration". */
     function getConfiguration(section?: string): Configuration;
@@ -138,7 +152,12 @@ declare module "omc" {
     /** Shortly after edits settle. */
     const onDidChangeTextDocument: Event<{ document: TextDocument }>;
     const onDidChangeConfiguration: Event<{ affectsConfiguration(section: string): boolean }>;
-    /** Files in the open folder; elsewhere needs the "fileSystem" permission. */
+    /** Folders added to or removed from the window. */
+    const onDidChangeWorkspaceFolders: Event<{ added: WorkspaceFolder[]; removed: WorkspaceFolder[] }>;
+    /**
+     * Files in any of the window's folders (relative paths are from the first folder);
+     * elsewhere needs the "fileSystem" permission.
+     */
     namespace fs {
       function readFile(path: string): Promise<string>;
       function writeFile(path: string, text: string): Promise<void>;

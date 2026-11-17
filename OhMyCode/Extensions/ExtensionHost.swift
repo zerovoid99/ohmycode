@@ -79,6 +79,8 @@ final class ExtensionHost {
     @ObservationIgnored private var activeDocument: ObjectIdentifier?
     /// How long document changes settle before extensions hear about them.
     @ObservationIgnored var changeDelay: Duration = .milliseconds(150)
+    /// The folders extensions were last told about (`omc.workspace.folders`).
+    @ObservationIgnored private var knownFolders: [JSONValue] = []
 
     init(workspace: Workspace) {
         self.owner = workspace
@@ -101,6 +103,7 @@ final class ExtensionHost {
             trackActiveEditor()
             listenForKeys()
         }
+        knownFolders = folderInfos()
         reload(restart: true)
     }
 
@@ -619,6 +622,27 @@ final class ExtensionHost {
         instance.runtime?.emit(event, payloadJSON: payload.json)
     }
 
+    /// The window's folders as extensions see them: `{ path, name, index }`.
+    private func folderInfos() -> [JSONValue] {
+        workspace.roots.folders.enumerated().map { index, folder in Self.folderInfo(folder, index: index) }
+    }
+
+    private static func folderInfo(_ folder: WorkspaceRoots.Folder, index: Int) -> JSONValue {
+        .object(["path": .string(folder.url.standardizedFileURL.path), "name": .string(folder.label), "index": .number(Double(index))])
+    }
+
+    /// Folders were added to or removed from the window: `onDidChangeWorkspaceFolders`, with
+    /// the folders added and removed (as they were).
+    func workspaceFoldersChanged() {
+        let old = knownFolders, new = folderInfos()
+        knownFolders = new
+        let oldPaths = Set(old.compactMap { $0["path"]?.string }), newPaths = Set(new.compactMap { $0["path"]?.string })
+        let added = new.filter { !oldPaths.contains($0["path"]?.string ?? "") }
+        let removed = old.filter { !newPaths.contains($0["path"]?.string ?? "") }
+        guard !added.isEmpty || !removed.isEmpty else { return }
+        emitAll("didChangeWorkspaceFolders", .object(["added": .array(added), "removed": .array(removed)]))
+    }
+
     static func info(_ document: EditorDocument) -> JSONValue {
         .object([
             "path": .string(document.url.path),
@@ -752,6 +776,20 @@ final class ExtensionHost {
             return nil
         case "workspace.root":
             return workspace.rootURL.map { .string($0.path) }
+        case "workspace.folders":
+            return .array(folderInfos())
+        case "workspace.getWorkspaceFolder":
+            // Relative paths are from the first folder, as elsewhere.
+            guard let path = args["path"]?.string, !path.isEmpty else { throw APIError.badArguments(method) }
+            let url = path.hasPrefix("/") ? URL(filePath: path) : workspace.rootURL?.appending(path: path) ?? URL(filePath: path)
+            let roots = workspace.roots
+            // As given, or with links followed (/tmp is /private/tmp).
+            let canonical = URL(filePath: FileWatcher.canonicalPath(url))
+            let folder = roots.folder(containing: url) ?? WorkspaceRoots(roots.folders.map {
+                WorkspaceRoots.Folder(url: URL(filePath: FileWatcher.canonicalPath($0.url)), label: $0.label)
+            }).folder(containing: canonical).flatMap { found in roots.folders.first { $0.label == found.label } }
+            guard let folder, let index = roots.folders.firstIndex(of: folder) else { return .null }
+            return Self.folderInfo(folder, index: index)
         case "workspace.documents":
             return .array(workspace.documents.map(Self.info))
         case "config.get":
@@ -936,8 +974,9 @@ final class ExtensionHost {
         }
     }
 
-    /// A path (relative to the first open folder, or absolute) the extension may use: outside
-    /// the window's folders needs the fileSystem permission.
+    /// A path (relative to the first open folder, or absolute) the extension may use: an
+    /// absolute path in any of the window's folders is inside; outside them needs the
+    /// fileSystem permission.
     private func resolve(_ path: String?, permissions: Set<ExtensionManifest.Permission>, method: String) throws -> URL {
         guard let path, !path.isEmpty else { throw APIError.badArguments(method) }
         let root = workspace.rootURL

@@ -21,6 +21,17 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 - These AI actions use the provider set up in Settings ▸ AI, are disabled (saying where to set it
   up) until there is one, and send nothing until you choose them. The README lists what each one
   sends.
+- Extensions can see every folder in the window: `omc.workspace.folders`,
+  `omc.workspace.getWorkspaceFolder(path)` and the `onDidChangeWorkspaceFolders` event.
+  `rootPath` stays the first folder, and relative paths still start there.
+
+### Changed
+- With several folders in a window, the Testing sidebar lists every folder's tests, each under its
+  folder's name. Each folder's tests are found and run in that folder with its own toolchain, Run
+  All runs them all, and failures point at the right folder's files.
+- Breakpoints are saved per folder: every folder in a workspace keeps its breakpoints across
+  restarts, also when it's opened by itself, and the debugger gets the breakpoints of files in any
+  folder. Breakpoints saved before move to their folder by themselves.
 
 ## [0.2.0] - 2026-11-18
 

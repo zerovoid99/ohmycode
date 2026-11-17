@@ -295,6 +295,58 @@ struct TestControllerTests {
         #expect(workspace.testing.state(of: suite) == .failed)
     }
 
+    /// With several folders: each folder's tests are found and run there (with its own
+    /// toolchain), listed under the folder, and failures point at the right folder's files.
+    @Test func findsAndRunsEveryFoldersTests() async throws {
+        let test = { (expected: Int) in
+            "import unittest\n\nclass MathTests(unittest.TestCase):\n    def test_ok(self):\n        self.assertEqual(1 + 1, 2)\n\n    def test_sum(self):\n        self.assertEqual(1 + 1, \(expected))\n"
+        }
+        let api = try makeFolder(["requirements.txt": "", "tests/__init__.py": "", "tests/test_math.py": test(2)])
+        let web = try makeFolder(["requirements.txt": "", "tests/__init__.py": "", "tests/test_math.py": test(3)])
+        let plain = try makeFolder(["README.md": "no tests"])
+        let workspace = Workspace()
+        workspace.testing.hasPytestOverride = false
+        workspace.openFolder(api)
+        #expect(try await eventually(.seconds(10)) { workspace.testing.allTests.count == 2 })
+        #expect(workspace.testing.tree.map(\.kind) == [.file]) // one folder: as before
+        workspace.addFolder(web, name: "web")
+        workspace.addFolder(plain)
+        #expect(try await eventually(.seconds(10)) { workspace.testing.allTests.count == 4 })
+        let apiLabel = workspace.label(of: workspace.folders[0])
+        // A group per folder with tests; the same test in two folders stays two.
+        #expect(workspace.testing.tree.map(\.label) == [apiLabel, "web"])
+        #expect(workspace.testing.tree.allSatisfy { $0.kind == .folder && $0.children.map(\.label) == ["test_math.py"] })
+        let webSum = "web/tests.test_math.MathTests.test_sum"
+        #expect(workspace.testing.item(id: webSum)?.name == "tests.test_math.MathTests.test_sum")
+
+        workspace.runAllTests()
+        #expect(try await eventually(.seconds(60)) {
+            !workspace.testing.isRunning && workspace.testing.allTests.allSatisfy { [.passed, .failed].contains(state(workspace, $0.id)) }
+        })
+        #expect(state(workspace, apiLabel + "/tests.test_math.MathTests.test_sum") == .passed)
+        #expect(state(workspace, apiLabel + "/tests.test_math.MathTests.test_ok") == .passed)
+        #expect(state(workspace, webSum) == .failed && state(workspace, "web/tests.test_math.MathTests.test_ok") == .passed)
+        // Each ran in its folder, under its own name.
+        #expect(Set(workspace.taskRuns.map(\.task.label)) == ["Tests: Python (\(apiLabel))", "Tests: Python (web)"])
+        let issue = try #require(workspace.testing.results[webSum]?.issues.first)
+        #expect(issue.line == 7 && issue.url.map(FileWatcher.canonicalPath) == FileWatcher.canonicalPath(web.appending(path: "tests/test_math.py")))
+        let webFile = web.appending(path: "tests/test_math.py")
+        #expect(workspace.testing.marks(for: webFile)[6] == .failed)
+        #expect(workspace.testing.marks(for: api.appending(path: "tests/test_math.py"))[6] == .passed)
+
+        // Running one folder's suite runs only there.
+        let webSuite = try #require(workspace.testing.tree.last?.children.first?.children.first)
+        workspace.testing.run([webSuite])
+        #expect(try await eventually(.seconds(60)) { !workspace.testing.isRunning && state(workspace, webSum) == .failed })
+        #expect(workspace.testing.runs.map(\.task.label).last == "Tests: Python (web)")
+
+        // A file changed on disk in the second folder is read again.
+        try (test(2) + "\n    def test_more(self):\n        pass\n").write(to: webFile, atomically: true, encoding: .utf8)
+        workspace.testing.filesChanged(["web/tests/test_math.py", "web/README.md"])
+        await workspace.testing.waitForFileChanges()
+        #expect(workspace.testing.item(id: "web/tests.test_math.MathTests.test_more") != nil && workspace.testing.allTests.count == 5)
+    }
+
     @Test func runsASwiftPackagesTests() async throws {
         let root = try makeFolder([
             "Package.swift": """

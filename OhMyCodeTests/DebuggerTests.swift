@@ -52,6 +52,74 @@ struct BreakpointStoreTests {
         #expect(reopened.byPath.isEmpty)
     }
 
+    /// With several folders each folder's files' breakpoints are saved under that folder (so it
+    /// keeps them opened alone); ones saved under the first folder before that move to theirs.
+    @Test func eachFolderKeepsItsBreakpoints() throws {
+        let name = "omc-bp-multi-\(UUID().uuidString)"
+        let defaults = ScratchDefaults.named(name)
+        let base = FileManager.default.temporaryDirectory.appending(path: name)
+        let (api, web) = (base.appending(path: "api"), base.appending(path: "web"))
+        for folder in [api, web] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let apiFile = FileWatcher.canonicalPath(api) + "/main.c"
+        let webFile = FileWatcher.canonicalPath(web) + "/app.c"
+
+        // Saved by 0.2.0 for a two-folder window: everything under the first folder.
+        let legacy: [String: [BreakpointStore.Breakpoint]] = [apiFile: [.init(line: 3)], webFile: [.init(line: 7)], "/outside.c": [.init(line: 1)]]
+        defaults.set(try JSONEncoder().encode(legacy), forKey: BreakpointStore.key(api))
+        let store = BreakpointStore(defaults: defaults)
+        store.load(for: [api, web])
+        #expect(store.breakpoints(in: apiFile).map(\.line) == [3] && store.breakpoints(in: webFile).map(\.line) == [7])
+        #expect(store.breakpoints(in: "/outside.c").map(\.line) == [1])
+
+        // Each folder opened by itself has its own (a file outside stays with the first folder).
+        let alone = BreakpointStore(defaults: defaults)
+        alone.load(for: web)
+        #expect(alone.byPath.keys.sorted() == [webFile])
+        alone.load(for: api)
+        #expect(alone.byPath.keys.sorted() == ["/outside.c", apiFile])
+
+        // A breakpoint set in a folder opened alone shows in the workspace.
+        alone.load(for: web)
+        alone.toggle(webFile, line: 9)
+        store.load(for: [api, web])
+        #expect(store.breakpoints(in: webFile).map(\.line) == [7, 9])
+
+        // Moved to another folder: saved with that one.
+        let moved = FileWatcher.canonicalPath(web) + "/main.c"
+        store.move(from: apiFile, to: moved)
+        alone.load(for: web)
+        #expect(alone.breakpoints(in: moved).map(\.line) == [3])
+        alone.load(for: api)
+        #expect(alone.byPath.keys.sorted() == ["/outside.c"])
+
+        // The folders change: their breakpoints come and go, and the files are announced.
+        store.load(for: api)
+        var changed: [String] = []
+        store.onChange = { changed.append($0) }
+        store.setFolders([api, web])
+        #expect(Set(changed) == [moved, webFile] && store.breakpoints(in: webFile).map(\.line) == [7, 9])
+        changed = []
+        store.setFolders([api])
+        #expect(Set(changed) == [moved, webFile] && store.breakpoints(in: webFile).isEmpty)
+    }
+
+    /// One folder: its saved breakpoints read as before.
+    @Test func singleFolderBreakpointsStayWhereTheyWere() throws {
+        let name = "omc-bp-single-\(UUID().uuidString)"
+        let defaults = ScratchDefaults.named(name)
+        let root = FileManager.default.temporaryDirectory.appending(path: name)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = FileWatcher.canonicalPath(root) + "/f.c"
+        defaults.set(try JSONEncoder().encode([file: [BreakpointStore.Breakpoint(line: 4, condition: "x > 1")]]),
+                     forKey: "breakpoints.\(root.standardizedFileURL.path)")
+        let store = BreakpointStore(defaults: defaults)
+        store.load(for: root)
+        #expect(store.breakpoints(in: file) == [BreakpointStore.Breakpoint(line: 4, condition: "x > 1")])
+        store.toggle(file, line: 8)
+        let data = try #require(defaults.data(forKey: "breakpoints.\(root.standardizedFileURL.path)"))
+        #expect(try JSONDecoder().decode([String: [BreakpointStore.Breakpoint]].self, from: data)[file]?.map(\.line) == [4, 8])
+    }
+
     @Test func documentsMoveTheirBreakpoints() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "omc-bp-doc-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

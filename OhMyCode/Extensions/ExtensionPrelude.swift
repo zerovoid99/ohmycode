@@ -151,6 +151,7 @@ enum ExtensionPrelude {
     didChangeTextDocument: new EventEmitter(),
     didChangeActiveTextEditor: new EventEmitter(),
     didChangeConfiguration: new EventEmitter(),
+    didChangeWorkspaceFolders: new EventEmitter(),
   };
   global.__omcEmit = (name, json) => {
     const emitter = events[name];
@@ -159,6 +160,7 @@ enum ExtensionPrelude {
     if (name === "didChangeActiveTextEditor") emitter.fire(data ? new TextEditor(data) : undefined);
     else if (name === "didChangeConfiguration") emitter.fire({ affectsConfiguration: (section) => data.key === section || data.key.startsWith(section + ".") });
     else if (name === "didChangeTextDocument") emitter.fire({ document: new TextDocument(data) });
+    else if (name === "didChangeWorkspaceFolders") emitter.fire({ added: data.added, removed: data.removed });
     else emitter.fire(new TextDocument(data));
   };
 
@@ -333,6 +335,8 @@ enum ExtensionPrelude {
     },
     workspace: {
       get rootPath() { return call("workspace.root", null); },
+      get folders() { return call("workspace.folders", null); },
+      getWorkspaceFolder(path) { return call("workspace.getWorkspaceFolder", { path: String(path) }) || undefined; },
       get textDocuments() { return call("workspace.documents", null).map((info) => new TextDocument(info)); },
       openTextDocument(path) { return callAsync("workspace.openTextDocument", { path }).then((info) => new TextDocument(info)); },
       getConfiguration: configuration,
@@ -341,6 +345,7 @@ enum ExtensionPrelude {
       onDidSaveTextDocument: events.didSaveTextDocument.event,
       onDidChangeTextDocument: events.didChangeTextDocument.event,
       onDidChangeConfiguration: events.didChangeConfiguration.event,
+      onDidChangeWorkspaceFolders: events.didChangeWorkspaceFolders.event,
       fs: {
         readFile(path) { return callAsync("fs.readFile", { path }); },
         writeFile(path, text) { return callAsync("fs.writeFile", { path, text: String(text) }); },
