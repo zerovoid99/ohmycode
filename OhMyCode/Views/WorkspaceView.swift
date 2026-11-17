@@ -17,6 +17,7 @@ struct WorkspaceView: View {
                     Image(systemName: "list.bullet.indent").help("Outline").tag(Workspace.SidebarMode.outline)
                     Image(systemName: "checkmark.diamond").help("Testing").tag(Workspace.SidebarMode.testing)
                     Image(systemName: "puzzlepiece.extension").help("Extensions").tag(Workspace.SidebarMode.extensions)
+                    Image(systemName: "sparkles").help("Agent").tag(Workspace.SidebarMode.agent)
                     if workspace.references != nil {
                         Image(systemName: "link").help("References").tag(Workspace.SidebarMode.references)
                     }
@@ -54,6 +55,8 @@ struct WorkspaceView: View {
                     CallHierarchyView(workspace: workspace)
                 case .pullRequests:
                     PullRequestsView(workspace: workspace)
+                case .agent:
+                    AgentPanelView(panel: workspace.agentPanel, workspace: workspace)
                 }
             }
             // Whatever a mode's content asks for, the sidebar never sets the window's minimum

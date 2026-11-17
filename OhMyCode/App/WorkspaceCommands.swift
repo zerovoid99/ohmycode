@@ -93,6 +93,12 @@ struct WorkspaceCommands: Commands {
             Button("Problems") { workspace?.toggleProblems() }
                 .keyboardShortcut(keys.shortcut("view.problems"))
                 .disabled(workspace?.rootNode == nil)
+            Button("Agent") { workspace?.sidebarMode = .agent }
+                .keyboardShortcut(keys.shortcut("view.agent"))
+                .disabled(workspace?.rootNode == nil)
+            Button("Send Selection to Claude Code") { workspace?.sendSelectionToClaudeCode() }
+                .keyboardShortcut(keys.shortcut("claude.sendSelection"))
+                .disabled(workspace?.activeDocument == nil)
             Divider()
             Button(workspace?.isZenMode == true ? "Leave Zen Mode" : "Zen Mode") { workspace?.toggleZenMode() }
                 .keyboardShortcut(keys.shortcut("view.zenMode"))

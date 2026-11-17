@@ -53,7 +53,8 @@ final class TerminalSession: Identifiable {
     /// Where the shell started (relative paths in its output are resolved here).
     @ObservationIgnored private(set) var directory: URL
 
-    init(directory: URL, command: [String]? = nil, columns: UInt16 = 80, rows: UInt16 = 24) throws {
+    /// `environment`: variables added to the shell's (Claude Code's port, for one).
+    init(directory: URL, command: [String]? = nil, environment: [String: String] = [:], columns: UInt16 = 80, rows: UInt16 = 24) throws {
         self.directory = directory
         self.columns = columns
         self.rows = rows
@@ -99,7 +100,7 @@ final class TerminalSession: Identifiable {
         ghostty_terminal_set(terminal, GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_LINES, &scrollback)
 
         let process = try PTYProcess(
-            executable: executable, arguments: arguments, environment: Self.environment(),
+            executable: executable, arguments: arguments, environment: Self.environment().merging(environment) { $1 },
             directory: directory.path, size: .init(columns: columns, rows: rows)
         )
         process.onOutput = { [weak self] data in self?.feed(data) }

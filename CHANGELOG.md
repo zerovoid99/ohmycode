@@ -5,6 +5,15 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- Coding agents in the editor: the Agent sidebar talks to any agent that speaks the Agent Client
+  Protocol (Claude Code and Codex through their adapters, Gemini CLI). It shows the reply, the
+  plan, the files the agent reads and the commands it runs, asks before edits and commands, and
+  shows proposed edits as diffs. Agents are set up in Settings ▸ Agents.
+- Claude Code in the terminal connects to the window, as it does to VS Code: it sees the open
+  files, the selection and the problems, and its proposed edits open as diff tabs to accept or
+  reject. ⌥⌘K sends the selected lines to it.
+
 ## [0.1.4] - 2026-11-17
 
 ### Fixed

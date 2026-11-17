@@ -21,11 +21,13 @@ final class IncomingMessage: @unchecked Sendable {
     }
 }
 
-/// A language server process speaking JSON-RPC over stdio with `Content-Length` framing.
-/// Bytes are read on a background queue; each complete message is delivered, in order, to the
-/// main thread: as its body (`onMessage`), or with `parsesMessages` already parsed there
-/// (`onParsedMessage`).
+/// A process speaking JSON-RPC over stdio: a language server (`Content-Length` framing) or an
+/// agent (the Agent Client Protocol: one message per line). Bytes are read on a background
+/// queue; each complete message is delivered, in order, to the main thread: as its body
+/// (`onMessage`), or with `parsesMessages` already parsed there (`onParsedMessage`).
 final class LanguageServerConnection: @unchecked Sendable {
+    enum Framing: Sendable { case contentLength, newlineDelimited }
+
     // @unchecked Sendable: `buffer` is only touched on the stdout handler's queue, writes are
     // serialized on `writeQueue`, `onMessage`/`onExit` are used on the main thread only.
     private let process = Process()
@@ -37,20 +39,37 @@ final class LanguageServerConnection: @unchecked Sendable {
     private var buffer = Data()
 
     private let parsesMessages: Bool
+    private let framing: Framing
+    private let stderr: Pipe?
 
     @MainActor var onMessage: ((Data) -> Void)?
     @MainActor var onParsedMessage: ((IncomingMessage) -> Void)?
     @MainActor var onExit: ((Int32) -> Void)?
+    /// What the process writes to stderr (with `capturesStandardError`), as it comes.
+    @MainActor var onStandardError: ((String) -> Void)?
 
-    init(command: [String], directory: URL, environment: [String: String], parsesMessages: Bool = false) throws {
+    init(command: [String], directory: URL, environment: [String: String], parsesMessages: Bool = false,
+         framing: Framing = .contentLength, capturesStandardError: Bool = false) throws {
         self.parsesMessages = parsesMessages
+        self.framing = framing
+        stderr = capturesStandardError ? Pipe() : nil
         process.executableURL = URL(filePath: command[0])
         process.arguments = Array(command.dropFirst())
         process.currentDirectoryURL = directory
         process.environment = environment
         process.standardInput = stdin
         process.standardOutput = stdout
-        process.standardError = FileHandle.nullDevice
+        if let stderr {
+            process.standardError = stderr
+            stderr.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                let data = handle.availableData
+                guard !data.isEmpty else { handle.readabilityHandler = nil; return }
+                let text = String(decoding: data, as: UTF8.self)
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.onStandardError?(text) } }
+            }
+        } else {
+            process.standardError = FileHandle.nullDevice
+        }
         process.terminationHandler = { [weak self] process in
             let status = process.terminationStatus
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.onExit?(status) } }
@@ -97,9 +116,16 @@ final class LanguageServerConnection: @unchecked Sendable {
     /// in order with the other messages; nothing if it makes nothing.
     func send(_ body: @escaping @Sendable () -> Data?) {
         let handle = stdin.fileHandleForWriting
+        let framing = framing
         writeQueue.async {
             guard let body = body() else { return }
-            try? handle.write(contentsOf: Data("Content-Length: \(body.count)\r\n\r\n".utf8) + body)
+            switch framing {
+            case .contentLength:
+                try? handle.write(contentsOf: Data("Content-Length: \(body.count)\r\n\r\n".utf8) + body)
+            case .newlineDelimited:
+                // JSONSerialization escapes newlines inside strings: a message is one line.
+                try? handle.write(contentsOf: body + Data([0x0A]))
+            }
         }
     }
 
@@ -108,12 +134,22 @@ final class LanguageServerConnection: @unchecked Sendable {
             readSource?.cancel()
             readSource = nil
         }
+        stderr?.fileHandleForReading.readabilityHandler = nil
         if process.isRunning { process.terminate() }
     }
 
     private func receive(_ data: Data) {
         buffer.append(data)
         var messages: [Data] = []
+        if framing == .newlineDelimited {
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let line = buffer[buffer.startIndex..<newline]
+                if line.contains(where: { $0 != 0x20 && $0 != 0x0D && $0 != 0x09 }) { messages.append(Data(line)) }
+                buffer.removeSubrange(buffer.startIndex...newline)
+            }
+            deliver(messages)
+            return
+        }
         let separator = Data("\r\n\r\n".utf8)
         while let headerEnd = buffer.range(of: separator) {
             let header = String(decoding: buffer[buffer.startIndex..<headerEnd.lowerBound], as: UTF8.self)
@@ -133,6 +169,10 @@ final class LanguageServerConnection: @unchecked Sendable {
             messages.append(Data(buffer[bodyStart..<bodyEnd]))
             buffer.removeSubrange(buffer.startIndex..<bodyEnd)
         }
+        deliver(messages)
+    }
+
+    private func deliver(_ messages: [Data]) {
         guard !messages.isEmpty else { return }
         let parsed = parsesMessages ? messages.compactMap(IncomingMessage.init) : []
         DispatchQueue.main.async { [weak self] in

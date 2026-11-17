@@ -1064,7 +1064,11 @@ extension EditorController: NSTextViewDelegate {
         return false
     }
 
+    /// Posted (object: the editor) when the selection changes.
+    static let selectionDidChangeNotification = Notification.Name("EditorController.selectionDidChange")
+
     func textViewDidChangeSelection(_ notification: Notification) {
+        NotificationCenter.default.post(name: Self.selectionDidChangeNotification, object: self)
         snippetSelectionChanged()
         lightbulb.update()
         signatureHelp.selectionChanged()

@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""A scripted Agent Client Protocol agent for tests: JSON-RPC, one message per line.
+
+What it does depends on the prompt's text:
+  hello            replies "Hello there" in two chunks, with a plan
+  read PATH        reads PATH through the editor and replies with its text
+  write PATH TEXT  asks permission to write TEXT to PATH; writes it if allowed
+  run              runs a command through the editor and replies with its output
+  wait             waits until the turn is cancelled
+With FAKE_ACP_AUTH=1, sessions need `authenticate` first.
+"""
+import json
+import os
+import queue
+import sys
+import threading
+
+incoming = queue.Queue()
+next_id = [1000]
+authenticated = [os.environ.get("FAKE_ACP_AUTH") != "1"]
+cancelled = threading.Event()
+
+
+def reader():
+    for line in sys.stdin:
+        line = line.strip()
+        if line:
+            incoming.put(json.loads(line))
+    incoming.put(None)
+
+
+def send(message):
+    message["jsonrpc"] = "2.0"
+    sys.stdout.write(json.dumps(message) + "\n")
+    sys.stdout.flush()
+
+
+def update(session, body):
+    send({"method": "session/update", "params": {"sessionId": session, "update": body}})
+
+
+def say(session, text):
+    update(session, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}})
+
+
+backlog = []
+
+
+def call(method, params):
+    """A request to the editor; waits for its answer (other messages wait their turn)."""
+    next_id[0] += 1
+    my_id = next_id[0]
+    send({"id": my_id, "method": method, "params": params})
+    while True:
+        message = incoming.get()
+        if message is None:
+            sys.exit(0)
+        if message.get("id") == my_id and "method" not in message:
+            return message
+        if message.get("method") == "session/cancel":
+            cancelled.set()
+            continue
+        backlog.append(message)
+
+
+def prompt(session, blocks):
+    text = " ".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+    links = [b for b in blocks if b.get("type") in ("resource", "resource_link")]
+    if links:
+        say(session, "attached: " + ", ".join(
+            (b.get("resource") or {}).get("uri", b.get("uri", "")) for b in links) + "\n")
+    words = text.split(" ", 2)
+    if words[0] == "hello":
+        update(session, {"sessionUpdate": "plan", "entries": [
+            {"content": "Say hello", "priority": "high", "status": "completed"},
+            {"content": "Wait", "priority": "low", "status": "pending"}]})
+        say(session, "Hello")
+        say(session, " there")
+        return "end_turn"
+    if words[0] == "read":
+        answer = call("fs/read_text_file", {"sessionId": session, "path": words[1]})
+        if "error" in answer:
+            say(session, "error: " + answer["error"]["message"])
+        else:
+            say(session, "read: " + answer["result"]["content"])
+        return "end_turn"
+    if words[0] == "write":
+        path, content = words[1], words[2]
+        update(session, {"sessionUpdate": "tool_call", "toolCallId": "edit-1", "title": "Edit " + os.path.basename(path),
+                         "kind": "edit", "status": "pending",
+                         "content": [{"type": "diff", "path": path, "oldText": None, "newText": content}],
+                         "locations": [{"path": path, "line": 1}]})
+        answer = call("session/request_permission", {"sessionId": session, "toolCall": {"toolCallId": "edit-1"}, "options": [
+            {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+            {"optionId": "reject", "name": "Reject", "kind": "reject_once"}]})
+        outcome = answer["result"]["outcome"]
+        if outcome.get("outcome") == "cancelled":
+            update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "edit-1", "status": "failed"})
+            return "cancelled"
+        if outcome.get("optionId") != "allow":
+            update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "edit-1", "status": "failed"})
+            say(session, "rejected")
+            return "end_turn"
+        result = call("fs/write_text_file", {"sessionId": session, "path": path, "content": content})
+        update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "edit-1",
+                         "status": "failed" if "error" in result else "completed"})
+        say(session, "error: " + result["error"]["message"] if "error" in result else "wrote")
+        return "end_turn"
+    if words[0] == "run":
+        created = call("terminal/create", {"sessionId": session, "command": "/bin/sh",
+                                            "args": ["-c", "echo out; echo err >&2; exit 3"], "env": [{"name": "X", "value": "1"}]})
+        terminal = created["result"]["terminalId"]
+        update(session, {"sessionUpdate": "tool_call", "toolCallId": "run-1", "title": "Run", "kind": "execute",
+                         "status": "in_progress", "content": [{"type": "terminal", "terminalId": terminal}]})
+        exited = call("terminal/wait_for_exit", {"sessionId": session, "terminalId": terminal})["result"]
+        output = call("terminal/output", {"sessionId": session, "terminalId": terminal})["result"]
+        call("terminal/release", {"sessionId": session, "terminalId": terminal})
+        update(session, {"sessionUpdate": "tool_call_update", "toolCallId": "run-1", "status": "completed"})
+        say(session, "exit %s: %s" % (exited["exitCode"], output["output"].replace("\n", "|")))
+        return "end_turn"
+    if words[0] == "wait":
+        say(session, "waiting")
+        while not cancelled.is_set():
+            try:
+                message = incoming.get(timeout=0.05)
+            except queue.Empty:
+                continue
+            if message is None:
+                sys.exit(0)
+            if message.get("method") == "session/cancel":
+                cancelled.set()
+            else:
+                backlog.append(message)
+        cancelled.clear()
+        return "cancelled"
+    say(session, "unknown: " + text)
+    return "end_turn"
+
+
+def handle(message):
+    method = message.get("method")
+    mid = message.get("id")
+    params = message.get("params") or {}
+    if method == "initialize":
+        send({"id": mid, "result": {
+            "protocolVersion": 1,
+            "agentCapabilities": {"loadSession": False, "promptCapabilities": {"embeddedContext": True}},
+            "agentInfo": {"name": "fake-acp", "title": "Fake Agent", "version": "1.0"},
+            "authMethods": [{"id": "token", "name": "Use a token", "description": "Signs in"}]}})
+    elif method == "authenticate":
+        authenticated[0] = True
+        send({"id": mid, "result": {}})
+    elif method == "session/new":
+        if not authenticated[0]:
+            send({"id": mid, "error": {"code": -32000, "message": "Authentication required"}})
+            return
+        send({"id": mid, "result": {"sessionId": "session-1", "modes": {"currentModeId": "default", "availableModes": [
+            {"id": "default", "name": "Default"}, {"id": "plan", "name": "Plan", "description": "Plans only"}]}}})
+        update("session-1", {"sessionUpdate": "available_commands_update", "availableCommands": [
+            {"name": "review", "description": "Review the changes", "input": {"hint": "what to review"}}]})
+    elif method == "session/set_mode":
+        send({"id": mid, "result": {}})
+        update(params["sessionId"], {"sessionUpdate": "current_mode_update", "currentModeId": params["modeId"]})
+    elif method == "session/prompt":
+        reason = prompt(params["sessionId"], params.get("prompt", []))
+        send({"id": mid, "result": {"stopReason": reason}})
+    elif method == "session/cancel":
+        cancelled.set()
+    elif mid is not None:
+        send({"id": mid, "error": {"code": -32601, "message": "Method not found"}})
+
+
+def main():
+    sys.stderr.write("fake-acp started\n")
+    sys.stderr.flush()
+    threading.Thread(target=reader, daemon=True).start()
+    while True:
+        message = backlog.pop(0) if backlog else incoming.get()
+        if message is None:
+            return
+        handle(message)
+
+
+main()

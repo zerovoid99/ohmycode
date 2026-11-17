@@ -41,7 +41,7 @@ enum LanguageServers {
         return nil
     }
 
-    private static func find(_ executable: String, in path: String) -> String? {
+    static func find(_ executable: String, in path: String) -> String? {
         for directory in path.split(separator: ":") {
             let candidate = "\(directory)/\(executable)"
             if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }

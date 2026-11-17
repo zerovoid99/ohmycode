@@ -184,6 +184,28 @@ compilers and test runners print them (`Sources/App/main.swift:12:5`, Python's
 `File "x.py", line 3`). Relative paths are resolved from where the shell started. ⌘-click a URL to
 open it in the browser. The pointer turns into a hand over links while ⌘ is held.
 
+## Coding agents
+The **Agent** sidebar (the sparkles icon, ⌃⌘A) talks to a coding agent over the [Agent Client
+Protocol](https://agentclientprotocol.com) (ACP). Pick an agent, start it, and ask it to do
+something in the window's folder. Its reply streams in, with its plan, the files it reads and
+the commands it runs (with their output). Before it edits a file or runs a command it asks:
+*Allow* or *Reject* on the card above the prompt, and *View Diff* shows a proposed edit side by
+side. ⌘↩ sends, ⌘. stops the turn; the paperclip attaches the selection (or the current file),
+and `/` lists the agent's commands. The agent reads files as the editor has them, unsaved
+changes included, and only inside the folder; what it writes to an open file is one undo step.
+
+Agents are set up in *Settings ▸ Agents*: a name and a command line, run with your login
+shell's PATH. The defaults are Claude Code (`npx -y @agentclientprotocol/claude-agent-acp`),
+Gemini CLI (`gemini --experimental-acp`) and Codex (`npx -y @agentclientprotocol/codex-acp`);
+the npx ones need Node.js.
+
+**Claude Code in the terminal.** `claude` started in this window's terminal connects to the
+window, as it does to VS Code: it sees the open files, the selection and the problems, and the
+edits it proposes open as diff tabs with *Accept* and *Reject* (closing the tab rejects). From a
+terminal elsewhere, in the window's folder, type `/ide`. ⌥⌘K sends the selected lines to it as an
+`@file#L…` mention. The window listens on 127.0.0.1 only, and Claude Code finds it through a lock
+file in `~/.claude/ide` that holds a token it must send. Turn it off in *Settings ▸ Agents*.
+
 ## GitHub pull requests
 The Pull Requests sidebar lists the repository's open pull requests through the GitHub CLI
 (`brew install gh`, then `gh auth login`). Each one shows its author, branch, draft state and

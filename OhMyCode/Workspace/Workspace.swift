@@ -124,9 +124,33 @@ final class Workspace {
         case outline = "Outline"
         case callHierarchy = "Call Hierarchy"
         case pullRequests = "Pull Requests"
+        case agent = "Agent"
     }
 
     @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
+    /// The Agent sidebar: a coding agent over the Agent Client Protocol.
+    @ObservationIgnored private(set) lazy var agentPanel = AgentPanel(workspace: self)
+    /// Claude Code in a terminal working with this window (see `ClaudeCodeServer`).
+    @ObservationIgnored private(set) lazy var claudeCode = ClaudeCodeServer(workspace: self)
+
+    /// Starts or stops the Claude Code integration, as the setting and the folder say.
+    func updateClaudeCodeIntegration() {
+        if AgentStore.shared.claudeCodeIntegration, rootURL != nil {
+            claudeCode.start()
+        } else {
+            claudeCode.stop()
+        }
+    }
+
+    /// Sends the selected lines to the Claude Code sessions connected to this window.
+    func sendSelectionToClaudeCode() {
+        guard claudeCode.sendSelection() else {
+            errorMessage = AgentStore.shared.claudeCodeIntegration
+                ? "Claude Code isn't connected. Run claude in this window's terminal (or /ide in a terminal in this folder)."
+                : "The Claude Code integration is off (Settings ▸ Agents)."
+            return
+        }
+    }
 
     /// ⇧⌘F (⇧⌘H with `replace`): show the search panel, seeded with the editor's selection.
     func showSearch(replace: Bool = false) {
@@ -281,6 +305,9 @@ final class Workspace {
                 self.perform(command, in: document)
             }
         }
+        NotificationCenter.default.addObserver(forName: AgentStore.integrationDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateClaudeCodeIntegration() }
+        }
     }
 
     var activeDocument: EditorDocument? {
@@ -357,6 +384,7 @@ final class Workspace {
         loadProjectSettings()
         sessionSignature = nil
         restoreSession()
+        updateClaudeCodeIntegration()
     }
 
     /// Rebuilds the quick-open index in the background. The previous index stays usable until
@@ -1025,6 +1053,22 @@ final class Workspace {
         loadCommit(session, commit)
         activeGroup.show(session.id)
         return session
+    }
+
+    /// A change an agent proposes, as a diff tab: `onDecision` (if any) gets Accept or Reject.
+    @discardableResult
+    func showProposedChange(_ change: ProposedChange, for url: URL, onDecision: ((Bool) -> Void)? = nil) -> DiffSession {
+        let session = DiffSession(proposed: change, of: url, onDecision: onDecision)
+        diffSessions.append(session)
+        activeGroup.show(session.id)
+        return session
+    }
+
+    /// Closes diff tabs (a proposed change still waiting for an answer is turned down).
+    func closeDiffSessions(where predicate: (DiffSession) -> Bool) {
+        for session in diffSessions where predicate(session) {
+            for group in groups where group.contains(session.id) { closeDiff(session, in: group) }
+        }
     }
 
     /// Shows a new diff tab.
@@ -1925,7 +1969,8 @@ final class Workspace {
 
     private func makeTerminal() -> TerminalSession? {
         do {
-            return try TerminalSession(directory: rootURL ?? FileManager.default.homeDirectoryForCurrentUser)
+            return try TerminalSession(directory: rootURL ?? FileManager.default.homeDirectoryForCurrentUser,
+                                       environment: claudeCode.terminalEnvironment)
         } catch {
             errorMessage = error.localizedDescription
             return nil
@@ -2167,6 +2212,7 @@ final class Workspace {
         group.remove(session.id)
         if !groups.contains(where: { $0.contains(session.id) }) {
             diffSessions.removeAll { $0.id == session.id }
+            session.decide(false) // a proposed change closed undecided is turned down
             // A document opened just for the diff goes too, unless it got a tab meanwhile.
             if let document = session.document, session.ownsDocument, !groups.contains(where: { $0.contains(document.id) }),
                !diffSessions.contains(where: { $0.document === document }), !document.isDirty {

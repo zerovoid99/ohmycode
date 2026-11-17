@@ -19,6 +19,8 @@ final class DiffSession: Identifiable {
         case conflict(ConflictComparison)
         /// A version from the local history against the editor's text (live, like compare).
         case history(LocalHistoryEntry)
+        /// A change a coding agent proposes: the file's text against the proposed text, fixed.
+        case proposed(ProposedChange)
     }
 
     let id = UUID()
@@ -89,6 +91,32 @@ final class DiffSession: Identifiable {
         ownsDocument = false
     }
 
+    /// A proposed change's tab: accepted or rejected with `decide` when `onDecision` is set
+    /// (the agent waits for the answer), else only shown.
+    init(proposed change: ProposedChange, of url: URL, onDecision: ((Bool) -> Void)? = nil) {
+        mode = .proposed(change)
+        self.url = url
+        document = nil
+        ownsDocument = false
+        self.onDecision = onDecision
+        setLoaded(base: change.old ?? "", current: change.new, isNewFile: change.old == nil)
+    }
+
+    /// Answers a proposed change (once); closing its tab undecided rejects it.
+    @ObservationIgnored private var onDecision: ((Bool) -> Void)?
+    /// Waiting for Accept or Reject.
+    var awaitsDecision: Bool { onDecision != nil }
+
+    func decide(_ accept: Bool) {
+        guard let onDecision else { return }
+        self.onDecision = nil
+        decisionVersion += 1
+        onDecision(accept)
+    }
+
+    /// Bumped when the change is decided (the header's buttons go).
+    private(set) var decisionVersion = 0
+
     init(conflict: ConflictComparison, of url: URL) {
         mode = .conflict(conflict)
         self.url = url
@@ -110,6 +138,7 @@ final class DiffSession: Identifiable {
         case .compare(let commit): "\(fileName) (\(commit.shortSHA) ↔ Current)"
         case .history(let entry): "\(fileName) (\(Self.short(entry.date)) ↔ Current)"
         case .conflict: "\(fileName) (Current ↔ Incoming)"
+        case .proposed(let change): change.title.isEmpty ? "\(fileName) (Proposed)" : change.title
         }
     }
 
@@ -121,6 +150,7 @@ final class DiffSession: Identifiable {
         case .compare(let commit): "\(url.path) — \(commit.shortSHA) ↔ working tree"
         case .history(let entry): "\(url.path) — local history (\(entry.reason.title), \(Self.short(entry.date))) ↔ current"
         case .conflict(let conflict): "\(url.path) — merge conflict: \(conflict.currentLabel) ↔ \(conflict.incomingLabel)"
+        case .proposed(let change): "\(url.path) — proposed by \(change.source)"
         }
     }
 
@@ -133,6 +163,7 @@ final class DiffSession: Identifiable {
         case .compare(let commit): (commit.shortSHA, "Working Tree")
         case .history(let entry): ("\(entry.reason.title) \(Self.short(entry.date))", "Current")
         case .conflict(let conflict): ("Current: \(conflict.currentLabel)", "Incoming: \(conflict.incomingLabel)")
+        case .proposed(let change): (change.old == nil ? "(new file)" : "Current", "Proposed by \(change.source)")
         }
     }
 
@@ -156,7 +187,7 @@ final class DiffSession: Identifiable {
         switch mode {
         case .workingTree: document?.diffHunks ?? []
         case .compare, .history: compareHunks
-        case .staged, .commit, .conflict: loadedHunks
+        case .staged, .commit, .conflict, .proposed: loadedHunks
         }
     }
 
@@ -367,6 +398,7 @@ struct DiffView: View {
         case .compare: "The file matches this commit's version."
         case .history: "The file matches this saved version."
         case .conflict: "Both sides of the conflict are the same."
+        case .proposed: "The proposed text is the same as the file's."
         }
     }
 
@@ -444,6 +476,14 @@ struct DiffView: View {
                 workspace.open(fileAt: session.url)
             } label: { Image(systemName: "doc.text") }
                 .help("Open File")
+            if session.awaitsDecision {
+                Button("Reject") { session.decide(false) }
+                    .buttonStyle(.bordered).controlSize(.small)
+                    .help("Turn the change down")
+                Button("Accept") { session.decide(true) }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .help("Let the agent make the change")
+            }
             Text(session.sideLabels.current).font(.caption.weight(.semibold).monospaced()).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -532,6 +572,18 @@ private struct DiffRowView: View {
             if isSelected { Rectangle().fill(Color.accentColor).frame(width: 3) }
         }
     }
+}
+
+/// A change a coding agent proposes to a file, for a diff tab.
+struct ProposedChange: Hashable, Sendable {
+    let id = UUID()
+    /// The tab's title (empty: the file's name).
+    let title: String
+    /// Who proposes it ("Claude Code").
+    let source: String
+    /// The file's text now (nil: it doesn't exist yet).
+    let old: String?
+    let new: String
 }
 
 /// A merge conflict's two sides, for a diff tab.

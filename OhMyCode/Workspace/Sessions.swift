@@ -158,6 +158,8 @@ extension Workspace {
         guard !SessionStore.shared.isTerminating else { return }
         keepSession(wasOpen: false, force: true)
         sessionLoop?.cancel()
+        agentPanel.stop()
+        claudeCode.stop()
     }
 
     /// Keeps the session and auto-saves, twice a second, while the window is open.
