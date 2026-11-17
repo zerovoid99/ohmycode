@@ -5,6 +5,8 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-18
+
 ### Added
 - Images, PDFs and binary files open in a viewer tab instead of an error. Images fit the window
   and zoom with ⌘+, ⌘-, ⌘0, pinching or the footer's buttons, over a checkerboard where they're
@@ -183,7 +185,8 @@ tree-sitter highlighting, language servers, git, an integrated terminal and exte
 - The gutter and overlays redraw only the rows and marks that change, and line numbers are drawn
   from cached glyphs.
 
-[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/zerovoid99/ohmycode/compare/v0.1.9...v0.2.0
 [0.1.9]: https://github.com/zerovoid99/ohmycode/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/zerovoid99/ohmycode/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/zerovoid99/ohmycode/compare/v0.1.6...v0.1.7
