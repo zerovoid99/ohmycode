@@ -5,66 +5,51 @@ struct WorkspaceView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $workspace.sidebarVisibility) {
-            VStack(spacing: 0) {
-                Picker("Sidebar", selection: $workspace.sidebarMode) {
-                    Image(systemName: "folder").help("Explorer (⇧⌘E)").tag(Workspace.SidebarMode.files)
-                    Image(systemName: "magnifyingglass").help("Search (⇧⌘F)").tag(Workspace.SidebarMode.search)
-                    Image(systemName: "arrow.triangle.branch").help(changeCountLabel + " (⌃⇧G)")
-                        .tag(Workspace.SidebarMode.sourceControl)
-                    Image(systemName: "clock.arrow.circlepath").help("Timeline").tag(Workspace.SidebarMode.history)
-                    Image(systemName: "arrow.triangle.pull").help("Pull Requests").tag(Workspace.SidebarMode.pullRequests)
-                    Image(systemName: "ladybug").help("Run and Debug (⇧⌘D)").tag(Workspace.SidebarMode.debug)
-                    Image(systemName: "list.bullet.indent").help("Outline").tag(Workspace.SidebarMode.outline)
-                    Image(systemName: "checkmark.diamond").help("Testing").tag(Workspace.SidebarMode.testing)
-                    Image(systemName: "puzzlepiece.extension").help("Extensions").tag(Workspace.SidebarMode.extensions)
-                    Image(systemName: "sparkles").help("Agent").tag(Workspace.SidebarMode.agent)
-                    if workspace.references != nil {
-                        Image(systemName: "link").help("References").tag(Workspace.SidebarMode.references)
+            HStack(spacing: 0) {
+                ActivityBar(workspace: workspace)
+                Divider()
+                VStack(spacing: 0) {
+                    // The Agent panel's header is its own (the agent picker).
+                    if workspace.sidebarMode != .agent {
+                        SidebarPanelHeader(title: panelTitle, subtitle: panelSubtitle) { panelActions }
                     }
-                    if workspace.callHierarchy != nil {
-                        Image(systemName: "phone.arrow.down.left").help("Call Hierarchy").tag(Workspace.SidebarMode.callHierarchy)
+                    switch workspace.sidebarMode {
+                    case .files:
+                        if let root = workspace.rootNode {
+                            FileTreeView(root: root, workspace: workspace)
+                        }
+                    case .search:
+                        SearchView(model: workspace.search)
+                    case .sourceControl:
+                        SourceControlView(workspace: workspace)
+                    case .references:
+                        ReferencesView(workspace: workspace)
+                    case .history:
+                        TimelineView(workspace: workspace)
+                    case .extensions:
+                        ExtensionsView(workspace: workspace)
+                    case .debug:
+                        DebugView(workspace: workspace)
+                    case .testing:
+                        TestingView(workspace: workspace)
+                    case .outline:
+                        OutlineView(workspace: workspace)
+                    case .callHierarchy:
+                        CallHierarchyView(workspace: workspace)
+                    case .pullRequests:
+                        PullRequestsView(workspace: workspace)
+                    case .agent:
+                        AgentPanelView(panel: workspace.agentPanel, workspace: workspace)
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-
-                switch workspace.sidebarMode {
-                case .files:
-                    if let root = workspace.rootNode {
-                        FileTreeView(root: root, workspace: workspace)
-                    }
-                case .search:
-                    SearchView(model: workspace.search)
-                case .sourceControl:
-                    SourceControlView(workspace: workspace)
-                case .references:
-                    ReferencesView(workspace: workspace)
-                case .history:
-                    TimelineView(workspace: workspace)
-                case .extensions:
-                    ExtensionsView(workspace: workspace)
-                case .debug:
-                    DebugView(workspace: workspace)
-                case .testing:
-                    TestingView(workspace: workspace)
-                case .outline:
-                    OutlineView(workspace: workspace)
-                case .callHierarchy:
-                    CallHierarchyView(workspace: workspace)
-                case .pullRequests:
-                    PullRequestsView(workspace: workspace)
-                case .agent:
-                    AgentPanelView(panel: workspace.agentPanel, workspace: workspace)
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             // Whatever a mode's content asks for, the sidebar never sets the window's minimum
             // height: a taller minimum than the screen pushed the whole sidebar (its picker
             // too) up under the title bar.
             .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
             .themedBackground(.sidebar, fallback: .clear)
-            .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 480)
+            .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 520)
         } detail: {
             VStack(spacing: 0) {
                 VSplitView {
@@ -110,6 +95,33 @@ struct WorkspaceView: View {
         .modifier(ActiveDocumentSubtitle(workspace: workspace))
     }
 
+    private var panelTitle: String {
+        workspace.sidebarMode == .files ? "Explorer" : workspace.sidebarMode.rawValue
+    }
+
+    private var panelSubtitle: String? {
+        switch workspace.sidebarMode {
+        case .files: workspace.rootURL?.lastPathComponent
+        case .sourceControl: workspace.gitStatus?.branch
+        default: nil
+        }
+    }
+
+    @ViewBuilder private var panelActions: some View {
+        switch workspace.sidebarMode {
+        case .files where workspace.rootNode != nil:
+            Button { workspace.promptNewFile(in: nil) } label: { Image(systemName: "doc.badge.plus") }
+                .help("New File…")
+            Button { workspace.promptNewFolder(in: nil) } label: { Image(systemName: "folder.badge.plus") }
+                .help("New Folder…")
+        case .sourceControl where workspace.rootNode != nil:
+            Button { workspace.refreshGit() } label: { Image(systemName: "arrow.clockwise") }
+                .help("Refresh")
+        default:
+            EmptyView()
+        }
+    }
+
     private var changeCountLabel: String {
         let count = workspace.gitStatus?.changedFileCount ?? 0
         return count > 0 ? "Source Control (\(count))" : "Source Control"
@@ -141,7 +153,17 @@ private struct ActiveStatusBar: View {
                       showTasks: { workspace.showTasks() },
                       items: workspace.extensions.statusItems,
                       run: { workspace.extensions.run($0) },
-                      claudeCodeSessions: workspace.claudeCode.connectedCount)
+                      claudeCodeSessions: workspace.claudeCode.connectedCount,
+                      agentActivity: agentActivity,
+                      showAgent: { workspace.sidebarMode = .agent; workspace.sidebarVisibility = .all },
+                      goToLine: { workspace.showPalette(.goToLine) },
+                      showSourceControl: { workspace.sidebarMode = .sourceControl; workspace.sidebarVisibility = .all })
+    }
+
+    private var agentActivity: StatusBarView.AgentActivity? {
+        guard let client = workspace.agentPanel.client else { return nil }
+        if !client.permissions.isEmpty { return .waiting }
+        return client.state == .working ? .working : nil
     }
 }
 

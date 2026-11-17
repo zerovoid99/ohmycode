@@ -58,13 +58,9 @@ struct EditorGroupView: View {
                 DiffView(session: session, workspace: workspace)
                     .id(session.id)
             } else {
-                ContentUnavailableView(
-                    "No Open Editors",
-                    systemImage: "doc.text",
-                    description: Text("Select a file in the sidebar to open it.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .editorBackground()
+                StartPageView(workspace: workspace)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .editorBackground()
             }
         }
     }

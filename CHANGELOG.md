@@ -10,6 +10,19 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
   conversation shown again, for agents that can reopen sessions (Claude Code's adapter can).
 
 ### Changed
+- A new look for finding your way around:
+  - The sidebar's panels are an activity bar down its left edge, each icon with its name and
+    shortcut, the active one marked, with counts where they help (changed files) and a dot when
+    the agent is working or waiting for you. Settings is at its foot.
+  - Each panel has a header naming it, with its actions (New File and New Folder in the
+    Explorer, Refresh in Source Control).
+  - An editor with no file open shows a start page: the folder and its branch, ways to get going
+    with their shortcuts, and the files opened lately.
+  - Files have icons by kind (Swift, Markdown, JSON, …) in the Explorer and on tabs; the active
+    tab is marked with a line in the accent color.
+  - The welcome window lists recent folders with their locations, and shows the version.
+  - In the status bar, the branch opens Source Control, the cursor's position opens Go to Line,
+    and the agent's work (or its question) shows, opening the Agent sidebar.
 - Tool calls and permission requests in the Agent sidebar name files inside the folder by their
   path in it, not their full path.
 

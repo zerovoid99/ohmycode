@@ -65,7 +65,11 @@ private struct FileRow: View {
                     .foregroundStyle(status.map { Color(nsColor: $0.color) } ?? .primary)
                     .strikethrough(status == .deleted)
             } icon: {
-                Image(systemName: submodule != nil ? "shippingbox" : node.isDirectory ? "folder" : "doc.text")
+                if submodule != nil {
+                    Image(systemName: "shippingbox").foregroundStyle(.secondary)
+                } else {
+                    FileIcon(name: node.name, isDirectory: node.isDirectory)
+                }
             }
             .lineLimit(1)
             .truncationMode(.middle)

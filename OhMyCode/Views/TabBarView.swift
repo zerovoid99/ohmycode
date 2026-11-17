@@ -79,8 +79,9 @@ struct TabBarView: View {
             }
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
-        .frame(height: 32)
+        .frame(height: 34)
         .themedBackground(.tabBar, fallback: .bar)
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     @ViewBuilder private func dropMarker(at index: Int) -> some View {
@@ -140,7 +141,12 @@ private struct TabItemView: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            if isDiff { Image(systemName: "plusminus").font(.caption).foregroundStyle(.secondary) }
+            Group {
+                if isDiff { Image(systemName: "plusminus").foregroundStyle(.secondary) } else { FileIcon(name: title) }
+            }
+            .font(.system(size: 11))
+            .frame(width: 14)
+            .opacity(isActive ? 1 : 0.75)
             Text(title)
                 .font(.callout)
                 .foregroundStyle(isActive && isActiveGroup ? .primary : .secondary)
@@ -155,9 +161,16 @@ private struct TabItemView: View {
             .foregroundStyle(.secondary)
             .opacity(isActive || isHovering || isDirty ? 1 : 0)
         }
-        .padding(.horizontal, 12)
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
         .frame(maxHeight: .infinity)
-        .background(isActive ? Color(nsColor: EditorTheme.observed.background) : .clear)
+        .background(isActive ? Color(nsColor: EditorTheme.observed.background) : isHovering ? Color.primary.opacity(0.04) : .clear)
+        .overlay(alignment: .top) {
+            // The active tab: marked in the accent color in the focused group, quieter in others.
+            if isActive {
+                Rectangle().fill(isActiveGroup ? Color.accentColor : Color.secondary.opacity(0.5)).frame(height: 2)
+            }
+        }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }

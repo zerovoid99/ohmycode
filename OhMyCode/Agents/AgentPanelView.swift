@@ -23,11 +23,16 @@ struct AgentPanelView: View {
 
     private var header: some View {
         HStack(spacing: 6) {
+            Text("AGENT")
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.4)
+                .foregroundStyle(.secondary)
             Picker("Agent", selection: Binding(get: { panel.selectedAgent?.id }, set: { panel.selectedAgentID = $0 })) {
                 ForEach(store.definitions) { Text($0.name).tag(Optional($0.id)) }
             }
             .labelsHidden()
             .controlSize(.small)
+            .fixedSize()
             Spacer(minLength: 0)
             if let client = panel.client {
                 AgentStateBadge(state: client.state)
@@ -62,8 +67,9 @@ struct AgentPanelView: View {
             .menuIndicator(.hidden)
             .fixedSize()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
+        .frame(height: 30)
     }
 
     private var start: some View {
