@@ -5,6 +5,36 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Changed
+- Saving (⌘S) a file that changed on disk since it was opened asks first: overwrite it, revert
+  to what's on disk, or cancel.
+- Files dropped on the Explorer from outside the folder (from Finder, say) are copied in, not
+  moved.
+- Closing a window with no folder asks about its unsaved files.
+- A language server that crashes is started again (up to three times in three minutes), with
+  the open files.
+
+### Fixed
+- Crashes: writing to an agent or language server that had just exited; out-of-range line
+  numbers or sizes from a language server, extension or agent; editing inside a merge conflict
+  right before its markers were rescanned.
+- Files with Windows (CRLF) line endings: change markers, Revert and Stage Change, blame,
+  Enter, snippets and multi-cursor movement now treat them line by line.
+- Unsaved changes to a file deleted on disk (by a branch switch, say) are no longer dropped at
+  the next launch; picking a profile sync folder no longer overwrites the profile already there;
+  an unreadable keybindings.json is backed up before it's replaced; saving keeps a UTF-8 byte
+  order mark and writes through symlinks.
+- Tasks, terminals, the debugger, language servers and agent commands stop when their window
+  closes or the app quits; closed terminals no longer leave processes behind.
+- Agents and extensions can't reach files outside the folder through a symlink to a new file;
+  extensions without the file-system permission can't write into .git; the Markdown preview
+  stays on its own page; task variables such as ${file} are quoted for the shell.
+- Completions replace the whole range the language server names and add the imports it asks
+  for; breakpoints follow renamed files; a failed debug launch shows its error; whole-word
+  search and replace match the same text; file names with [ ] or * stage and discard only
+  themselves; files added with `git add -N` show in Source Control.
+- Explorer rows no longer show the previous row's name and icon faded over them.
+
 ## [0.1.6] - 2026-11-17
 
 ### Added
