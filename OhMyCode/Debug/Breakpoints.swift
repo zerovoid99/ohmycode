@@ -62,7 +62,7 @@ final class BreakpointStore {
     /// Files outside every folder, and the key they were loaded from (kept there).
     @ObservationIgnored private var outsideHomes: [String: String] = [:]
 
-    init(defaults: UserDefaults = AppSettings.isRunningTests ? ScratchDefaults.named("dev.zerovoid99.ohmycode.tests.breakpoints") : .standard) {
+    init(defaults: UserDefaults = AppSettings.isRunningTests ? ScratchDefaults.named("dev.zerovoid99.ohmycode.tests.breakpoints") : .omc) {
         self.defaults = defaults
     }
 

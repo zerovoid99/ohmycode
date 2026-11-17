@@ -13,6 +13,24 @@ extension URL {
     }
 }
 
+extension UserDefaults {
+    /// The app's own defaults: the standard ones, or with `OMC_SUPPORT_DIR` set a store inside
+    /// that folder, so a run started with one (the launch benchmark, a trial run) doesn't add to
+    /// the user's recent folders, settings or agents.
+    nonisolated(unsafe) static let omc = store(environment: ProcessInfo.processInfo.environment)
+
+    static func store(environment: [String: String]) -> UserDefaults {
+        guard let path = environment["OMC_SUPPORT_DIR"], !path.isEmpty else { return .standard }
+        let folder = URL(fileURLWithPath: path, isDirectory: true).appending(path: "OhMyCode")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return UserDefaults(suiteName: folder.appending(path: "Defaults").path) ?? .standard
+    }
+
+    /// Started with `OMC_SUPPORT_DIR`: nothing of the user's is read or written (the Keychain
+    /// included).
+    static var isolated: Bool { ProcessInfo.processInfo.environment["OMC_SUPPORT_DIR"].map { !$0.isEmpty } ?? false }
+}
+
 /// Named UserDefaults stores for tests (the test host is the app itself, so tests never touch the
 /// user's own). Each is a plist in a temporary folder of the run's own, named by its path: a
 /// suite named the usual way would land in ~/Library/Preferences and stay there. So every run
@@ -34,7 +52,7 @@ enum ScratchDefaults {
 final class AppSettings {
     /// Under tests, a scratch store that starts at the defaults: tests never see or overwrite
     /// the user's real settings (the test host is the app itself).
-    static let shared = AppSettings(defaults: isRunningTests ? scratchDefaults() : .standard)
+    static let shared = AppSettings(defaults: isRunningTests ? scratchDefaults() : .omc)
 
     static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil

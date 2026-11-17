@@ -73,7 +73,8 @@ TEST_RUNNER_OMC_BENCH=1 xcodebuild -scheme OhMyCode test -only-testing:OhMyCodeT
 It launches a copy of the built app under its own bundle ID, in the background, with
 `OMC_LAUNCH_TRACE=1` (windows transparent and click-through; milestones printed, then it quits
 by itself) and `OMC_SUPPORT_DIR` (a scratch Application Support folder, so your sessions are
-never read or written). The same variables work on any build.
+never read or written; the app's defaults — recent folders, settings, agents — are kept in it
+too, and API keys in memory rather than the Keychain). The same variables work on any build.
 
 Instruments' Points of Interest show intervals for opening a document, `textDidEdit`,
 `applyHighlights`, parsing, and gutter and overlay drawing, and the launch milestones.

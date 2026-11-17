@@ -75,7 +75,7 @@ final class AISettings {
     /// Under tests: scratch defaults and keys in memory.
     static let shared = AppSettings.isRunningTests
         ? AISettings(defaults: ScratchDefaults.named("dev.zerovoid99.ohmycode.ai.tests"), keys: InMemoryKeyStore())
-        : AISettings(defaults: .standard, keys: KeychainKeyStore())
+        : AISettings(defaults: .omc, keys: UserDefaults.isolated ? InMemoryKeyStore() : KeychainKeyStore())
 
     nonisolated static let suggestionMaxTokens = 256
     nonisolated static let editMaxTokens = 16_000

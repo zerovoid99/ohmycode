@@ -9,7 +9,7 @@ final class AgentPanel {
     /// The running agent (nil until one is started).
     private(set) var client: AgentClient?
     var selectedAgentID: AgentDefinition.ID? {
-        didSet { UserDefaults.standard.set(selectedAgentID?.uuidString, forKey: Self.selectedKey) }
+        didSet { UserDefaults.omc.set(selectedAgentID?.uuidString, forKey: Self.selectedKey) }
     }
     var draft = ""
     var attachments: [AgentAttachment] = []
@@ -18,7 +18,7 @@ final class AgentPanel {
 
     init(workspace: Workspace) {
         self.workspace = workspace
-        selectedAgentID = UserDefaults.standard.string(forKey: Self.selectedKey).flatMap(UUID.init(uuidString:))
+        selectedAgentID = UserDefaults.omc.string(forKey: Self.selectedKey).flatMap(UUID.init(uuidString:))
     }
 
     var selectedAgent: AgentDefinition? { AgentStore.shared.definition(id: selectedAgentID) }

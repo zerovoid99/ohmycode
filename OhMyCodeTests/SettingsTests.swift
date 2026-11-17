@@ -10,6 +10,20 @@ struct SettingsTests {
         return ScratchDefaults.named(name)
     }
 
+    /// Started with OMC_SUPPORT_DIR, the app's defaults (recent folders, settings, agents) live in
+    /// that folder, not the user's.
+    @Test func supportFolderKeepsItsOwnDefaults() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "omc-support-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let defaults = UserDefaults.store(environment: ["OMC_SUPPORT_DIR": folder.path])
+        #expect(defaults !== UserDefaults.standard)
+        defaults.set(["/x"], forKey: "recentFolders")
+        defaults.synchronize()
+        #expect(FileManager.default.fileExists(atPath: folder.appending(path: "OhMyCode/Defaults.plist").path))
+        #expect(UserDefaults.store(environment: ["OMC_SUPPORT_DIR": folder.path]).stringArray(forKey: "recentFolders") == ["/x"])
+        #expect(UserDefaults.store(environment: [:]) === UserDefaults.standard)
+    }
+
     @Test func persistsAndClamps() {
         let defaults = scratch()
         let settings = AppSettings(defaults: defaults)

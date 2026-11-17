@@ -365,7 +365,7 @@ final class Workspace {
     /// `untitledID`), replacing what the window had.
     func open(folders urls: [URL], names: [URL: String], workspaceFile file: URL?, untitledID: UUID?, settings: ProjectSettings,
               settingsJSON: Data?, recent: URL? = nil) {
-        guard let url = urls.first else { return }
+        guard !urls.isEmpty else { return }
         guard documents.allSatisfy({ confirmClose($0) }) else { return }
         // The folder this window leaves isn't open any more (its unsaved changes were asked about).
         if rootURL != nil { keepSession(wasOpen: false, force: true) }

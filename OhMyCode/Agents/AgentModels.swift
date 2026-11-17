@@ -214,12 +214,12 @@ enum AgentSessionHistory {
 
     private static func storeKey(_ agent: AgentDefinition.ID, _ folder: URL) -> String { "\(agent.uuidString)|\(folder.path)" }
 
-    static func sessions(agent: AgentDefinition.ID, folder: URL, defaults: UserDefaults = .standard) -> [AgentSessionSummary] {
+    static func sessions(agent: AgentDefinition.ID, folder: URL, defaults: UserDefaults = .omc) -> [AgentSessionSummary] {
         let all = (defaults.data(forKey: key)).flatMap { try? JSONDecoder().decode([String: [AgentSessionSummary]].self, from: $0) } ?? [:]
         return all[storeKey(agent, folder)] ?? []
     }
 
-    static func record(_ session: AgentSessionSummary, agent: AgentDefinition.ID, folder: URL, defaults: UserDefaults = .standard) {
+    static func record(_ session: AgentSessionSummary, agent: AgentDefinition.ID, folder: URL, defaults: UserDefaults = .omc) {
         var all = (defaults.data(forKey: key)).flatMap { try? JSONDecoder().decode([String: [AgentSessionSummary]].self, from: $0) } ?? [:]
         var list = all[storeKey(agent, folder)] ?? []
         list.removeAll { $0.id == session.id }

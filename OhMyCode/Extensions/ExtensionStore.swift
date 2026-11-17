@@ -21,7 +21,7 @@ final class ExtensionStore {
         directory: AppSettings.isRunningTests
             ? FileManager.default.temporaryDirectory.appending(path: "omc-test-extensions-\(UUID().uuidString)")
             : URL.omcApplicationSupport.appending(path: "OhMyCode/Extensions"),
-        defaults: AppSettings.isRunningTests ? ScratchDefaults.named("dev.zerovoid99.ohmycode.tests.extensions") : .standard)
+        defaults: AppSettings.isRunningTests ? ScratchDefaults.named("dev.zerovoid99.ohmycode.tests.extensions") : .omc)
 
     static let didChange = Notification.Name("omcExtensionsDidChange")
 

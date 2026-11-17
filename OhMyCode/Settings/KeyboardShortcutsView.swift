@@ -7,7 +7,7 @@ enum KeyboardShortcutsWindow {
     static let tab = "keyboard"
 
     static func show() {
-        UserDefaults.standard.set(tab, forKey: SettingsView.tabKey)
+        UserDefaults.omc.set(tab, forKey: SettingsView.tabKey)
         NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         NSApp.activate()
     }

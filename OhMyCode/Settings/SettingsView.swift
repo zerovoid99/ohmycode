@@ -7,7 +7,7 @@ struct SettingsView: View {
     private let library = ThemeLibrary.shared
     @State private var importError: String?
     static let tabKey = "settings.tab"
-    @AppStorage(SettingsView.tabKey) private var tab = "appearance"
+    @AppStorage(SettingsView.tabKey, store: .omc) private var tab = "appearance"
 
     var body: some View {
         TabView(selection: $tab) {

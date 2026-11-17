@@ -64,7 +64,7 @@ final class AgentStore {
     /// Under tests, a scratch store, with the Claude Code integration off (tests that want it
     /// turn it on, with its files in a scratch folder).
     static let shared: AgentStore = {
-        guard AppSettings.isRunningTests else { return AgentStore(defaults: .standard) }
+        guard AppSettings.isRunningTests else { return AgentStore(defaults: .omc) }
         let name = "dev.zerovoid99.ohmycode.tests.agents"
         let defaults = ScratchDefaults.named(name)
         defaults.set(false, forKey: integrationKey)
