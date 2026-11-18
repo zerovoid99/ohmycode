@@ -5,6 +5,8 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-19
+
 ### Added
 - Peek Definition (⌥F12), Peek References (⌥⇧F12), Peek Implementations (⇧⌘F12) and Peek Type
   Definition: an editor opens under the line, pushing the lines below down, with the results
@@ -363,7 +365,8 @@ tree-sitter highlighting, language servers, git, an integrated terminal and exte
 - The gutter and overlays redraw only the rows and marks that change, and line numbers are drawn
   from cached glyphs.
 
-[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/zerovoid99/ohmycode/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/zerovoid99/ohmycode/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/zerovoid99/ohmycode/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/zerovoid99/ohmycode/compare/v0.2.1...v0.2.2
