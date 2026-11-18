@@ -721,55 +721,21 @@ backtick for an LLDB command).
   adds to its launch request.
 
 ## Extensions
-Extensions are written in TypeScript or JavaScript and run in JavaScriptCore: each one in its
-own context, off the main thread, so a slow extension can't freeze the editor. They can only
-reach the app through the `omc` API (`ExtensionAPI/omc.d.ts`).
+Extensions are written in TypeScript or JavaScript against the `omc` API (`ExtensionAPI/omc.d.ts`)
+and run in JavaScriptCore: each one in its own context, off the main thread, so a slow extension
+can't freeze the editor. They can add commands with shortcuts, settings, notifications and status
+bar items; work with documents, files, programs and the network (with the permissions they ask
+for, shown before installing); and add whole languages: file types, TextMate grammars and
+tree-sitter parsers, snippets, language servers and every language feature in code.
 
-An extension is a folder with an `extension.json` and its compiled main file:
+- *Extensions: New Extension…* (palette, or **+** in the Extensions sidebar) writes a Hello World
+  in TypeScript, installs it for development and opens it; *Extensions: New Language Support
+  Extension…* starts from a working toy language. Rebuild and run *Extensions: Reload* to try
+  changes; each extension's log is in its details in the sidebar.
+- **+** ▸ *Install from Folder…* installs an extension; *Import VS Code Language Extension…* brings
+  over a VS Code extension's languages, grammars and snippets.
 
-```json
-{
-  "id": "publisher.name",
-  "name": "My Extension",
-  "version": "1.0.0",
-  "main": "dist/extension.js",
-  "activationEvents": ["onStartup"],
-  "contributes": {
-    "commands": [{ "command": "my.hello", "title": "Say Hello", "category": "My" }],
-    "configuration": { "my.greeting": { "type": "string", "default": "Hello" } },
-    "keybindings": [{ "command": "my.hello", "key": "cmd+shift+h", "when": "editorTextFocus" }]
-  },
-  "permissions": []
-}
-```
-
-- **Main file:** CommonJS that exports `activate(context)` and optionally `deactivate()`. Compile
-  TypeScript with `tsc` (`"module": "commonjs"`) or `esbuild --format=cjs --bundle`. Only `omc` can
-  be `require`d, so bundle other dependencies.
-- **Activation:** `onStartup` (or `*`) when the window opens, `onLanguage:<id>` when such a file
-  opens, and on first use of any command listed under `contributes.commands` (those also show in
-  the command palette).
-- **Keybindings:** `key` is like `cmd+shift+h`, `ctrl+alt+f5` (cmd, ctrl or alt needed, except
-  for function keys); `when` can use `editorTextFocus` and `editorLangId == swift`, joined with
-  `&&` and negated with `!`. A shortcut a menu item already has stays the menu's.
-- **Language features:** `omc.languages` adds completion, hover and formatting providers and
-  diagnostics for any language, shown together with the language server's.
-- **Limits:** JavaScript that runs 5 seconds without returning is stopped (the extension keeps
-  running); `activate()` gets 10 seconds, providers 1.5 seconds.
-- **Permissions:** the extension can always use the editor and files in the open folders. It needs
-  `process` to run programs, `network` to make requests, and `fileSystem` for files elsewhere. The
-  permissions are shown before installing.
-- **Several folders:** `omc.workspace.folders` lists the window's folders as `{ path, name, index }`,
-  `omc.workspace.getWorkspaceFolder(path)` says which one a file is in, and
-  `omc.workspace.onDidChangeWorkspaceFolders` reports folders added and removed. `rootPath` is the
-  first folder, and relative paths (in `fs` calls, `openTextDocument`) are relative to it; an
-  absolute path in any of the folders is inside the workspace.
-- **New extension:** *Extensions: New Extension…* (palette, or **+** in the Extensions sidebar)
-  writes a Hello World in TypeScript, already compiled, installs it for development and opens it
-  in a new window. `npm install && npm run build` compiles changes.
-- **Installing:** Extensions sidebar → **+** → *Install from Folder…* copies the folder into
-  `~/Library/Application Support/OhMyCode/Extensions`. *Install for Development…* links it
-  instead: rebuild, then use *Reload Extensions* to try changes. Each extension's log
-  (`console.log`, errors) is in its details.
-
-See `ExtensionAPI/examples/word-count` for a complete extension.
+The developer guide, [`docs/extensions/`](docs/extensions/README.md), covers it all: a tutorial,
+the `extension.json` and API references, the runtime and its permissions, debugging and testing,
+publishing, the examples in `ExtensionAPI/examples`, a cookbook, and a guide for each part of
+language support.
