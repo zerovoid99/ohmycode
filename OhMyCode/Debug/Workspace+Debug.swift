@@ -91,8 +91,12 @@ extension Workspace {
                 errorMessage = error.localizedDescription
             }
             if found.isEmpty {
+                // Found: a Swift package's executables, an Xcode project's Mac apps and tools,
+                // and the Python file being edited.
                 let environment = await ShellEnvironment.shared.environment()
                 found = await LaunchConfiguration.swiftPackage(in: root, environment: environment)
+                if found.isEmpty { found = await LaunchConfiguration.xcodeProjects(in: root, environment: environment) }
+                found += LaunchConfiguration.pythonCurrentFile(in: root)
             }
             let label = folders.count > 1 ? self.label(of: root) : nil
             all += found.map { configuration in

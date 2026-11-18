@@ -147,6 +147,13 @@ final class BreakpointStore {
         update(path, line: line) { $0.isEnabled = enabled }
     }
 
+    /// Turns every breakpoint on or off (they stay where they are).
+    func setAllEnabled(_ enabled: Bool) {
+        for (path, list) in byPath where list.contains(where: { $0.isEnabled != enabled }) {
+            set(list.map { var breakpoint = $0; breakpoint.isEnabled = enabled; return breakpoint }, for: path)
+        }
+    }
+
     func setCondition(_ path: String, line: Int, _ condition: String?) {
         update(path, line: line) { $0.condition = condition?.isEmpty == true ? nil : condition }
     }

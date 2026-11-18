@@ -221,4 +221,76 @@ struct LaunchConfiguration: Codable, Equatable, Identifiable, Sendable {
                                 cwd: "${workspaceFolder}", preLaunch: "swift build --product \(product)")
         }
     }
+
+    // MARK: Xcode projects
+
+    /// Configurations for an Xcode project's or workspace's schemes that build a Mac app or
+    /// command-line tool (built first with `xcodebuild`, debugged where Xcode puts the product).
+    static func xcodeProjects(in root: URL, environment: [String: String]) async -> [LaunchConfiguration] {
+        guard let container = xcodeContainer(in: root) else { return [] }
+        let flag = container.pathExtension == "xcworkspace" ? "-workspace" : "-project"
+        let name = container.lastPathComponent
+        guard let list = await xcodebuild([flag, name, "-list", "-json"], in: root, environment: environment) else { return [] }
+        let schemes = (list["workspace"] ?? list["project"])?["schemes"]?.array?.compactMap(\.string) ?? []
+        var found: [LaunchConfiguration] = []
+        // Each scheme's settings take a second or two to read: the first few are enough.
+        for scheme in schemes.prefix(6) {
+            guard let settings = await xcodebuild([flag, name, "-scheme", scheme, "-configuration", "Debug", "-showBuildSettings", "-json"],
+                                                  in: root, environment: environment),
+                  let configuration = xcodeConfiguration(scheme: scheme, containerFlag: flag, container: name, settings: settings)
+            else { continue }
+            found.append(configuration)
+        }
+        return found
+    }
+
+    /// The workspace (not the one inside a project) or else the project at the folder's top.
+    static func xcodeContainer(in root: URL) -> URL? {
+        let entries = ((try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [])
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return entries.first { $0.pathExtension == "xcworkspace" } ?? entries.first { $0.pathExtension == "xcodeproj" }
+    }
+
+    /// A scheme's configuration from its build settings (`xcodebuild -showBuildSettings
+    /// -json`): its first Mac app or tool target's product; nil if it builds neither.
+    static func xcodeConfiguration(scheme: String, containerFlag: String, container: String, settings: JSONValue) -> LaunchConfiguration? {
+        let runnable: Set<String> = ["com.apple.product-type.application", "com.apple.product-type.tool"]
+        for entry in settings.array ?? [] {
+            guard let build = entry["buildSettings"], build["PLATFORM_NAME"]?.string == "macosx",
+                  let type = build["PRODUCT_TYPE"]?.string, runnable.contains(type),
+                  let directory = build["TARGET_BUILD_DIR"]?.string, let executable = build["EXECUTABLE_PATH"]?.string
+            else { continue }
+            let quoted = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+            return LaunchConfiguration(
+                name: "Debug \(scheme)", program: directory + "/" + executable, cwd: "${workspaceFolder}",
+                preLaunch: "xcodebuild \(containerFlag) \(quoted(container)) -scheme \(quoted(scheme)) -configuration Debug -quiet build")
+        }
+        return nil
+    }
+
+    private static func xcodebuild(_ arguments: [String], in root: URL, environment: [String: String]) async -> JSONValue? {
+        let output = await ProcessIO.detached(priority: .userInitiated) { () -> Data? in
+            let process = Process()
+            process.executableURL = URL(filePath: "/usr/bin/xcrun")
+            process.arguments = ["xcodebuild"] + arguments
+            process.currentDirectoryURL = root
+            process.environment = environment
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            guard let result = try? ProcessIO.run(process, output: pipe, error: nil), result.status == 0 else { return nil }
+            return result.output
+        }
+        return output.flatMap { try? JSONDecoder().decode(JSONValue.self, from: $0) }
+    }
+
+    // MARK: Python
+
+    /// Debugs the Python file being edited, in a folder with Python in it.
+    static func pythonCurrentFile(in root: URL) -> [LaunchConfiguration] {
+        let markers = ["pyproject.toml", "requirements.txt", "setup.py", "Pipfile"]
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        guard entries.contains(where: { markers.contains($0) || $0.hasSuffix(".py") }) else { return [] }
+        return [LaunchConfiguration(name: "Python: Current File", type: "python", program: "${file}", cwd: "${workspaceFolder}")]
+    }
 }

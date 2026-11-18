@@ -1,81 +1,136 @@
 import AppKit
 import SwiftUI
 
-/// The Run and Debug sidebar: what to run, the controls, variables, call stack, breakpoints.
+/// The Run and Debug sidebar: what to run, the controls, watches, variables, call stack,
+/// breakpoints.
 struct DebugView: View {
     let workspace: Workspace
+    @State private var isLoading = false
+    @State private var showsWatch = true
+    @State private var showsVariables = true
+    @State private var showsCallStack = true
+    @State private var showsBreakpoints = true
+    @State private var newWatch = ""
+    @FocusState private var isAddingWatch: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             header
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
             Divider()
             List {
-                WatchSection(workspace: workspace)
+                Section(isExpanded: $showsWatch) {
+                    watchRows
+                } header: {
+                    DebugSectionHeader(title: "Watch", count: workspace.breakpoints.watches.count) {
+                        Button("Add Expression", systemImage: "plus") {
+                            showsWatch = true
+                            isAddingWatch = true
+                        }
+                        .help("Add an expression to watch")
+                    }
+                }
                 if let session = workspace.debugSession, session.state == .stopped {
-                    Section("Variables") {
+                    Section(isExpanded: $showsVariables) {
                         if session.scopes.isEmpty {
-                            Text("No variables").foregroundStyle(.secondary)
+                            DebugEmptyRow(text: "No variables here")
                         }
                         ForEach(session.scopes) { scope in
                             VariableRow(session: session, variable: scope, workspace: workspace, startsExpanded: scope.id == session.scopes.first?.id)
                         }
+                    } header: {
+                        DebugSectionHeader(title: "Variables") {}
                     }
-                    Section("Call Stack") {
+                    Section(isExpanded: $showsCallStack) {
                         ForEach(session.frames) { frame in
                             FrameRow(frame: frame, isSelected: frame.id == session.selectedFrameID)
                                 .contentShape(Rectangle())
                                 .onTapGesture { Task { await session.select(frame) } }
                         }
+                    } header: {
+                        DebugSectionHeader(title: "Call Stack", count: session.frames.count) {}
                     }
                 }
-                Section {
-                    ForEach(workspace.breakpoints.exceptionFilters) { filter in
-                        Toggle(filter.label, isOn: Binding(get: { workspace.breakpoints.enabledExceptionFilters.contains(filter.filter) },
-                                                           set: { workspace.breakpoints.setException(filter.filter, enabled: $0) }))
-                            .toggleStyle(.checkbox)
-                            .help("Stop when \(filter.label.lowercased()) happens")
-                    }
-                    ForEach(workspace.breakpoints.all.map { ("\($0.path):\($0.breakpoint.line)", $0) }, id: \.0) { _, entry in
-                        BreakpointRow(workspace: workspace, path: entry.path, breakpoint: entry.breakpoint)
-                    }
+                Section(isExpanded: $showsBreakpoints) {
+                    breakpointRows
                 } header: {
-                    HStack {
-                        Text("Breakpoints")
-                        Spacer()
+                    let all = workspace.breakpoints.all
+                    let allEnabled = all.allSatisfy(\.breakpoint.isEnabled)
+                    DebugSectionHeader(title: "Breakpoints", count: all.count) {
+                        Button(allEnabled ? "Disable All" : "Enable All", systemImage: allEnabled ? "circle.slash" : "circle.inset.filled") {
+                            workspace.breakpoints.setAllEnabled(!allEnabled)
+                        }
+                        .help(allEnabled ? "Turn every breakpoint off (they stay where they are)" : "Turn every breakpoint on")
+                        .disabled(all.isEmpty)
                         Button("Remove All", systemImage: "trash") { workspace.breakpoints.removeAll() }
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
-                            .disabled(workspace.breakpoints.byPath.isEmpty)
                             .help("Remove all breakpoints")
+                            .disabled(all.isEmpty)
                     }
                 }
             }
             .listStyle(.sidebar)
+            .environment(\.defaultMinListRowHeight, 22)
         }
-        .task(id: workspace.folders) { await workspace.loadLaunchConfigurations() }
+        .task(id: workspace.folders) {
+            isLoading = true
+            await workspace.loadLaunchConfigurations()
+            isLoading = false
+        }
     }
+
+    // MARK: Header
 
     @ViewBuilder
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if let session = workspace.debugSession, session.isActive {
+        if let session = workspace.debugSession, session.isActive {
+            VStack(alignment: .leading, spacing: 8) {
                 DebugToolbar(workspace: workspace, session: session)
-                Text(status(session)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            } else if workspace.launchConfigurations.isEmpty {
-                Text("Nothing to run yet. A Swift package's executables are found by themselves; for anything else, say what to run in launch.json.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    Button("Create launch.json") { workspace.createLaunchFile() }
-                    Button("Attach to Process…") { Task { await workspace.attachToProcess() } }
+                HStack(spacing: 6) {
+                    DebugStateDot(state: session.state)
+                    Text(status(session)).foregroundStyle(.secondary)
+                    Text(session.configuration.name).foregroundStyle(.tertiary)
+                    Spacer(minLength: 0)
                 }
+                .font(.caption)
+                .lineLimit(1)
+            }
+        } else if workspace.launchConfigurations.isEmpty {
+            if isLoading {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Looking for programs to run…").font(.callout).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .frame(minHeight: 28)
             } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Nothing to run yet", systemImage: "play.circle")
+                        .font(.callout.weight(.medium))
+                    Text("Swift packages, Xcode projects and Python files are found by themselves. For anything else, say what to run in launch.json.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        Button("Create launch.json") { workspace.createLaunchFile() }
+                        Button("Attach to Process…") { Task { await workspace.attachToProcess() } }
+                    }
+                    .controlSize(.small)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     Button { Task { await workspace.startDebugging() } } label: {
-                        Image(systemName: "play.fill").foregroundStyle(.green)
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white)
+                            .frame(width: 26, height: 22)
+                            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.green.opacity(0.85)))
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                     .help("Start Debugging (F5)")
                     Picker("Configuration", selection: Binding(
                         get: { workspace.selectedLaunchName ?? workspace.launchConfigurations.first?.name ?? "" },
@@ -83,9 +138,18 @@ struct DebugView: View {
                         ForEach(workspace.launchConfigurations) { Text($0.name).tag($0.name) }
                     }
                     .labelsHidden()
+                    .frame(maxWidth: .infinity)
                     Menu {
                         Button("Edit launch.json") { workspace.createLaunchFile() }
                         Button("Attach to Process…") { Task { await workspace.attachToProcess() } }
+                        Divider()
+                        Button("Look Again for Programs") {
+                            Task {
+                                isLoading = true
+                                await workspace.loadLaunchConfigurations()
+                                isLoading = false
+                            }
+                        }
                     } label: {
                         Image(systemName: "ellipsis.circle")
                     }
@@ -95,20 +159,154 @@ struct DebugView: View {
                     .help("Edit launch.json or attach to a running process")
                 }
                 if let session = workspace.debugSession, let code = session.exitCode {
-                    Text("Last run exited with code \(code).").font(.caption).foregroundStyle(.secondary)
+                    Label("Last run exited with code \(code)", systemImage: code == 0 ? "checkmark.circle" : "xmark.octagon")
+                        .font(.caption)
+                        .foregroundStyle(code == 0 ? Color.secondary : Color.red)
                 }
             }
         }
-        .padding(8)
     }
 
     private func status(_ session: DebugSession) -> String {
         switch session.state {
         case .building: "Building…"
-        case .starting: "Starting \(session.configuration.name)…"
+        case .starting: "Starting…"
         case .running: "Running"
         case .stopped: "Paused on \(session.stopReason ?? "a stop")"
         case .terminated: "Ended"
+        }
+    }
+
+    // MARK: Watch
+
+    @ViewBuilder
+    private var watchRows: some View {
+        ForEach(Array(workspace.breakpoints.watches.enumerated()), id: \.offset) { index, expression in
+            WatchRow(workspace: workspace, index: index, expression: expression)
+        }
+        HStack(spacing: 6) {
+            Image(systemName: "plus").font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary).frame(width: 12)
+            TextField("Add expression", text: $newWatch, prompt: Text("Add expression").foregroundStyle(.tertiary))
+                .textFieldStyle(.plain)
+                .font(.system(size: 12, design: .monospaced))
+                .focused($isAddingWatch)
+                .onSubmit {
+                    workspace.breakpoints.addWatch(newWatch)
+                    newWatch = ""
+                }
+                .onExitCommand {
+                    newWatch = ""
+                    isAddingWatch = false
+                }
+        }
+    }
+
+    // MARK: Breakpoints
+
+    @ViewBuilder
+    private var breakpointRows: some View {
+        let all = workspace.breakpoints.all
+        if all.isEmpty {
+            DebugEmptyRow(text: "Click beside a line number, or press F9, to stop there.")
+        }
+        ForEach(all.map { ("\($0.path):\($0.breakpoint.line)", $0) }, id: \.0) { _, entry in
+            BreakpointRow(workspace: workspace, path: entry.path, breakpoint: entry.breakpoint)
+        }
+        ExceptionBreakpointsRow(breakpoints: workspace.breakpoints)
+    }
+}
+
+/// The exception breakpoints, as one row: which are on, and a menu to turn them on or off.
+private struct ExceptionBreakpointsRow: View {
+    let breakpoints: BreakpointStore
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 10))
+                .foregroundStyle(breakpoints.enabledExceptionFilters.isEmpty ? Color.secondary : Color.orange)
+                .frame(width: 14)
+            Text("Stop on exceptions").lineLimit(1)
+            Spacer(minLength: 4)
+            Menu {
+                ForEach(breakpoints.exceptionFilters) { filter in
+                    Toggle(filter.label, isOn: Binding(get: { breakpoints.enabledExceptionFilters.contains(filter.filter) },
+                                                       set: { breakpoints.setException(filter.filter, enabled: $0) }))
+                }
+                if !breakpoints.enabledExceptionFilters.isEmpty {
+                    Divider()
+                    Button("Turn All Off") {
+                        breakpoints.enabledExceptionFilters.forEach { breakpoints.setException($0, enabled: false) }
+                    }
+                }
+            } label: {
+                Text(summary).font(.caption).lineLimit(1).truncationMode(.tail)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize(horizontal: false, vertical: true)
+            .help("Which thrown or caught exceptions stop the program")
+        }
+    }
+
+    private var summary: String {
+        let on = breakpoints.exceptionFilters.filter { breakpoints.enabledExceptionFilters.contains($0.filter) }.map(\.label)
+        switch on.count {
+        case 0: return "Off"
+        case 1, 2: return on.joined(separator: ", ")
+        default: return "\(on.count) kinds"
+        }
+    }
+}
+
+/// A section's name, how many it holds, and its actions.
+private struct DebugSectionHeader<Actions: View>: View {
+    let title: String
+    var count: Int?
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+            if let count, count > 0 {
+                Text("\(count)").monospacedDigit().foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 4)
+            HStack(spacing: 8) { actions }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// A quiet line saying a section is empty, and what would fill it.
+private struct DebugEmptyRow: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Green while running, yellow when paused, blue while building or starting.
+private struct DebugStateDot: View {
+    let state: DebugSession.State
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: 7, height: 7)
+    }
+
+    private var color: Color {
+        switch state {
+        case .running: .green
+        case .stopped: .yellow
+        case .building, .starting: .blue
+        case .terminated: .secondary
         }
     }
 }
@@ -120,7 +318,7 @@ struct DebugToolbar: View {
 
     var body: some View {
         let stopped = session.state == .stopped
-        HStack(spacing: 10) {
+        HStack(spacing: 2) {
             if stopped {
                 button("Continue (F5)", "play.fill", .green) { session.resume() }
             } else {
@@ -133,12 +331,38 @@ struct DebugToolbar: View {
             button("Restart (⇧⌘F5)", "arrow.clockwise", .primary) { workspace.restartDebugging() }
             button("Stop (⇧F5)", "stop.fill", .red) { workspace.stopDebugging() }
         }
-        .buttonStyle(.borderless)
-        .font(.system(size: 13))
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
     }
 
     private func button(_ help: String, _ symbol: String, _ color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: symbol).foregroundStyle(color) }.help(help)
+        DebugToolbarButton(help: help, symbol: symbol, color: color, action: action)
+    }
+}
+
+private struct DebugToolbarButton: View {
+    let help: String
+    let symbol: String
+    let color: Color
+    let action: () -> Void
+    @State private var isHovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(color)
+                .frame(width: 28, height: 24)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(isHovering && isEnabled ? 0.08 : 0)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(isEnabled ? 1 : 0.35)
+        .onHover { isHovering = $0 }
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 
@@ -177,7 +401,7 @@ private struct VariableRow: View {
                 Text(variable.value).lineLimit(1).truncationMode(.tail).textSelection(.enabled)
             }
         }
-        .font(.system(.callout, design: .monospaced))
+        .font(.system(size: 12, design: .monospaced))
         .help(variable.type.map { "\(variable.name): \($0) = \(variable.value)" } ?? variable.value)
         .contextMenu {
             if variable.parent > 0 {
@@ -226,27 +450,44 @@ private struct BreakpointRow: View {
     let workspace: Workspace
     let path: String
     let breakpoint: BreakpointStore.Breakpoint
+    @State private var isHovering = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Toggle("Enabled", isOn: Binding(get: { breakpoint.isEnabled },
                                             set: { workspace.breakpoints.setEnabled(path, line: breakpoint.line, $0) }))
                 .toggleStyle(.checkbox)
+                .controlSize(.small)
                 .labelsHidden()
-            Image(systemName: breakpoint.logMessage == nil ? "circle.fill" : "diamond.fill")
-                .font(.system(size: 8))
-                .foregroundStyle(breakpoint.isEnabled ? Color.red : Color.gray)
-            Text((path as NSString).lastPathComponent).lineLimit(1)
-            Text("\(breakpoint.line)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            if let condition = breakpoint.condition {
-                Text(condition).font(.caption.monospaced()).foregroundStyle(.orange).lineLimit(1)
+            BreakpointGlyph(mark: workspace.breakpoints.marks(for: path)[breakpoint.line - 1] ?? BreakpointMark())
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text((path as NSString).lastPathComponent).lineLimit(1)
+                    Text(folderText).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
+                }
+                if let condition = breakpoint.condition {
+                    Text("when \(condition)").font(.caption.monospaced()).foregroundStyle(.orange).lineLimit(1)
+                }
+                if let message = breakpoint.logMessage {
+                    Text("logs \(message)").font(.caption.monospaced()).foregroundStyle(.blue).lineLimit(1)
+                }
             }
-            if let message = breakpoint.logMessage {
-                Text("log: " + message).font(.caption.monospaced()).foregroundStyle(.blue).lineLimit(1)
+            .opacity(breakpoint.isEnabled ? 1 : 0.55)
+            Spacer(minLength: 4)
+            if isHovering {
+                Button("Remove", systemImage: "xmark") { workspace.breakpoints.remove(path, line: breakpoint.line) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .help("Remove this breakpoint")
             }
-            Spacer(minLength: 0)
+            Text("\(breakpoint.line)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
         }
         .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
         .onTapGesture {
             workspace.open(fileAt: URL(filePath: path))
             workspace.document(matching: URL(filePath: path))?.revealLine(breakpoint.line)
@@ -254,9 +495,20 @@ private struct BreakpointRow: View {
         .contextMenu {
             Button("Edit Condition…") { editCondition() }
             Button("Edit Log Message…") { editLogMessage() }
+            Divider()
             Button("Remove", role: .destructive) { workspace.breakpoints.remove(path, line: breakpoint.line) }
         }
         .help("\(path):\(breakpoint.line)")
+    }
+
+    /// The file's folder, from the workspace folder it's in.
+    private var folderText: String {
+        let directory = (path as NSString).deletingLastPathComponent
+        guard let root = workspace.folder(containing: URL(filePath: path)) else { return (directory as NSString).abbreviatingWithTildeInPath }
+        let rootPath = FileWatcher.canonicalPath(root)
+        guard directory.hasPrefix(rootPath) else { return directory }
+        let relative = String(directory.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return relative
     }
 
     private func editLogMessage() {
@@ -352,43 +604,101 @@ struct DebugConsoleView: View {
     }
 }
 
-/// Expressions shown whenever the program stops.
-private struct WatchSection: View {
+/// An expression shown whenever the program stops, with its value.
+private struct WatchRow: View {
     let workspace: Workspace
-    @State private var newExpression = ""
+    let index: Int
+    let expression: String
+    @State private var isHovering = false
 
     var body: some View {
-        Section("Watch") {
-            ForEach(Array(workspace.breakpoints.watches.enumerated()), id: \.offset) { index, expression in
-                HStack(spacing: 4) {
-                    Text(expression).foregroundStyle(Color.purple)
-                    Text("=").foregroundStyle(.secondary)
-                    switch workspace.debugSession?.watchResults[expression] {
-                    case .value(let value): Text(value).lineLimit(1).textSelection(.enabled)
-                    case .error(let message): Text(message).foregroundStyle(.secondary).lineLimit(1).help(message)
-                    case nil: Text("not available").foregroundStyle(.tertiary)
-                    }
-                    Spacer(minLength: 0)
+        HStack(spacing: 4) {
+            Text(expression).foregroundStyle(Color.purple).lineLimit(1).layoutPriority(1)
+            Text("=").foregroundStyle(.secondary)
+            value
+            Spacer(minLength: 4)
+            if isHovering {
+                HStack(spacing: 6) {
+                    Button("Edit", systemImage: "pencil") { edit() }.help("Edit the expression")
+                    Button("Remove", systemImage: "xmark") { workspace.breakpoints.removeWatch(at: index) }.help("Stop watching it")
                 }
-                .font(.system(.callout, design: .monospaced))
-                .contextMenu {
-                    Button("Edit…") {
-                        Task {
-                            if let text = await workspace.showInputBox(prompt: "Watch expression", value: expression, placeholder: nil) {
-                                workspace.breakpoints.replaceWatch(at: index, with: text)
-                            }
-                        }
-                    }
-                    Button("Remove", role: .destructive) { workspace.breakpoints.removeWatch(at: index) }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+            }
+        }
+        .font(.system(size: 12, design: .monospaced))
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .onTapGesture(count: 2) { edit() }
+        .contextMenu {
+            Button("Edit…") { edit() }
+            Button("Copy Value") {
+                if case .value(let value) = workspace.debugSession?.watchResults[expression] {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(value, forType: .string)
                 }
             }
-            TextField("Add expression", text: $newExpression, prompt: Text("+ Add expression").foregroundStyle(.tertiary))
-                .textFieldStyle(.plain)
-                .font(.system(.callout, design: .monospaced))
-                .onSubmit {
-                    workspace.breakpoints.addWatch(newExpression)
-                    newExpression = ""
-                }
+            Divider()
+            Button("Remove", role: .destructive) { workspace.breakpoints.removeWatch(at: index) }
+        }
+    }
+
+    @ViewBuilder private var value: some View {
+        switch workspace.debugSession?.isActive == true ? workspace.debugSession?.watchResults[expression] : nil {
+        case .value(let value):
+            Text(value).lineLimit(1).truncationMode(.tail).textSelection(.enabled).help(value)
+        case .error(let message):
+            Text(message).foregroundStyle(.secondary).lineLimit(1).help(message)
+        case nil:
+            Text("—").foregroundStyle(.tertiary).help("Shown when the program pauses")
+        }
+    }
+
+    private func edit() {
+        Task {
+            if let text = await workspace.showInputBox(prompt: "Watch expression", value: expression, placeholder: nil) {
+                workspace.breakpoints.replaceWatch(at: index, with: text)
+            }
+        }
+    }
+}
+
+/// A breakpoint as the gutter draws it: red when on, grey when off, a diamond for a logpoint,
+/// hollow when the debugger couldn't place it, a white bar when it has a condition.
+private struct BreakpointGlyph: View {
+    let mark: BreakpointMark
+
+    var body: some View {
+        let color = mark.isEnabled ? Color.red : Color.gray
+        ZStack {
+            if mark.isVerified == false {
+                shape.stroke(color, lineWidth: 1.5)
+            } else {
+                shape.fill(color)
+            }
+            if mark.hasCondition {
+                Capsule().fill(.white).frame(width: 5, height: 1.5)
+            }
+        }
+        .frame(width: 9, height: 9)
+        .help(mark.isVerified == false ? "The debugger couldn't place this breakpoint" : "")
+    }
+
+    private var shape: AnyShape {
+        mark.isLogpoint ? AnyShape(Diamond()) : AnyShape(Circle())
+    }
+
+    private struct Diamond: Shape {
+        func path(in rect: CGRect) -> Path {
+            Path { path in
+                path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+                path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+                path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+                path.addLine(to: CGPoint(x: rect.minX, y: rect.midY))
+                path.closeSubpath()
+            }
         }
     }
 }

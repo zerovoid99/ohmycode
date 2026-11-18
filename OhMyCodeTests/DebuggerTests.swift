@@ -52,6 +52,20 @@ struct BreakpointStoreTests {
         #expect(reopened.byPath.isEmpty)
     }
 
+    @Test func turnsAllBreakpointsOffAndOn() {
+        let store = BreakpointStore(defaults: ScratchDefaults.named("omc-bp-\(UUID().uuidString)"))
+        store.load(for: URL(filePath: "/tmp/omc-bp-all"))
+        var changed: [String] = []
+        store.toggle("/a.c", line: 1)
+        store.toggle("/b.c", line: 2)
+        store.setEnabled("/b.c", line: 2, false)
+        store.onChange = { changed.append($0) }
+        store.setAllEnabled(false)
+        #expect(store.all.allSatisfy { !$0.breakpoint.isEnabled } && changed == ["/a.c"])
+        store.setAllEnabled(true)
+        #expect(store.all.allSatisfy(\.breakpoint.isEnabled) && store.all.map(\.breakpoint.line) == [1, 2])
+    }
+
     /// With several folders each folder's files' breakpoints are saved under that folder (so it
     /// keeps them opened alone); ones saved under the first folder before that move to theirs.
     @Test func eachFolderKeepsItsBreakpoints() throws {
@@ -189,6 +203,42 @@ struct LaunchConfigurationTests {
         // The template is valid.
         _ = try LaunchConfiguration.writeTemplate(in: root)
         #expect(try LaunchConfiguration.load(in: root).first?.name == "Debug")
+    }
+
+    /// An Xcode scheme's Mac app or tool is debugged where Xcode builds it; iOS apps,
+    /// frameworks and tests aren't offered.
+    @Test func findsXcodeSchemesThatRunOnTheMac() throws {
+        let settings = try JSONDecoder().decode(JSONValue.self, from: Data("""
+        [
+          { "target": "Kit", "buildSettings": { "PLATFORM_NAME": "macosx", "PRODUCT_TYPE": "com.apple.product-type.framework",
+            "TARGET_BUILD_DIR": "/dd/Debug", "EXECUTABLE_PATH": "Kit.framework/Kit" } },
+          { "target": "Phone", "buildSettings": { "PLATFORM_NAME": "iphoneos", "PRODUCT_TYPE": "com.apple.product-type.application",
+            "TARGET_BUILD_DIR": "/dd/Debug-iphoneos", "EXECUTABLE_PATH": "Phone.app/Phone" } },
+          { "target": "My App", "buildSettings": { "PLATFORM_NAME": "macosx", "PRODUCT_TYPE": "com.apple.product-type.application",
+            "TARGET_BUILD_DIR": "/dd/Debug", "EXECUTABLE_PATH": "My App.app/Contents/MacOS/My App" } }
+        ]
+        """.utf8))
+        let configuration = try #require(LaunchConfiguration.xcodeConfiguration(scheme: "Bob's App", containerFlag: "-project",
+                                                                               container: "My App.xcodeproj", settings: settings))
+        #expect(configuration.name == "Debug Bob's App")
+        #expect(configuration.program == "/dd/Debug/My App.app/Contents/MacOS/My App")
+        #expect(configuration.preLaunch == #"xcodebuild -project 'My App.xcodeproj' -scheme 'Bob'\''s App' -configuration Debug -quiet build"#)
+        let tests = try JSONDecoder().decode(JSONValue.self, from: Data("""
+        [{ "target": "T", "buildSettings": { "PLATFORM_NAME": "macosx", "PRODUCT_TYPE": "com.apple.product-type.bundle.unit-test",
+           "TARGET_BUILD_DIR": "/dd", "EXECUTABLE_PATH": "T.xctest/Contents/MacOS/T" } }]
+        """.utf8))
+        #expect(LaunchConfiguration.xcodeConfiguration(scheme: "T", containerFlag: "-project", container: "a.xcodeproj", settings: tests) == nil)
+
+        // A workspace is preferred to the project beside it; Python is offered where there's Python.
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-xcode-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for name in ["A.xcodeproj", "A.xcworkspace"] {
+            try FileManager.default.createDirectory(at: root.appending(path: name), withIntermediateDirectories: true)
+        }
+        #expect(LaunchConfiguration.xcodeContainer(in: root)?.lastPathComponent == "A.xcworkspace")
+        #expect(LaunchConfiguration.pythonCurrentFile(in: root).isEmpty)
+        try "print(1)".write(to: root.appending(path: "main.py"), atomically: true, encoding: .utf8)
+        #expect(LaunchConfiguration.pythonCurrentFile(in: root).map(\.program) == ["${file}"])
     }
 }
 
