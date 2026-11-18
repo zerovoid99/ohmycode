@@ -35,6 +35,7 @@ final class LanguageServerConnection: @unchecked Sendable {
     private let stdout = Pipe()
     private let writeQueue = DispatchQueue(label: "omc.lsp.write")
     private let readQueue = DispatchQueue(label: "omc.lsp.read")
+    private static let readQueueKey = DispatchSpecificKey<Void>()
     private var readSource: DispatchSourceRead?
     private var buffer = Data()
 
@@ -52,6 +53,7 @@ final class LanguageServerConnection: @unchecked Sendable {
          framing: Framing = .contentLength, capturesStandardError: Bool = false) throws {
         self.parsesMessages = parsesMessages
         self.framing = framing
+        readQueue.setSpecific(key: Self.readQueueKey, value: ())
         stderr = capturesStandardError ? Pipe() : nil
         process.executableURL = URL(filePath: command[0])
         process.arguments = Array(command.dropFirst())
@@ -131,13 +133,26 @@ final class LanguageServerConnection: @unchecked Sendable {
         }
     }
 
+    /// For tests: runs `body` on the read queue.
+    func onReadQueue(_ body: @escaping @Sendable () -> Void) {
+        readQueue.async(execute: body)
+    }
+
     func terminate() {
-        readQueue.sync {
-            readSource?.cancel()
-            readSource = nil
+        // The last reference can go while the read handler runs: deinit then runs on readQueue,
+        // where a sync onto it would deadlock.
+        if DispatchQueue.getSpecific(key: Self.readQueueKey) != nil {
+            cancelReading()
+        } else {
+            readQueue.sync { cancelReading() }
         }
         stderr?.fileHandleForReading.readabilityHandler = nil
         if process.isRunning { process.terminate() }
+    }
+
+    private func cancelReading() {
+        readSource?.cancel()
+        readSource = nil
     }
 
     private func receive(_ data: Data) {
