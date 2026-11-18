@@ -258,6 +258,34 @@ struct AgentClientTests {
         #expect(client.state == .ready)
     }
 
+    /// A sign-in that fails says so where the sign-in choices are (the conversation isn't shown).
+    @Test func aFailedSignInSaysWhy() async throws {
+        let (workspace, root) = try makeWorkspace()
+        let client = try await start(workspace, root: root, environment: ["FAKE_ACP_AUTH": "1"])
+        defer { client.stop() }
+        await client.authenticate(AgentAuthMethod(id: "nope", name: "Nope", description: nil))
+        #expect(client.state == .needsAuthentication && !client.isAuthenticating)
+        #expect(client.authenticationError?.contains("No such method") == true)
+        await client.authenticate(try #require(client.authMethods.first))
+        #expect(client.state == .ready && client.authenticationError == nil)
+    }
+
+    /// While a new thread opens, a prompt isn't taken (it would go to the old session, and its
+    /// reply be cleared with it).
+    @Test func aNewThreadTakesNoPromptUntilItsOpen() async throws {
+        let (workspace, root) = try makeWorkspace()
+        let client = try await start(workspace, root: root)
+        defer { client.stop() }
+        await client.send("hello")
+        let opening = Task { await client.newSession() }
+        await Task.yield()
+        #expect(client.state == .starting)
+        await client.send("config")
+        #expect(client.entries.count == 2) // the first turn only
+        await opening.value
+        #expect(client.state == .ready && client.entries.isEmpty)
+    }
+
     @Test func aMissingCommandSaysSo() async throws {
         let (workspace, root) = try makeWorkspace()
         let client = AgentClient(definition: AgentDefinition(id: UUID(), name: "Nope", command: "omc-no-such-agent --acp"),
@@ -328,6 +356,45 @@ struct AgentClientTests {
         await client.send("config")
         #expect(messages(client).last?.hasPrefix("model=") == true)
         #expect(try await eventually { client.recentSessions.map(\.title) == ["config"] })
+    }
+
+    /// Attaching the same lines twice keeps one (with the newer text); nothing goes, and the draft
+    /// stays, with no agent ready.
+    @Test func attachmentsDontRepeatAndTheDraftWaits() throws {
+        let (workspace, root) = try makeWorkspace(["e.txt": "one\n"])
+        let file = root.appending(path: "e.txt")
+        let panel = AgentPanel(workspace: workspace)
+        panel.add(AgentAttachment(url: file, lines: 1...1, text: "one"))
+        panel.add(AgentAttachment(url: file, lines: 1...1, text: "uno"))
+        panel.add(AgentAttachment(url: file, lines: nil, text: "one\n"))
+        #expect(panel.attachments.map(\.label) == ["e.txt:1", "e.txt"])
+        #expect(panel.attachments.first?.text == "uno")
+        workspace.open(fileAt: file)
+        panel.attachSelection()
+        panel.attachSelection()
+        #expect(panel.attachments.map(\.label) == ["e.txt:1", "e.txt"])
+
+        panel.draft = "hi"
+        #expect(!panel.canSend && !panel.selectionDiffersFromRunning)
+        panel.send()
+        #expect(panel.draft == "hi" && panel.attachments.count == 2)
+    }
+
+    /// The transcript follows its end only while the reader is there.
+    @Test func theTranscriptFollowsItsEndOnlyFromThere() {
+        typealias Scroll = AgentTranscriptScroll
+        let atEnd = Scroll.Geometry(visibleMaxY: 500, contentHeight: 500, containerHeight: 300)
+        // More came in (or the room shrank, a question shown below): scrolled along.
+        #expect(Scroll.follows(from: atEnd, to: .init(visibleMaxY: 500, contentHeight: 640, containerHeight: 300)))
+        #expect(Scroll.follows(from: atEnd, to: .init(visibleMaxY: 400, contentHeight: 500, containerHeight: 200)))
+        // Even by a line: small steps don't add up to the end out of view.
+        #expect(Scroll.follows(from: atEnd, to: .init(visibleMaxY: 500, contentHeight: 516, containerHeight: 300)))
+        #expect(!Scroll.follows(from: atEnd, to: .init(visibleMaxY: 516, contentHeight: 516, containerHeight: 316)))
+        // Scrolled up to read: left there.
+        let readingAbove = Scroll.Geometry(visibleMaxY: 300, contentHeight: 500, containerHeight: 300)
+        #expect(!Scroll.follows(from: readingAbove, to: .init(visibleMaxY: 300, contentHeight: 640, containerHeight: 300)))
+        // The reader scrolling (nothing new): not taken back.
+        #expect(!Scroll.follows(from: atEnd, to: readingAbove))
     }
 
     @Test func markdownBlocks() {

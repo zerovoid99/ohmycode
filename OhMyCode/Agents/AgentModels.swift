@@ -1,8 +1,8 @@
 import Foundation
 
 /// One item of a conversation with an agent, in order.
-struct AgentEntry: Identifiable {
-    enum Kind {
+struct AgentEntry: Identifiable, Equatable {
+    enum Kind: Equatable {
         /// What the user sent (its text, and the names of what was attached).
         case user(String, attachments: [String])
         /// The agent's reply, Markdown, streamed in chunks.

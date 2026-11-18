@@ -182,6 +182,9 @@ def handle(message):
             "agentInfo": {"name": "fake-acp", "title": "Fake Agent", "version": "1.0"},
             "authMethods": [{"id": "token", "name": "Use a token", "description": "Signs in"}]}})
     elif method == "authenticate":
+        if params.get("methodId") != "token":
+            send({"id": mid, "error": {"code": -32602, "message": "No such method"}})
+            return
         authenticated[0] = True
         send({"id": mid, "result": {}})
     elif method == "session/new":

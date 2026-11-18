@@ -144,15 +144,47 @@ struct AgentMarkdownView: View {
                 .foregroundStyle(.secondary)
                 .padding(.leading, 8)
                 .overlay(alignment: .leading) { Rectangle().fill(.tertiary).frame(width: 2) }
-        case .code(_, let text), .table(let text):
-            if !text.isEmpty {
-                ScrollView(.horizontal) {
-                    Text(text).font(.system(size: 11, design: .monospaced)).padding(6)
-                }
-                .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 5))
-            }
+        case .code(let language, let text):
+            if !text.isEmpty { AgentCodeBlock(language: language, text: text) }
+        case .table(let text):
+            AgentCodeBlock(language: nil, text: text, copies: false)
         case .rule:
             Divider()
         }
+    }
+}
+
+/// Code in a reply: scrolled sideways rather than wrapped, with a Copy button under the pointer.
+private struct AgentCodeBlock: View {
+    let language: String?
+    let text: String
+    var copies = true
+    @State private var isHovering = false
+    @State private var copied = false
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            Text(text).font(.system(size: 11, design: .monospaced)).padding(.horizontal, 8).padding(.vertical, 6)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+        .overlay(alignment: .topTrailing) {
+            if copies, isHovering || copied {
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    copied = true
+                    Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
+                } label: {
+                    Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: 10))
+                        .frame(width: 20, height: 18)
+                }
+                .buttonStyle(.borderless)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
+                .padding(4)
+                .help(language.map { "Copy \($0) Code" } ?? "Copy Code")
+            }
+        }
+        .onHover { isHovering = $0 }
     }
 }

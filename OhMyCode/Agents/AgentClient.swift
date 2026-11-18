@@ -54,6 +54,11 @@ final class AgentClient {
     private(set) var currentModeID: String?
     private(set) var commands: [AgentCommand] = []
     private(set) var authMethods: [AgentAuthMethod] = []
+    /// Signing in is under way (`authenticate`).
+    private(set) var isAuthenticating = false
+    /// Why the last sign-in didn't work: shown with the sign-in choices (the conversation, where
+    /// a notice would go, isn't shown until the agent is signed in).
+    private(set) var authenticationError: String?
     /// The agent's name and version, as it gives them.
     private(set) var agentTitle: String?
     /// The session's title, when the agent names it.
@@ -162,6 +167,9 @@ final class AgentClient {
     func newSession() async {
         guard connection != nil else { return }
         if state == .working { cancel() }
+        // Until the agent answers: a prompt sent meanwhile would go to the old session, and its
+        // reply be cleared with it.
+        state = .starting
         do {
             let result = try await request("session/new", params: ["cwd": rootURL.path, "mcpServers": [Any]()]) as? [String: Any] ?? [:]
             guard let id = result["sessionId"] as? String else { return fail("\(definition.name) didn't open a session.") }
@@ -169,6 +177,7 @@ final class AgentClient {
             entries = []
             plan = []
             toolIndex = [:]
+            lastMessageID = nil
             sessionTitle = nil
             setModes(result["modes"])
             setConfigOptions(result["configOptions"])
@@ -236,12 +245,18 @@ final class AgentClient {
     }
 
     func authenticate(_ method: AgentAuthMethod) async {
+        guard !isAuthenticating else { return }
+        isAuthenticating = true
+        authenticationError = nil
+        defer { isAuthenticating = false }
         do {
             _ = try await request("authenticate", params: ["methodId": method.id])
-            await newSession()
         } catch {
-            addNotice("Signing in failed: \(error.localizedDescription)")
+            authenticationError = "Signing in failed: \(error.localizedDescription)"
+            return
         }
+        await newSession()
+        if state == .needsAuthentication { authenticationError = "\(definition.name) still asks to sign in." }
     }
 
     func stop() {

@@ -6,22 +6,39 @@ import Observation
 @Observable
 final class AgentPanel {
     @ObservationIgnored private weak var workspace: Workspace?
+    /// Where the chosen agent is kept: under tests a scratch store (the test host is the app).
+    @ObservationIgnored private let defaults: UserDefaults = AppSettings.isRunningTests
+        ? ScratchDefaults.named("dev.zerovoid99.ohmycode.tests.agentPanel") : .omc
     /// The running agent (nil until one is started).
     private(set) var client: AgentClient?
     var selectedAgentID: AgentDefinition.ID? {
-        didSet { UserDefaults.omc.set(selectedAgentID?.uuidString, forKey: Self.selectedKey) }
+        didSet { defaults.set(selectedAgentID?.uuidString, forKey: Self.selectedKey) }
     }
     var draft = ""
+    /// The agent's log is shown (from the panel's menu, or its failure).
+    var showsLog = false
     var attachments: [AgentAttachment] = []
 
     private static let selectedKey = "agents.selected"
 
     init(workspace: Workspace) {
         self.workspace = workspace
-        selectedAgentID = UserDefaults.omc.string(forKey: Self.selectedKey).flatMap(UUID.init(uuidString:))
+        selectedAgentID = defaults.string(forKey: Self.selectedKey).flatMap(UUID.init(uuidString:))
     }
 
     var selectedAgent: AgentDefinition? { AgentStore.shared.definition(id: selectedAgentID) }
+
+    /// Another agent is picked than the one running (it starts on New Thread, or Restart).
+    var selectionDiffersFromRunning: Bool {
+        guard let client, let selectedAgent else { return false }
+        return client.definition.id != selectedAgent.id
+    }
+
+    /// The draft (or what's attached) can go now.
+    var canSend: Bool {
+        client?.state == .ready
+            && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+    }
 
     /// Starts the selected agent (stopping one that runs) in the workspace folder.
     func start() {
@@ -51,9 +68,9 @@ final class AgentPanel {
 
     /// Sends the draft and the attachments.
     func send() {
-        guard let client, client.state == .ready else { return }
+        // Not ready (starting, working, signing in): the draft stays, to send later.
+        guard let client, canSend else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !attachments.isEmpty else { return }
         let attached = attachments
         draft = ""
         attachments = []
@@ -78,7 +95,17 @@ final class AgentPanel {
             let last = index.line(containing: endLocation) + 1
             attachment = AgentAttachment(url: document.url, lines: first...max(first, last), text: text.substring(with: range))
         }
-        attachments.append(attachment)
+        add(attachment)
+    }
+
+    /// Adds an attachment; the same lines of the same file again replace the earlier one (with
+    /// their text as it is now) rather than going twice.
+    func add(_ attachment: AgentAttachment) {
+        if let index = attachments.firstIndex(where: { $0.url == attachment.url && $0.lines == attachment.lines }) {
+            attachments[index] = attachment
+        } else {
+            attachments.append(attachment)
+        }
     }
 
     func removeAttachment(_ attachment: AgentAttachment) {
