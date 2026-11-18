@@ -20,6 +20,7 @@ extension EditorDocument {
         refreshSemanticTokens()
         refreshFoldRegions()
         refreshCodeLenses()
+        refreshColorDecorators()
     }
 }
 

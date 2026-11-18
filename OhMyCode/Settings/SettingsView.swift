@@ -127,6 +127,7 @@ struct SettingsView: View {
             Toggle("Color names by what the language server knows they are (semantic highlighting)", isOn: $settings.semanticHighlighting)
             Toggle("Show code lenses (references, run) after the lines they're about", isOn: $settings.showsCodeLens)
             Toggle("Show inlay hints (types and parameter names from the language server)", isOn: $settings.showsInlayHints)
+            Toggle("Color decorators (a swatch before each color; click it to pick another)", isOn: $settings.showsColorDecorators)
             Toggle("Stage files when their merge conflicts are resolved and saved", isOn: $settings.stagesResolvedConflicts)
             SpellCheckSettings(settings: settings)
             Section("Preview") {

@@ -170,6 +170,7 @@ final class EditorController: NSObject {
         overlay.blameAnnotation = { [weak self] in self?.blameAnnotation() }
         overlay.executionLine = { [weak self] in self?.executionLineRect() }
         overlay.inlayHints = { [weak self] in self?.inlayHintRects() ?? [] }
+        overlay.colorSwatches = { [weak self] in self?.colorSwatchRects().map { ($0.rect, $0.mark.color) } ?? [] }
         overlay.ghostText = { [weak self] in self?.inlineSuggestions.drawing() ?? GhostDrawing() }
         overlay.conflictBands = { [weak self] in self?.conflictBands() ?? [] }
         overlay.conflictActions = { [weak self] in self?.conflictActionRects() ?? [] }
@@ -225,6 +226,7 @@ final class EditorController: NSObject {
             self?.peekClicked()
             if self?.handleConflictClick(at: point) == true { return true }
             if self?.handleCodeLensClick(at: point) == true { return true }
+            if self?.handleColorSwatchClick(at: point) == true { return true }
             if self?.handleBlameClick(at: point) == true { return true }
             guard let self, let hit = self.foldPlaceholderRects().first(where: { $0.rect.contains(point) }) else { return false }
             self.document.unfold(atHeader: hit.header)
@@ -295,6 +297,7 @@ final class EditorController: NSObject {
             self.stickyView?.update()
             self.applyDiagnostics()
             self.spelling.viewportChanged()
+            self.document.refreshColorDecorators(after: .milliseconds(50), edited: false)
         }
         return containerView
     }
@@ -334,6 +337,7 @@ final class EditorController: NSObject {
         document.refreshInlayHints() // turned on or off, or the font changed
         document.refreshSemanticTokens()
         document.refreshCodeLenses()
+        document.refreshColorDecorators()
         occurrences.update()
         spelling.settingsChanged()
         applySettings()
@@ -1247,6 +1251,10 @@ final class CodeTextView: NSTextView, @preconcurrency NSTextFinderClient {
     override func performFindPanelAction(_ sender: Any?) {
         performTextFinderAction(sender)
     }
+
+    /// The color panel's colors are for a color literal (see ColorDecorators.swift), never the
+    /// text's color: plain text has one color, set by the theme.
+    override func changeColor(_ sender: Any?) {}
 
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(performTextFinderAction(_:)) || item.action == #selector(performFindPanelAction(_:)) {

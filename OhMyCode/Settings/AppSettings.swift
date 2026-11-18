@@ -107,6 +107,8 @@ final class AppSettings {
     var zenModeFullScreen: Bool { didSet { changed() } }
     /// The language server's lenses ("3 references") after the lines they're about.
     var showsCodeLens: Bool { didSet { changed() } }
+    /// A swatch before each color literal (click it for the color panel).
+    var showsColorDecorators: Bool { didSet { changed() } }
     var autoSave: AutoSave { didSet { changed() } }
     /// Seconds without typing before auto save (after a delay).
     var autoSaveDelay: Double { didSet { changed() } }
@@ -167,6 +169,7 @@ final class AppSettings {
         semanticHighlighting = defaults.object(forKey: Keys.semanticHighlighting) as? Bool ?? true
         zenModeFullScreen = defaults.object(forKey: Keys.zenModeFullScreen) as? Bool ?? true
         showsCodeLens = defaults.object(forKey: Keys.showsCodeLens) as? Bool ?? true
+        showsColorDecorators = defaults.object(forKey: Keys.showsColorDecorators) as? Bool ?? true
         autoSave = AutoSave(rawValue: defaults.string(forKey: Keys.autoSave) ?? "") ?? .off
         autoSaveDelay = min(max(defaults.object(forKey: Keys.autoSaveDelay) as? Double ?? 1, 0.2), 60)
         hotExit = defaults.object(forKey: Keys.hotExit) as? Bool ?? true
@@ -208,6 +211,7 @@ final class AppSettings {
         static let semanticHighlighting = "semanticHighlighting"
         static let zenModeFullScreen = "zenModeFullScreen"
         static let showsCodeLens = "showsCodeLens"
+        static let showsColorDecorators = "showsColorDecorators"
         static let autoSave = "autoSave"
         static let autoSaveDelay = "autoSaveDelay"
         static let hotExit = "hotExit"
@@ -259,6 +263,7 @@ final class AppSettings {
         defaults.set(semanticHighlighting, forKey: Keys.semanticHighlighting)
         defaults.set(zenModeFullScreen, forKey: Keys.zenModeFullScreen)
         defaults.set(showsCodeLens, forKey: Keys.showsCodeLens)
+        defaults.set(showsColorDecorators, forKey: Keys.showsColorDecorators)
         defaults.set(autoSave.rawValue, forKey: Keys.autoSave)
         defaults.set(autoSaveDelay, forKey: Keys.autoSaveDelay)
         defaults.set(hotExit, forKey: Keys.hotExit)
@@ -298,7 +303,7 @@ final class AppSettings {
             "semanticHighlighting": .bool(semanticHighlighting), "formatOnSaveScope": .string(formatOnSaveScope.rawValue),
             "zenModeFullScreen": .bool(zenModeFullScreen), "showsCodeLens": .bool(showsCodeLens),
             "autoSave": .string(autoSave.rawValue), "autoSaveDelay": .number(autoSaveDelay), "hotExit": .bool(hotExit),
-            "linkedEditing": .bool(linkedEditing),
+            "linkedEditing": .bool(linkedEditing), "showsColorDecorators": .bool(showsColorDecorators),
             "emmet.enabled": .bool(emmetEnabled), "emmet.expandOnTab": .bool(emmetExpandOnTab),
             "files.associations": .object(fileAssociations.mapValues(JSONValue.string)),
             "languageServers.enabled": .object(languageServersEnabled.mapValues(JSONValue.bool)),
@@ -331,6 +336,7 @@ final class AppSettings {
         if let value = values["semanticHighlighting"]?.bool { semanticHighlighting = value }
         if let value = values["zenModeFullScreen"]?.bool { zenModeFullScreen = value }
         if let value = values["showsCodeLens"]?.bool { showsCodeLens = value }
+        if let value = values["showsColorDecorators"]?.bool { showsColorDecorators = value }
         if let value = values["autoSave"]?.string.flatMap(AutoSave.init(rawValue:)) { autoSave = value }
         if let value = values["autoSaveDelay"]?.number { autoSaveDelay = min(max(value, 0.2), 60) }
         if let value = values["hotExit"]?.bool { hotExit = value }

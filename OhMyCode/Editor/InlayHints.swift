@@ -178,6 +178,7 @@ extension EditorController {
         var attributes = attributes
         attributes[.kern] = nil
         attributes[.omcInlayHint] = nil
+        attributes[.omcColorSwatch] = nil
         // Nor a suggestion's gap or room (see InlineSuggestions.swift).
         attributes[.omcGhostGap] = nil
         attributes[.omcGhostSpacing] = nil

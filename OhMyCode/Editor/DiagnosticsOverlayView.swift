@@ -31,6 +31,8 @@ final class DiagnosticsOverlayView: NSView {
     var blockCaret: (() -> NSRect?)?
     /// Inlay hints: their labels' rects.
     var inlayHints: (() -> [(rect: NSRect, mark: InlayHintMark)])?
+    /// Color swatches before color literals: where, and their colors.
+    var colorSwatches: (() -> [(rect: NSRect, color: RGBAColor)])?
     /// An AI suggestion at the caret: its lines and where each starts (and the caret, in its gap).
     var ghostText: (() -> GhostDrawing)?
     /// The line the debugger is stopped at, highlighted across the editor.
@@ -347,6 +349,9 @@ final class DiagnosticsOverlayView: NSView {
                 let size = text.size(withAttributes: attributes)
                 text.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2), withAttributes: attributes)
             }
+        }
+        for (rect, color) in colorSwatches?() ?? [] where rect.intersects(dirtyRect) {
+            EditorController.drawColorSwatch(color, in: rect, border: theme.foreground.withAlphaComponent(0.4))
         }
         if let ghost = ghostText?(), !ghost.lines.isEmpty {
             let attributes = GhostTextStyle.attributes

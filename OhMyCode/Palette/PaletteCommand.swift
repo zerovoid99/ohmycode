@@ -28,6 +28,8 @@ struct PaletteCommand: Identifiable {
                        isAvailable: { _ in true }, perform: { _ in AppSettings.shared.showsCodeLens.toggle() }),
         PaletteCommand(id: "view.toggleInlayHints", title: "View: Toggle Inlay Hints", icon: "text.insert", key: nil,
                        isAvailable: { _ in true }, perform: { _ in AppSettings.shared.showsInlayHints.toggle() }),
+        PaletteCommand(id: "view.toggleColorDecorators", title: "View: Toggle Color Decorators", icon: "paintpalette", key: nil,
+                       isAvailable: { _ in true }, perform: { _ in AppSettings.shared.showsColorDecorators.toggle() }),
         PaletteCommand(id: "view.toggleBreadcrumbs", title: "View: Toggle Breadcrumbs", icon: "chevron.right.2", key: nil,
                        isAvailable: { _ in true }, perform: { _ in AppSettings.shared.showsBreadcrumbs.toggle() }),
         PaletteCommand(id: "go.line", title: "Go to Line…", icon: "arrow.right.to.line", key: "ctrl+g",

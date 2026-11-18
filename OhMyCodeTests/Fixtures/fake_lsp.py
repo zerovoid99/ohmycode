@@ -6,7 +6,8 @@ With --full-sync it asks for the whole text on every change (textDocumentSync 1)
 With --workspace-folders it takes several workspace folders; omc/workspaceFolders reports
 the ones it started with and the changes it was sent. With --extras it registers file
 watchers once initialized; omc/askConfiguration, omc/ping, omc/progress and omc/state exercise
-settings, custom messages and progress for servers extensions contribute."""
+settings, custom messages and progress for servers extensions contribute. With --colors it
+reports "@color(r,g,b)" as colors (documentColor, colorPresentation)."""
 import json, os, re, sys
 from urllib.parse import unquote, urlparse, quote
 
@@ -192,7 +193,8 @@ while True:
             "codeLensProvider": {"resolveProvider": True},
             "workspace": workspace_caps,
             "semanticTokensProvider": {"legend": {"tokenTypes": ["type", "function", "variable"], "tokenModifiers": []},
-                                       "full": True}}}})
+                                       "full": True},
+            **({"colorProvider": True} if "--colors" in sys.argv else {})}}})
     elif method == "textDocument/hover":
         word, rng = word_at(params["textDocument"]["uri"], params["position"])
         result = None
@@ -480,6 +482,22 @@ while True:
                                              "end": {"line": line_no, "character": start16 + len(units(word))}},
                                    "kind": 3 if written else 2})
         send({"jsonrpc": "2.0", "id": mid, "result": result})
+    elif method == "textDocument/documentColor":
+        # With --colors: every "@color(r,g,b)" (0-255) is a color, and so is a Color(red:green:blue:)
+        # of whole numbers (half transparent, to tell its answer from the editor's own).
+        found = []
+        for line_no, line in enumerate(docs[params["textDocument"]["uri"]].split("\n")):
+            for m in re.finditer(r"@color\((\d+),(\d+),(\d+)\)|Color\(red: (\d), green: (\d), blue: (\d)\)", line):
+                scale, groups, alpha = (255, m.groups()[:3], 1) if m.group(1) else (1, m.groups()[3:], 0.5)
+                found.append({"range": {"start": {"line": line_no, "character": len(units(line[:m.start()]))},
+                                        "end": {"line": line_no, "character": len(units(line[:m.end()]))}},
+                              "color": {"red": int(groups[0]) / scale, "green": int(groups[1]) / scale,
+                                        "blue": int(groups[2]) / scale, "alpha": alpha}})
+        send({"jsonrpc": "2.0", "id": mid, "result": found})
+    elif method == "textDocument/colorPresentation":
+        c = params["color"]
+        label = "@color(%d,%d,%d)" % tuple(round(c[k] * 255) for k in ("red", "green", "blue"))
+        send({"jsonrpc": "2.0", "id": mid, "result": [{"label": label, "textEdit": {"range": params["range"], "newText": label}}]})
     elif method == "textDocument/inlayHint":
         hints = []
         for number, line in enumerate(text_of(params["textDocument"]["uri"]).split("\n")):

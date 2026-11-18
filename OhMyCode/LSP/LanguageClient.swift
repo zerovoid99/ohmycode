@@ -162,6 +162,7 @@ final class LanguageClient {
                     "documentHighlight": ["dynamicRegistration": true],
                     "codeLens": [String: Any](),
                     "documentLink": ["tooltipSupport": true],
+                    "colorProvider": ["dynamicRegistration": true],
                     "semanticTokens": [
                         "requests": ["full": true], "formats": ["relative"],
                         "tokenTypes": SemanticTokens.knownTypes, "tokenModifiers": [String](),
@@ -455,6 +456,7 @@ final class LanguageClient {
         case foldingRange = "foldingRangeProvider"
         case codeLens = "codeLensProvider"
         case onTypeFormatting = "documentOnTypeFormattingProvider"
+        case color = "colorProvider"
 
         /// The request a dynamic registration names for it.
         var method: String {
@@ -478,6 +480,7 @@ final class LanguageClient {
             case .foldingRange: "textDocument/foldingRange"
             case .codeLens: "textDocument/codeLens"
             case .onTypeFormatting: "textDocument/onTypeFormatting"
+            case .color: "textDocument/documentColor"
             }
         }
     }
