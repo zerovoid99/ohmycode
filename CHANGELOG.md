@@ -5,6 +5,34 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- Peek Definition (⌥F12), Peek References (⌥⇧F12), Peek Implementations (⇧⌘F12) and Peek Type
+  Definition: an editor opens under the line, pushing the lines below down, with the results
+  listed beside it by file. Edits there are edits to the file (its open tab too, with undo);
+  Enter opens the result in a tab, Esc closes. In the Go menu, the palette and the editor's
+  context menu.
+- Color decorators: a swatch before each color in CSS, SCSS, Less, HTML styles, JS/TS strings
+  (hex, `rgb()`, `hsl()`, named colors) and Swift (`Color(red:…)`, `NSColor`, `UIColor`), and
+  wherever a language server reports colors. Click it for the color panel: the literal is
+  rewritten in its own format as you pick, one undo step per drag. Settings ▸ Editor, the
+  folder setting `showsColorDecorators` and *View: Toggle Color Decorators* turn them off.
+- Emmet in HTML-like files, JSX/TSX and CSS/SCSS/Less: Tab expands an abbreviation
+  (`ul>li.item$*3>a{Link $}`, `!`, `m10-20`, `df+jcsb`) with tab stops, and the completion list
+  offers it. *Emmet: Wrap with Abbreviation…*, *Balance Outward/Inward* and *Remove Tag* are
+  in the palette. Settings ▸ Editor turns it, or its Tab, off.
+- Compare: *Select for Compare* and *Compare with Selected* in the Explorer (files or folders),
+  *Compare with…*, *with Clipboard* and *with Saved* on a tab and in the palette, and *File:
+  Compare Folder with…*. A folder comparison lists what's only on one side and what differs
+  (ignoring `.git`, `node_modules`, build folders and the folder's `.gitignore`), with a filter;
+  click a file for its diff. Binary files say whether they differ.
+- A spell checker for code: words in comments, strings, Markdown and names (split by case:
+  `parseHTTPResponse` is parse, HTTP, Response) get a dotted underline, with a few hundred
+  programming terms, URLs, hex and such left alone. Its fixes (right-click, ⌘. or 💡) offer
+  suggestions in the word's case, Rename Symbol, *Add to Folder Dictionary*
+  (`.omc/dictionary.txt`), *Add to User Dictionary* and *Ignore in This File*;
+  `spell-checker: ignore …` comments work. Settings ▸ Editor ▸ Spell Check (language, names,
+  listing in Problems) and the folder setting `spellCheck`.
+
 ## [0.2.4] - 2026-11-19
 
 ### Added

@@ -23,9 +23,11 @@ terminal, *Oh My Code ▸ Install “omc” Command…* (see [Opening folders an
 ## Highlights
 
 - **Editor**: TextKit 2, tree-sitter syntax colors, multiple cursors, snippets, folding, Vim mode,
-  a minimap, sticky scroll, and hot exit that never loses unsaved work.
+  a minimap, sticky scroll, Emmet, a spell checker for code, color swatches with a picker, file
+  and folder compare, and hot exit that never loses unsaved work.
 - **Language servers**: completion, hover, go to definition, references, rename, quick fixes,
-  formatting, inlay hints, code lens, semantic colors and the call hierarchy.
+  formatting, inlay hints, code lens, semantic colors, peek definition and references, and the
+  call hierarchy.
 - **Run, test and debug**: tasks with problem matchers, a Testing sidebar for Swift, Xcode, Go,
   Python, Jest, Vitest and Rust, and LLDB or debugpy debugging.
 - **Git**: staging, commits, branches, stashes, worktrees, blame, a commit graph, a merge editor
@@ -41,9 +43,9 @@ terminal, *Oh My Code ▸ Install “omc” Command…* (see [Opening folders an
 
 ## Contents
 
-- **Opening and finding things**: [Opening folders and files](#opening-folders-and-files) · [Several folders in one window](#several-folders-in-one-window) · [Files in the Explorer](#files-in-the-explorer) · [Outline and breadcrumbs](#outline-and-breadcrumbs) · [Links](#links) · [Images, PDFs and binary files](#images-pdfs-and-binary-files) · [Markdown preview](#markdown-preview)
-- **Editing**: [Line editing](#line-editing) · [Snippets](#snippets) · [Folding](#folding) · [Brackets and indent guides](#brackets-and-indent-guides) · [Linked tag editing](#linked-tag-editing) · [Word wrap](#word-wrap) · [Tabs and whitespace](#tabs-and-whitespace) · [Vim mode](#vim-mode) · [Zen mode](#zen-mode)
-- **Language features**: [Quick fixes and parameter hints](#quick-fixes-and-parameter-hints) · [Formatting](#formatting) · [Code lens](#code-lens) · [Semantic highlighting](#semantic-highlighting) · [Symbol highlights](#symbol-highlights)
+- **Opening and finding things**: [Opening folders and files](#opening-folders-and-files) · [Several folders in one window](#several-folders-in-one-window) · [Files in the Explorer](#files-in-the-explorer) · [Outline and breadcrumbs](#outline-and-breadcrumbs) · [Links](#links) · [Images, PDFs and binary files](#images-pdfs-and-binary-files) · [Markdown preview](#markdown-preview) · [Compare files and folders](#compare-files-and-folders)
+- **Editing**: [Line editing](#line-editing) · [Snippets](#snippets) · [Emmet](#emmet) · [Spell checking](#spell-checking) · [Folding](#folding) · [Brackets and indent guides](#brackets-and-indent-guides) · [Linked tag editing](#linked-tag-editing) · [Word wrap](#word-wrap) · [Tabs and whitespace](#tabs-and-whitespace) · [Vim mode](#vim-mode) · [Zen mode](#zen-mode)
+- **Language features**: [Quick fixes and parameter hints](#quick-fixes-and-parameter-hints) · [Formatting](#formatting) · [Code lens](#code-lens) · [Semantic highlighting](#semantic-highlighting) · [Symbol highlights](#symbol-highlights) · [Peek](#peek) · [Color decorators](#color-decorators)
 - **Running, testing and debugging**: [Terminal](#terminal) · [Tasks and Problems](#tasks-and-problems) · [Testing](#testing) · [Debugging](#debugging) · [HTTP requests (.http files)](#http-requests-http-files) · [Databases (SQLite, PostgreSQL, MySQL)](#databases-sqlite-postgresql-mysql)
 - **Git and GitHub**: [Merge conflicts](#merge-conflicts) · [GitHub pull requests](#github-pull-requests) · [Local history](#local-history)
 - **Agents and AI**: [Coding agents](#coding-agents) · [AI suggestions and edits](#ai-suggestions-and-edits) · [Explain and fix with AI](#explain-and-fix-with-ai)
@@ -167,6 +169,20 @@ UTF-16 text files with a byte order mark open in the editor and are saved as UTF
 local images). It updates as you type and scrolls with the editor both ways; double-click a part
 of the preview to go to its source. Scripts in the Markdown don't run.
 
+### Compare files and folders
+Right-click a file in the Explorer for *Select for Compare*, then *Compare with Selected* on
+another; the same works for two folders. A tab's context menu (and the palette) has *Compare
+with…* (any file in the folder), *Compare with Clipboard* and *Compare with Saved* (your unsaved
+edits against the file on disk). The file you're comparing stays live: edit it in its tab and the
+diff follows. *Swap Sides* in the diff's header swaps them; binary files only say whether they
+differ.
+
+*File: Compare Folder with…* compares folders anywhere. The comparison tab lists the files only on
+the left, only on the right, and different, with counts, a filter and *Show Same*. `.git`,
+`node_modules`, `.build`, `DerivedData` and other build folders, and what the folder's
+`.gitignore` names, are left out. Click a file for its diff; double-click one that's on one side
+only to open it. Files are compared by size, then content, in the background.
+
 ## Editing
 
 ### Line editing
@@ -196,6 +212,33 @@ then move between their placeholders, typing in a repeated one changes every cop
 Built-in ones cover Swift, Python, Rust, Go, C/C++, JavaScript/TypeScript, shell, Markdown and HTML.
 Your own, in VS Code's format, go in `~/Library/Application Support/OhMyCode/Snippets/<language>.json`
 (*Snippets: Configure User Snippets*) or the folder's `.omc/snippets/` and `.vscode/*.code-snippets`.
+
+### Emmet
+In HTML-like files (HTML, Vue, Svelte, PHP, ERB…), JSX/TSX and CSS, SCSS and Less, Tab after an
+abbreviation expands it, and the completion list offers it as *Emmet Abbreviation*:
+
+```text
+ul>li.item$*3>a{Link $}     nav, children, siblings (+), climbing (^), groups (), *N, $ numbering
+!                           an HTML5 document
+input:email, a, img, btn:s  Emmet's snippets
+m10-20  w100p  df+jcsb  bd! CSS: margin: 10px 20px; width: 100%; display: flex; justify-content: …
+```
+
+The result has tab stops (attribute values, empty elements). JSX gets `className` and `htmlFor`.
+Tab goes first to an open completion list, an AI suggestion or a snippet being filled in, and a
+plain word that isn't a tag doesn't expand. The palette has *Emmet: Expand Abbreviation*, *Wrap
+with Abbreviation…* (`li*` wraps each selected line), *Balance Outward*, *Balance Inward* and
+*Remove Tag*. Settings ▸ Editor turns Emmet, or expanding with Tab, off.
+
+### Spell checking
+Misspelled words in comments, strings and Markdown, and in names (split by case: `loadSettigns`
+is load + Settigns), get a dotted underline, using macOS's dictionaries offline. Words under four
+letters, URLs, paths, hex, UUIDs, keywords and a few hundred programming terms are left alone.
+Right-click a word (or ⌘., or the 💡) for suggestions in the word's own case, *Rename Symbol…*,
+*Add to Folder Dictionary* (`.omc/dictionary.txt`, to share with the project), *Add to User
+Dictionary* and *Ignore in This File*. `// spell-checker: ignore word…`, `disable` and `enable`
+comments work too. Settings ▸ Editor ▸ Spell Check sets the language, whether names are checked
+and whether misspellings are listed in Problems; the folder setting is `spellCheck`.
 
 ### Folding
 
@@ -323,6 +366,23 @@ these are its own places (the same name in another scope isn't), and places wher
 outlined. Without one, the same whole word is highlighted. Selecting text on one line highlights the
 same text elsewhere. F7 and ⇧F7 go to the next and previous place. Highlights are turned off in
 Settings → Editor or with *View: Toggle Symbol Highlights*.
+
+### Peek
+⌥F12 peeks at a definition, ⌥⇧F12 at references, ⇧⌘F12 at implementations (and *Peek Type
+Definition* in the palette): an editor opens under the line, pushing the lines below down, with
+several results listed beside it by file (↑ and ↓ go through them). It's the real file: edits
+there are edits in its tab too, with undo. Enter or double-click opens a result in a tab; Esc, a
+click elsewhere or typing above it closes it. Also in the Go menu and the editor's context menu
+(Peek).
+
+### Color decorators
+Colors get a swatch before them: hex, `rgb()`, `hsl()` and named colors in CSS, SCSS, Less and
+HTML styles, the same in strings in JavaScript and TypeScript (except names), and
+`Color(red:green:blue:)`, `Color(hue:…)`, `NSColor` and `UIColor` in Swift, plus what a language
+server reports. Click a swatch for the color panel: the literal is rewritten in its own format
+as you pick (hex stays hex, `rgb()` stays `rgb()`), and a whole drag is one undo step. Turn them
+off in Settings → Editor, with the folder setting `showsColorDecorators`, or with *View: Toggle
+Color Decorators*.
 
 ## Running, testing and debugging
 
@@ -673,7 +733,7 @@ A folder's `.omc/settings.json` overrides the app's settings for files in it.
 - `formatOnSave`, `formatOnSaveScope` (`file`, `modifications`);
 - `autoSave` (`off`, `afterDelay`, `onFocusChange`), `autoSaveDelay`;
 - `wordWrap` (`off`, `on`, `prose`), `renderWhitespace` (`none`, `selection`, `boundary`, `all`);
-- `showsInlayHints`, `semanticHighlighting`, `showsCodeLens`.
+- `showsInlayHints`, `semanticHighlighting`, `showsCodeLens`, `showsColorDecorators`, `spellCheck`.
 
 Comments and trailing commas are allowed. Changes apply when the file is saved, even from another
 editor. Names it doesn't know, and a file that isn't valid JSON, are reported. Indentation and line
