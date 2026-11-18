@@ -97,6 +97,9 @@ final class EditorController: NSObject {
     /// The line to put back at the top after the next layout, unless the view is scrolled
     /// from `y` before then.
     private var pendingTopAnchor: (line: Int, offset: CGFloat, y: CGFloat)?
+    /// The line laid out at the top of the view after the last layout pass: its first
+    /// character, and where its row was then (see `keepScrollAnchor`).
+    private var scrollAnchor: (offset: Int, y: CGFloat)?
 
     init(document: EditorDocument, group: EditorGroup? = nil) {
         self.document = document
@@ -237,7 +240,8 @@ final class EditorController: NSObject {
         gutter.onBlameClick = { [weak self] line in self?.handleBlameColumnClick(line: line) }
         gutter.menuForLine = { [weak self] line in self?.gutterMenu(line: line) }
         textView.onLayout = { [weak self] in
-            self?.restoreTopLine()
+            if self?.restoreTopLine() == false { self?.keepScrollAnchor() }
+            self?.noteScrollAnchor()
             self?.layoutDidChange()
             self?.refreshHighlights(force: false)
             self?.minimapView?.refresh()
@@ -518,6 +522,7 @@ final class EditorController: NSObject {
             textView.scroll(NSPoint(x: textView.visibleRect.minX, y: target))
             layoutManager.textViewportLayoutController.layoutViewport()
         }
+        noteScrollAnchor()
     }
 
     // MARK: Keeping the top line
@@ -546,6 +551,8 @@ final class EditorController: NSObject {
     /// would show other lines, thousands away in a long file (in a split, as one types in the
     /// other half). The top line stays at the top instead.
     func textEdited(fromLine startLine: Int, lineDelta: Int) {
+        // The text moved: the edit says what stays at the top (below).
+        scrollAnchor = nil
         guard let anchor = pendingTopAnchor.map({ (line: $0.line, offset: $0.offset) }) ?? topAnchor,
               startLine < anchor.line else { return }
         keepTopLine(max(startLine, anchor.line + lineDelta), offset: anchor.offset)
@@ -565,16 +572,76 @@ final class EditorController: NSObject {
 
     /// After a layout: the line kept at the top goes back there, unless the view was scrolled
     /// meanwhile (revealing the edit, going to a line).
-    private func restoreTopLine() {
+    @discardableResult
+    private func restoreTopLine() -> Bool {
+        var restored = false
         if let anchor = pendingTopAnchor {
             pendingTopAnchor = nil
             if abs(textView.visibleRect.minY - anchor.y) < 0.5 {
                 // At least half a point in: the view stops at whole pixels, and TextKit's heights
                 // aren't whole, so exactly at the line's top could stop a hair above it.
                 scrollLineToTop(min(anchor.line, document.lineIndex.lineCount - 1), offset: max(anchor.offset, 0.5))
+                restored = true
             }
         }
         noteTopLine()
+        return restored
+    }
+
+    /// Notes the row laid out at the top of the view, for `keepScrollAnchor` after the next
+    /// layout pass.
+    private func noteScrollAnchor() {
+        guard let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager else {
+            scrollAnchor = nil
+            return
+        }
+        let start = contentManager.documentRange.location
+        if let fragment = layoutManager.textLayoutFragment(for: CGPoint(x: 0, y: max(0, textView.visibleRect.minY - textView.textContainerOrigin.y))),
+           fragment.state == .layoutAvailable {
+            scrollAnchor = (contentManager.offset(from: start, to: fragment.rangeInElement.location), fragment.layoutFragmentFrame.minY)
+        } else if let anchor = scrollAnchor, let frame = laidOutFragmentFrame(at: anchor.offset) {
+            // The top row is only estimated (scrolled into view just now): the one before stays
+            // the anchor, where it is now.
+            scrollAnchor = (anchor.offset, frame.minY)
+        } else {
+            scrollAnchor = nil
+        }
+    }
+
+    /// The frame of the laid-out row starting at `offset` (nil if there's none).
+    private func laidOutFragmentFrame(at offset: Int) -> CGRect? {
+        guard let layoutManager = textView.textLayoutManager, let contentManager = layoutManager.textContentManager,
+              let location = contentManager.location(contentManager.documentRange.location, offsetBy: offset) else { return nil }
+        var frame: CGRect?
+        layoutManager.enumerateTextLayoutFragments(from: location, options: []) { fragment in
+            if fragment.state == .layoutAvailable, fragment.rangeInElement.location.compare(location) == .orderedSame {
+                frame = fragment.layoutFragmentFrame
+            }
+            return false
+        }
+        return frame
+    }
+
+    /// Text on screen stays where it is through a layout pass. Scrolling up from a place
+    /// jumped to (a search result, Go to Line, the minimap) or one whose text elements were
+    /// dropped, the lines coming into view were only estimated: laying them out gives their
+    /// real height, and TextKit moved everything below by the difference, the lines in view
+    /// too. Wrapped lines, whose estimates are furthest off, moved most: the view jumped by
+    /// tens of points as one scrolled.
+    private func keepScrollAnchor() {
+        guard let anchor = scrollAnchor else { return }
+        var laidOutAt = anchor.y
+        // Scrolling up to put it back lays out more lines above, which can move it again.
+        for _ in 0..<4 {
+            // Only for text that was in view and still is (not after a jump elsewhere).
+            guard let frame = laidOutFragmentFrame(at: anchor.offset) else { return }
+            let delta = frame.minY - laidOutAt
+            let visible = textView.visibleRect
+            let onScreen = frame.offsetBy(dx: 0, dy: textView.textContainerOrigin.y - delta)
+            guard abs(delta) >= 0.5, onScreen.maxY > visible.minY, onScreen.minY < visible.maxY else { return }
+            textView.scroll(NSPoint(x: visible.minX, y: visible.minY + delta))
+            laidOutAt = frame.minY
+        }
     }
 
     /// Puts the cursor at the start of `line` with that line at the top, below any sticky lines.
@@ -624,6 +691,7 @@ final class EditorController: NSObject {
             return false
         }
         textView.scroll(NSPoint(x: state.scrollX, y: anchorY + textView.textContainerOrigin.y + state.topLineDelta))
+        noteScrollAnchor()
     }
 
     /// Zero-based line at the top of the viewport.

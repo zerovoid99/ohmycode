@@ -89,6 +89,7 @@
 		406AA38E7274A780851F61A0 /* WorkspaceSymbols.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2F3F62A0937CAE5AED52BD /* WorkspaceSymbols.swift */; };
 		40852944F9E58B355D0D3A78 /* ProfilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E3D60B77DF453072A0EFC4 /* ProfilesView.swift */; };
 		40AE93751ED7319C5A385A8F /* Signposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3707529AD085978B8B54462B /* Signposts.swift */; };
+		4324CF6041978C46E45BEE6C /* ScrollAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49127E1BA5CB438D5088FD3C /* ScrollAnchorTests.swift */; };
 		43C40AC781DBC759C2A2C66B /* AgentPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B742AEAA3856492F433A301F /* AgentPanelView.swift */; };
 		44F88C3D502540F06F587353 /* LSPTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD379088235C2421A7031BC4 /* LSPTests.swift */; };
 		457938F51881756D2E6609BF /* DocumentLinkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07F077DF9001333C3035F7BE /* DocumentLinkTests.swift */; };
@@ -440,6 +441,7 @@
 		47E50E8C95A9A23C5CA33BFA /* AgentModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentModels.swift; sourceTree = "<group>"; };
 		481642F135B6F6F57714FB42 /* XcodeProject.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XcodeProject.swift; sourceTree = "<group>"; };
 		48E7BA781D696548AAD229A3 /* TaskRun.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskRun.swift; sourceTree = "<group>"; };
+		49127E1BA5CB438D5088FD3C /* ScrollAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollAnchorTests.swift; sourceTree = "<group>"; };
 		4932ADA2034EED08CCF5EAC3 /* TerminalLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinks.swift; sourceTree = "<group>"; };
 		4A76E72897EB0575B5F95E98 /* PTYProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PTYProcess.swift; sourceTree = "<group>"; };
 		4B1DC11BFB509BA7D83DE2D9 /* VimTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VimTests.swift; sourceTree = "<group>"; };
@@ -899,6 +901,7 @@
 				446B650C7B4E11DB14D2592C /* RangeFormattingTests.swift */,
 				8E74C25EA407E63F876BE929 /* RemoteTests.swift */,
 				FC60C7DA7C4B6252ACD6263F /* RepoHistoryTests.swift */,
+				49127E1BA5CB438D5088FD3C /* ScrollAnchorTests.swift */,
 				175726481BF10833461530F3 /* SearchResultsTableTests.swift */,
 				E43F3388BA148B4E8F22F589 /* SearchTests.swift */,
 				3B13B9095F5907FD20AAE2F1 /* SemanticTokenTests.swift */,
@@ -1668,6 +1671,7 @@
 				28C480C02AD06B704A5322BA /* RangeFormattingTests.swift in Sources */,
 				655A1901D50A5344BFBAF790 /* RemoteTests.swift in Sources */,
 				476F1A5E9F55BE3672D79298 /* RepoHistoryTests.swift in Sources */,
+				4324CF6041978C46E45BEE6C /* ScrollAnchorTests.swift in Sources */,
 				8BB0943F46EDE22F089A6289 /* SearchResultsTableTests.swift in Sources */,
 				24B7957B0621B9E84225341C /* SearchTests.swift in Sources */,
 				E307A58CBD3A9F112C4320A2 /* SemanticTokenTests.swift in Sources */,
