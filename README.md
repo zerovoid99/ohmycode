@@ -816,7 +816,10 @@ open OhMyCode.xcodeproj
 ```sh
 xcodebuild -scheme OhMyCode -destination 'platform=macOS' build
 xcodebuild -scheme OhMyCode -destination 'platform=macOS' test
+xcodebuild test -scheme OhMyCode -destination 'platform=macOS' -only-testing:OhMyCodeTests/SessionTests
 ```
+
+Rules for contributors and agents are in [CLAUDE.md](CLAUDE.md).
 
 ### Performance
 
