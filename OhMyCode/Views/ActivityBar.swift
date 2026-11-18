@@ -36,9 +36,9 @@ struct ActivityBar: View {
     }
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 0) {
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 2) {
+                VStack(spacing: 4) {
                     ForEach(visibleItems) { item in
                         ActivityButton(symbol: item.symbol, help: help(for: item), isSelected: workspace.sidebarMode == item.mode,
                                        badge: badge(for: item.mode)) {
@@ -47,23 +47,22 @@ struct ActivityBar: View {
                         .disabled(workspace.rootNode == nil && item.mode != .files && item.mode != .extensions && item.mode != .database)
                     }
                 }
-                .padding(.top, 4)
-                .padding(.leading, 4)
+                .padding(.vertical, 6)
             }
             Spacer(minLength: 0)
             SettingsLink {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 15))
-                    .frame(width: 34, height: 32)
-                    .contentShape(Rectangle())
+                ActivityIcon(symbol: "gearshape", isSelected: false, badge: nil)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
+            .frame(width: ActivityBar.width)
             .help("Settings (⌘,)")
-            .padding(.bottom, 6)
+            .accessibilityLabel("Settings")
+            .padding(.bottom, 8)
         }
-        .frame(width: 44)
+        .frame(width: Self.width)
     }
+
+    static let width: CGFloat = 44
 
     private func help(for item: Item) -> String {
         let shortcut = item.command.flatMap { Keybindings.shared.display(for: $0) }
@@ -71,7 +70,7 @@ struct ActivityBar: View {
         return shortcut.map { "\(name) (\($0))" } ?? name
     }
 
-    private func badge(for mode: Workspace.SidebarMode) -> ActivityButton.Badge? {
+    private func badge(for mode: Workspace.SidebarMode) -> ActivityBadge? {
         switch mode {
         case .sourceControl:
             let count = workspace.gitStatus?.changedFileCount ?? 0
@@ -88,61 +87,118 @@ struct ActivityBar: View {
     }
 }
 
-private struct ActivityButton: View {
-    enum Badge: Equatable { case count(Int), attention, busy }
+/// What an icon of the activity bar says about its panel.
+enum ActivityBadge: Equatable {
+    /// How many (changed files).
+    case count(Int)
+    /// Waiting for an answer (an agent asking for permission).
+    case attention
+    /// Running (an agent at work, a debug session).
+    case busy
 
+    var accessibilityValue: String {
+        switch self {
+        case .count(let count): "\(count)"
+        case .attention: "Needs attention"
+        case .busy: "Running"
+        }
+    }
+}
+
+private struct ActivityButton: View {
     let symbol: String
     let help: String
     let isSelected: Bool
-    let badge: Badge?
+    let badge: ActivityBadge?
     let action: () -> Void
-    @State private var isHovering = false
-    @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
-                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
-                .frame(width: 34, height: 32)
-                .background {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.primary.opacity(isSelected ? 0.1 : isHovering && isEnabled ? 0.06 : 0))
-                }
-                .overlay(alignment: .topTrailing) { badgeView }
-                .contentShape(Rectangle())
+            ActivityIcon(symbol: symbol, isSelected: isSelected, badge: badge)
         }
         .buttonStyle(.plain)
+        .frame(width: ActivityBar.width)
         .overlay(alignment: .leading) {
             // The active panel's mark, against the window edge.
             if isSelected {
-                Capsule().fill(Color.accentColor).frame(width: 3, height: 16).offset(x: -1)
+                UnevenRoundedRectangle(bottomTrailingRadius: 1.5, topTrailingRadius: 1.5)
+                    .fill(Color.accentColor)
+                    .frame(width: 2.5, height: 18)
             }
         }
-        .onHover { isHovering = $0 }
         .help(help)
         .accessibilityLabel(help)
+        .accessibilityValue(badge?.accessibilityValue ?? "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// An icon of the activity bar: highlighted when selected or under the mouse, with its badge
+/// in the top corner. The badge cuts a ring out of the icon behind it, so it reads apart from
+/// the icon on any sidebar background (the sidebar is translucent).
+private struct ActivityIcon: View {
+    let symbol: String
+    let isSelected: Bool
+    let badge: ActivityBadge?
+    @State private var isHovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    private static let size = CGSize(width: 34, height: 32)
+    /// The ring cut around a badge.
+    private static let ring: CGFloat = 2
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(isSelected ? 0.1 : isHovering && isEnabled ? 0.06 : 0))
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? Color.primary : isHovering && isEnabled ? Color.primary.opacity(0.85) : Color.secondary)
+                .frame(width: 22, height: 22)
+            if let badge {
+                badgeShape(badge, inset: -Self.ring)
+                    .blendMode(.destinationOut)
+            }
+        }
+        .compositingGroup()
+        .frame(width: Self.size.width, height: Self.size.height)
+        .overlay(alignment: .topTrailing) {
+            if let badge { badgeShape(badge, inset: 0) }
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
         .opacity(isEnabled ? 1 : 0.4)
+        .animation(.easeOut(duration: 0.12), value: isHovering)
+        .animation(.easeOut(duration: 0.15), value: badge)
     }
 
-    @ViewBuilder private var badgeView: some View {
-        switch badge {
-        case .count(let count):
-            Text(count > 99 ? "99+" : "\(count)")
-                .font(.system(size: 9, weight: .bold).monospacedDigit())
-                .foregroundStyle(.white)
-                .padding(.horizontal, 3.5)
-                .frame(minWidth: 14, minHeight: 14)
-                .background(Capsule().fill(Color.accentColor))
-                .offset(x: 3, y: -1)
-        case .attention:
-            Circle().fill(.orange).frame(width: 8, height: 8).offset(x: 1, y: 3)
-        case .busy:
-            Circle().fill(.green).frame(width: 7, height: 7).offset(x: 1, y: 3)
-        case nil:
-            EmptyView()
+    /// The badge, or (with a negative inset) the shape a little bigger than it that's cut out
+    /// of the icon, both placed in the top trailing corner.
+    @ViewBuilder private func badgeShape(_ badge: ActivityBadge, inset: CGFloat) -> some View {
+        let grow = -inset * 2
+        Group {
+            switch badge {
+            case .count(let count):
+                Text(count > 99 ? "99+" : "\(count)")
+                    .font(.system(size: 9, weight: .bold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                    .frame(minWidth: 15, minHeight: 15)
+                    .background(Capsule().fill(Color.accentColor))
+                    .padding(-inset)
+                    .background(inset < 0 ? Capsule().fill(Color.black) : nil)
+                    .offset(x: 1 - inset, y: -1 + inset)
+            case .attention:
+                Circle().fill(inset < 0 ? Color.black : Color.orange)
+                    .frame(width: 8 + grow, height: 8 + grow)
+                    .offset(x: -4 - inset, y: 4 + inset)
+            case .busy:
+                Circle().fill(inset < 0 ? Color.black : Color.green)
+                    .frame(width: 7 + grow, height: 7 + grow)
+                    .offset(x: -4 - inset, y: 4 + inset)
+            }
         }
+        .frame(width: Self.size.width, height: Self.size.height, alignment: .topTrailing)
     }
 }
 
