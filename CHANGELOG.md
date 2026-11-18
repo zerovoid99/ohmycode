@@ -5,6 +5,8 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-18
+
 ### Added
 - A database explorer for SQLite, PostgreSQL and MySQL / MariaDB: the new Database panel lists
   your connections (saved in the folder or for every window, passwords in the Keychain), and
@@ -297,7 +299,8 @@ tree-sitter highlighting, language servers, git, an integrated terminal and exte
 - The gutter and overlays redraw only the rows and marks that change, and line numbers are drawn
   from cached glyphs.
 
-[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/zerovoid99/ohmycode/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/zerovoid99/ohmycode/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/zerovoid99/ohmycode/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/zerovoid99/ohmycode/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/zerovoid99/ohmycode/compare/v0.1.9...v0.2.0
