@@ -126,7 +126,7 @@ final class InlineEditController {
             model.phase = .failed("The file changed: the selection isn't there anymore.")
             return
         }
-        let request: AIRequest
+        var request: AIRequest
         if let fixing {
             // The instruction only says more when it's been changed from the problem's message.
             let instruction = model.instruction == Self.fixInstruction(for: fixing) ? nil : model.instruction
@@ -137,6 +137,10 @@ final class InlineEditController {
             request = AIPrompts.editRequest(text: text, range: model.isInsertion ? NSRange(location: range.location, length: 0) : range,
                                             instruction: model.instruction, path: document.relativePath,
                                             languageId: document.languageId, model: settings.editModel)
+        }
+        // A SQL file with a connection: its schema (capped), so names are the real ones.
+        if document.language == .sql, let schema = document.workspace?.database.schemaContext(for: document) {
+            request.user += "\n\n<database_schema>\n\(schema)</database_schema>"
         }
         let isFix = fixing != nil
         raw = ""

@@ -16,6 +16,17 @@ extension EditorDocument {
             }
             return
         }
+        if language == .sql {
+            // Ours too: Run above each statement.
+            codeLensesTask = Task { [weak self] in
+                if delay > .zero {
+                    try? await Task.sleep(for: min(delay, .milliseconds(250)))
+                    guard !Task.isCancelled else { return }
+                }
+                self?.refreshSQLLenses()
+            }
+            return
+        }
         codeLensesTask = Task { [weak self] in
             if delay > .zero {
                 try? await Task.sleep(for: delay)
@@ -129,6 +140,10 @@ extension Workspace {
     func run(_ lens: CodeLens, in document: EditorDocument) {
         if lens.commandName.hasPrefix(HTTPSyntax.commandPrefix) {
             runHTTPLens(lens, in: document)
+            return
+        }
+        if lens.commandName == SQLSyntax.runCommand {
+            runSQLLens(lens, in: document)
             return
         }
         let arguments = lens.command?["arguments"] as? [Any] ?? []

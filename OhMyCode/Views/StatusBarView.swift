@@ -24,6 +24,9 @@ struct StatusBarView: View {
     /// A `.http` file's environment ("No Environment" when none is chosen); clicking switches it.
     var httpEnvironment: String?
     var switchHTTPEnvironment: () -> Void = {}
+    /// A SQL file's connection ("No Connection" when none is chosen); clicking switches it.
+    var sqlConnection: String?
+    var chooseSQLConnection: () -> Void = {}
 
     enum AgentActivity { case working, waiting }
 
@@ -117,6 +120,13 @@ struct StatusBarView: View {
                 }
                 .buttonStyle(StatusBarButtonStyle())
                 .help("Environment for this folder's requests (REST: Switch Environment)")
+            }
+            if let sqlConnection {
+                Button(action: chooseSQLConnection) {
+                    Label(sqlConnection, systemImage: "cylinder")
+                }
+                .buttonStyle(StatusBarButtonStyle())
+                .help("Connection this file's SQL runs on (⌘↩ runs the statement at the cursor, ⇧⌘↩ the selection or file)")
             }
             AIStatusItem()
             if let client = document?.languageClient {

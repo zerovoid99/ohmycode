@@ -40,6 +40,8 @@ struct WorkspaceView: View {
                         PullRequestsView(workspace: workspace)
                     case .agent:
                         AgentPanelView(panel: workspace.agentPanel, workspace: workspace)
+                    case .database:
+                        DatabaseSidebarView(workspace: workspace)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -120,6 +122,8 @@ struct WorkspaceView: View {
         case .sourceControl where workspace.rootNode != nil:
             Button { workspace.refreshGit() } label: { Image(systemName: "arrow.clockwise") }
                 .help("Refresh")
+        case .database:
+            DatabasePanelActions(workspace: workspace)
         default:
             EmptyView()
         }
@@ -164,7 +168,12 @@ private struct ActiveStatusBar: View {
                       goToLine: { workspace.showPalette(.goToLine) },
                       showSourceControl: { workspace.sidebarMode = .sourceControl; workspace.sidebarVisibility = .all },
                       httpEnvironment: workspace.httpEnvironmentLabel,
-                      switchHTTPEnvironment: { Task { await workspace.http.switchEnvironment(for: workspace.activeHTTPDocument?.url) } })
+                      switchHTTPEnvironment: { Task { await workspace.http.switchEnvironment(for: workspace.activeHTTPDocument?.url) } },
+                      sqlConnection: workspace.sqlConnectionLabel,
+                      chooseSQLConnection: {
+                          guard let url = workspace.activeSQLDocument?.url else { return }
+                          Task { await workspace.database.chooseConnection(for: url) }
+                      })
     }
 
     private var agentActivity: StatusBarView.AgentActivity? {

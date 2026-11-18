@@ -57,6 +57,7 @@ struct FileIcon: View {
         case "xcodeproj", "xcworkspace", "pbxproj": return ("hammer", .blue)
         case "sql": return ("cylinder", .teal)
         case "http", "rest": return ("network", .green)
+        case "sqlite", "sqlite3", "db", "db3", "s3db": return ("cylinder.split.1x2", .teal)
         default: return ("doc", .secondary)
         }
     }

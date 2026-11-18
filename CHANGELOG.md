@@ -5,6 +5,23 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- A database explorer for SQLite, PostgreSQL and MySQL / MariaDB: the new Database panel lists
+  your connections (saved in the folder or for every window, passwords in the Keychain), and
+  their schemas, tables, views, columns, keys and indexes. Add one with its details or a
+  connection URL, and try it with Test Connection.
+- Right-click a table for Select Top 100, Show DDL, Copy Name, Refresh, Truncate or Drop (both
+  ask first). Opening a SQLite file from the Explorer shows its tables (Open as Hex is still there).
+- `.sql` files get syntax colors, a connection in the status bar, completion of tables, columns
+  and keywords, and ⌘↩ to run the statement at the cursor (⇧⌘↩ for the selection or the whole
+  file, or click Run above a statement). New Query opens a scratch SQL file on a connection.
+- Results open in a tab beside the file: a fast grid you can sort, resize and copy from (cells,
+  rows as text, JSON, CSV or INSERT), each result set in its own segment, messages and rows
+  affected, the time taken, Cancel while it runs, and export to CSV, JSON or Markdown. Errors are
+  underlined where the database says they are.
+- Query history per connection (the last 100), and with AI set up, Explain Query, Fix Query with
+  AI, and the connection's schema included when you use ⌘I in a SQL file.
+
 ## [0.2.2] - 2026-11-18
 
 ### Added

@@ -52,6 +52,8 @@ final class SyntaxHighlighter {
     init?(language: SourceLanguage, textStorage: NSTextStorage) {
         if language == .http {
             engine = SyntaxEngine(lineHighlighter: HTTPSyntax.highlights(in:range:))
+        } else if language == .sql {
+            engine = SyntaxEngine(lineHighlighter: SQLSyntax.highlights(in:range:))
         } else {
             guard let grammar = GrammarRegistry.grammar(for: language),
                   let engine = SyntaxEngine(grammar: grammar)

@@ -34,10 +34,13 @@ final class Workspace {
                 document.workspaceRoot = folder(containing: document.url) ?? rootURL
                 document.workspace = self
                 attachTests(to: document)
-                if document.language == .http { document.refreshCodeLenses() }
+                if document.language == .http || document.language == .sql { document.refreshCodeLenses() }
             }
             for document in oldValue where document.language == .http && !documents.contains(where: { $0 === document }) {
                 problems.set([], for: document.url, source: HTTPSyntax.problemSource)
+            }
+            for document in oldValue where document.language == .sql && !documents.contains(where: { $0 === document }) {
+                problems.set([], for: workspaceURL(for: document.url), source: SQLSyntax.problemSource)
             }
             // Tell the extensions (only once they're running: opening a folder starts them).
             guard extensionsStarted else { return }
@@ -114,6 +117,8 @@ final class Workspace {
     var viewers: [FileViewer] = []
     /// Requests sent from `.http` files and their response tabs (see Workspace+HTTP.swift).
     @ObservationIgnored private(set) lazy var http = HTTPWorkspaceClient(workspace: self)
+    /// Database connections, SQL runs and their results tabs (see Workspace+Database.swift).
+    @ObservationIgnored private(set) lazy var database = DatabaseWorkspace(workspace: self)
     /// Split editor panes, left to right; there is always at least one.
     private(set) var groups: [EditorGroup]
     var activeGroupID: EditorGroup.ID {
@@ -151,6 +156,7 @@ final class Workspace {
         case callHierarchy = "Call Hierarchy"
         case pullRequests = "Pull Requests"
         case agent = "Agent"
+        case database = "Database"
     }
 
     @ObservationIgnored private(set) lazy var search = SearchModel(workspace: self)
@@ -2431,6 +2437,7 @@ final class Workspace {
         // Images, PDFs and binary files open in a viewer tab.
         if let kind = FileViewer.Kind(FileKind.detect(url)) {
             openViewer(for: url, kind: kind)
+            if kind == .database { database.openSQLiteFile(url) }
             return
         }
         do {
@@ -2489,6 +2496,8 @@ final class Workspace {
             closeViewer(viewer, in: group)
         } else if let tab = http.responseTab(id: id) {
             http.closeResponseTab(tab, in: group)
+        } else if let tab = database.resultsTab(id: id) {
+            database.closeResultsTab(tab, in: group)
         }
     }
 
@@ -2511,6 +2520,7 @@ final class Workspace {
         if let session = diffSession(id: id) { return (session.title, session.help, false, true) }
         if let viewer = viewer(id: id) { return (viewer.fileName, viewer.url.path, false, false) }
         if let tab = http.responseTab(id: id) { return (tab.title, tab.help, false, false) }
+        if let tab = database.resultsTab(id: id) { return (tab.title, tab.help, false, false) }
         return nil
     }
 
@@ -2613,7 +2623,7 @@ final class Workspace {
 
     /// ⌘\: opens the active document in a new group to the right.
     func splitEditor() {
-        guard let id = activeDocument?.id ?? activeViewer?.id ?? activeResponseTab?.id, groups.count < Self.maxGroups,
+        guard let id = activeDocument?.id ?? activeViewer?.id ?? activeResponseTab?.id ?? activeResultsTab?.id, groups.count < Self.maxGroups,
               let index = groups.firstIndex(where: { $0.id == activeGroupID }) else { NSSound.beep(); return }
         activeDocument?.editor(inGroup: activeGroup)?.saveViewState()
         let group = EditorGroup()
@@ -2626,7 +2636,7 @@ final class Workspace {
     /// Moves the active tab to the next group (`offset` 1) or previous (-1), creating a group
     /// at the edge if there is none.
     func moveActiveEditor(by offset: Int) {
-        guard let id = activeDocument?.id ?? activeViewer?.id ?? activeResponseTab?.id,
+        guard let id = activeDocument?.id ?? activeViewer?.id ?? activeResponseTab?.id ?? activeResultsTab?.id,
               let index = groups.firstIndex(where: { $0.id == activeGroupID }) else { return }
         let source = activeGroup
         let targetIndex = index + offset

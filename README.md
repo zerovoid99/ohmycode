@@ -387,6 +387,52 @@ written to a temporary file: *Save Body…* or *Open Body in Editor* gets all of
   types and `{{` variables, problems for malformed request lines and missing files, a fold and an
   Outline entry per request.
 
+## Databases (SQLite, PostgreSQL, MySQL)
+The Database panel (the cylinder in the activity bar) lists your connections: SQLite files,
+PostgreSQL, and MySQL or MariaDB servers. *Add Connection…* (＋) asks for the type, host, port,
+user, password, database and SSL mode (or a SQLite file), or takes a connection URL such as
+`postgres://user:pass@host:5432/db?sslmode=require`, `mysql://user@host/db` or
+`sqlite:///path/to/app.db`; *Test Connection* tries it. A connection is saved either in the folder's
+`.omc/databases.json` (to share it with the project) or for every window; passwords are never
+written to either: they go in the Keychain, or are kept only until you quit.
+
+- **Tree**: expand a connection to connect; then its schemas (or databases), tables and views,
+  their columns (type, nullability, 🔑 primary and 🔗 foreign keys) and indexes. Double-click a
+  table, or right-click it, for *Select Top 100*; *Show DDL* opens its CREATE statement;
+  *Copy Name*, *Refresh*, and *Truncate…* / *Drop…* (only after a confirmation naming the table).
+- **SQLite files**: opening a `.sqlite`, `.sqlite3` or `.db` file (or any file with a SQLite
+  header) from the Explorer shows its tables and adds it to the panel; *Open as Hex* still shows
+  the bytes.
+- **SQL files**: `.sql` files get syntax colors and a connection in the status bar (chosen per
+  file and remembered). ⌘↩ runs the statement at the cursor, ⇧⌘↩ the selection or the whole file,
+  and *Run* above each statement runs that one. Statements are split the way the database does:
+  quotes, comments, `$$` and `$tag$` bodies, backticks and MySQL's `DELIMITER`. *New Query* in the
+  panel opens a scratch SQL file on a connection. Completion offers the connection's tables,
+  columns (of the tables the statement uses, or after `alias.`), schemas and keywords.
+- **Results** open in a tab beside the file: a grid you can sort by any column, resize and copy
+  from (cells, or rows as text, JSON, CSV or INSERT statements), with NULL shown apart from text.
+  Each result set of a run has its own segment, and *Messages* shows each statement's outcome,
+  rows affected, server notices and time. Up to 10,000 rows are kept (*Fetch More* runs it again
+  keeping more); *Export* saves CSV, JSON, Markdown, TSV or INSERT statements. *Cancel* stops a
+  running query on the server. An error with a position is underlined in the file and listed in
+  Problems.
+- **History**: each connection keeps its last 100 statements (🕘 in the results tab, or *Query
+  History…* on the connection) to run again or open.
+- **AI**: with AI set up, *Explain Query* explains the statement (and its error), *Fix Query with
+  AI* proposes a fix for the failed statement as a diff, and ⌘I in a SQL file sends the
+  connection's schema (capped) along with your instruction.
+- **Drivers**: written for the app, with no extra libraries: SQLite through the system library;
+  PostgreSQL's wire protocol (password, MD5 and SCRAM-SHA-256 sign-in; TLS with *Prefer*,
+  *Require* or *Verify Full*, with an optional root certificate); MySQL's and MariaDB's protocol
+  (`caching_sha2_password`, sending the password encrypted with the server's RSA key when there's
+  no TLS, and `mysql_native_password`). SCRAM channel binding (`-PLUS`) isn't used.
+
+To run the integration tests against real servers, `eval "$(scripts/dbtest/start.sh)"` starts
+throwaway PostgreSQL and MySQL servers (Homebrew's) in a temporary folder on free ports and prints
+the `OMC_TEST_*` URLs; pass them to the tests with a `TEST_RUNNER_` prefix (for example
+`TEST_RUNNER_OMC_TEST_POSTGRES_URL="$OMC_TEST_POSTGRES_URL" xcodebuild … test`), then
+`scripts/dbtest/stop.sh "$OMC_DBTEST_DIR"`. Without them those tests are skipped.
+
 ## GitHub pull requests
 The Pull Requests sidebar lists the repository's open pull requests through the GitHub CLI
 (`brew install gh`, then `gh auth login`). Each one shows its author, branch, draft state and

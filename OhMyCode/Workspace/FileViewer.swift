@@ -18,6 +18,8 @@ protocol ViewerZoomable: AnyObject {
 final class FileViewer: Identifiable {
     enum Kind: Equatable {
         case image, svg, pdf, hex
+        /// A SQLite file: its tables, a query on it (see DatabaseFileView).
+        case database
 
         /// The viewer for a kind of file (none for text).
         init?(_ kind: FileKind) {
@@ -27,6 +29,7 @@ final class FileViewer: Identifiable {
             case .svg: self = .svg
             case .pdf: self = .pdf
             case .binary: self = .hex
+            case .sqlite: self = .database
             }
         }
     }

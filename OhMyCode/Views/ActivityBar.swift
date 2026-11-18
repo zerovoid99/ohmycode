@@ -24,6 +24,7 @@ struct ActivityBar: View {
         Item(mode: .outline, symbol: "list.bullet.indent", command: "view.outline"),
         Item(mode: .history, symbol: "clock.arrow.circlepath", command: nil),
         Item(mode: .pullRequests, symbol: "arrow.triangle.pull", command: nil),
+        Item(mode: .database, symbol: "cylinder.split.1x2", command: nil),
         Item(mode: .extensions, symbol: "puzzlepiece.extension", command: nil),
     ]
 
@@ -43,7 +44,7 @@ struct ActivityBar: View {
                                        badge: badge(for: item.mode)) {
                             workspace.sidebarMode = item.mode
                         }
-                        .disabled(workspace.rootNode == nil && item.mode != .files && item.mode != .extensions)
+                        .disabled(workspace.rootNode == nil && item.mode != .files && item.mode != .extensions && item.mode != .database)
                     }
                 }
                 .padding(.top, 4)

@@ -94,6 +94,11 @@ extension EditorController {
         if id == "view.toggleWordWrap" { toggleWordWrap(); return true }
         if id == "ai.triggerSuggestion" { inlineSuggestions.trigger(); return true }
         if id == "ai.editSelection" { inlineEdit.begin(); return true }
+        // In a SQL file, ⌘↩ and ⇧⌘↩ (Insert Line Below / Above elsewhere) run SQL.
+        if document.language == .sql, let workspace = document.workspace {
+            if id == LineCommand.insertBelow.id { workspace.runSQL(.statementAtCaret, in: document); return true }
+            if id == LineCommand.insertAbove.id { workspace.runSQL(.selectionOrFile, in: document); return true }
+        }
         guard let command = LineCommand.command(id: id) else { return false }
         perform(command)
         return true

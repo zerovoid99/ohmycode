@@ -71,6 +71,9 @@ struct EditorGroupView: View {
             } else if let tab = workspace.http.responseTab(id: group.activeDocumentID) {
                 HTTPResponseView(tab: tab, workspace: workspace)
                     .id(tab.id)
+            } else if let tab = workspace.database.resultsTab(id: group.activeDocumentID) {
+                DatabaseResultsView(tab: tab, workspace: workspace)
+                    .id(tab.id)
             } else {
                 StartPageView(workspace: workspace)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

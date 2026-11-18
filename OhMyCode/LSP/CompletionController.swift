@@ -55,7 +55,7 @@ final class CompletionController {
     /// Whether anything can complete here: the language server or an extension.
     private var canComplete: Bool {
         client != nil || editor.document.extensionHost?.hasProviders(.completion, for: editor.document) == true
-            || !snippets.isEmpty || editor.document.language == .http
+            || !snippets.isEmpty || editor.document.language == .http || editor.document.language == .sql
     }
 
     /// The language's snippets (offered while typing a word).
@@ -79,6 +79,7 @@ final class CompletionController {
     private var triggerCharacters: Set<String> {
         Set(client?.triggerCharacters ?? []).union(editor.document.extensionHost?.completionTriggers(for: editor.document) ?? [])
             .union(editor.document.language == .http ? ["{", "/"] : [])
+            .union(editor.document.language == .sql ? ["."] : [])
     }
 
     func textDidChange(typed: String?) {
@@ -139,6 +140,11 @@ final class CompletionController {
             var extra = fromExtensions
             if document.language == .http {
                 let items = document.httpCompletions(at: cursor, firstID: 3_000_000)
+                if !items.isEmpty { extra = ((extra?.items ?? []) + items, extra?.isIncomplete ?? false) }
+            }
+            // A SQL file's: its connection's tables and columns, and keywords.
+            if document.language == .sql {
+                let items = document.sqlCompletions(at: cursor, firstID: 3_000_000)
                 if !items.isEmpty { extra = ((extra?.items ?? []) + items, extra?.isIncomplete ?? false) }
             }
             self?.finishRequest(server: result, extensions: extra, trigger: trigger, cursor: cursor)

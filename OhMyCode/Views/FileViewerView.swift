@@ -14,6 +14,7 @@ struct FileViewerView: View {
         case .image, .svg: ImageViewerView(viewer: viewer, workspace: workspace)
         case .pdf: PDFViewerView(viewer: viewer)
         case .hex: HexViewerView(viewer: viewer, workspace: workspace)
+        case .database: DatabaseFileView(viewer: viewer, workspace: workspace)
         }
     }
 }

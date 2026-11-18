@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 /// What a file is, for opening it: text goes to the editor, the rest to a viewer tab.
 enum FileKind: String, Equatable, Sendable {
     case text, image, svg, pdf, binary
+    /// A SQLite database (by its header): opens in the database explorer.
+    case sqlite
 
     /// How many bytes are looked at to tell text from binary (as `EditorDocument` does).
     static let sniffLength = 8192
@@ -22,8 +24,12 @@ enum FileKind: String, Equatable, Sendable {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return .text } // opening says why
         defer { try? handle.close() }
         let head = (try? handle.read(upToCount: sniffLength)) ?? Data()
+        if head.starts(with: sqliteHeader) { return .sqlite }
         return isText(head, complete: size <= sniffLength) ? .text : .binary
     }
+
+    /// The first 16 bytes of every SQLite database file.
+    static let sqliteHeader = Data("SQLite format 3\u{0}".utf8)
 
     /// The kind an extension alone settles, if it does.
     static func kind(forExtension pathExtension: String) -> FileKind? {
