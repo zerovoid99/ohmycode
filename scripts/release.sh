@@ -69,7 +69,7 @@ if ! $local_mode; then
     # The commit being released passed CI (skip with OMC_RELEASE_SKIP_CI=1, e.g. CI is down).
     if [[ ${OMC_RELEASE_SKIP_CI:-} != 1 ]]; then
         ci=$(gh run list -R $REPO --workflow ci.yml --commit "$(git rev-parse HEAD)" --json status,conclusion \
-            --jq '.[0] | "\(.status) \(.conclusion)"' 2>/dev/null)
+            --jq '.[0] | "\(.status) \(.conclusion)"' 2>/dev/null || true)
         [[ $ci == "completed success" ]] || die "CI for $(git rev-parse --short HEAD) isn't green (${ci:-no run}); wait for it or set OMC_RELEASE_SKIP_CI=1"
     fi
     git rev-parse -q --verify "refs/tags/$TAG" >/dev/null && die "$TAG exists already"
