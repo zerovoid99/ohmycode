@@ -5,6 +5,40 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Added
+- Run and Debug finds an Xcode project's (or workspace's) Mac apps and command-line tools by
+  itself, built with `xcodebuild` first, and offers Python: Current File in a folder with
+  Python. Look Again for Programs (in its ⋯ menu) finds them after a change.
+- Breakpoints can all be turned off or on at once, and each removed with its × on hover.
+
+### Changed
+- Run and Debug, reworked: a compact start bar (run, configuration, menu), a toolbar with
+  hover states and a status dot while debugging, collapsible sections with counts, breakpoint
+  rows that show their folder, condition or log message and mark as the gutter does, watch
+  rows with edit and remove on hover (and "—" until the program pauses), and the exception
+  breakpoints in one row with a menu instead of six checkboxes.
+- The Agent panel, reworked: a header like the other panels (agent menu, status dot, New
+  Thread, a ⋯ menu with Show Log), the thread's title, a rounded prompt box with attachment
+  chips and a toolbar (attach, settings, send or stop), tool calls that expand only when there's
+  more to see, a Copy button on code blocks, a plan that shows how much is done (and scrolls
+  when long), permission requests as a card, and one layout for the empty, starting, failed
+  and sign-in screens. Command output and code backgrounds follow the theme.
+- The activity bar: the active panel's mark sits against the window edge, the icons are
+  centered in the bar, and badges (changed files, an agent waiting or at work, a debug
+  session) cut a ring out of the icon behind them and no longer run into the sidebar's edge.
+
+### Fixed
+- The Agent panel: a prompt sent while a new thread was opening went to the old one and was
+  lost; a failed sign-in said nothing; ⌘↩ sent the prompt even while typing elsewhere; the
+  conversation jumped to the bottom on every chunk while you read further up, and didn't follow
+  command output or a permission request; attaching the same lines twice added them twice.
+- Claude Code no longer lists Oh My Code windows that are gone: the lock files of windows
+  whose app crashed or was killed are removed. A run started with `OMC_SUPPORT_DIR` keeps
+  its lock files in that folder, and the tests keep the chosen agent out of your settings.
+- The editor no longer seems to scroll by itself: scrolling up after jumping somewhere (a
+  search result, Go to Line, the minimap) or after a pause, the lines on screen jumped by up to
+  a few lines as the ones coming into view were laid out, most with word wrap (Markdown).
+
 ## [0.2.3] - 2026-11-18
 
 ### Added

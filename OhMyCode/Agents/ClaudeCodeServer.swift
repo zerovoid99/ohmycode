@@ -29,7 +29,7 @@ final class ClaudeCodeServer {
 
     /// Where lock files go (tests: a scratch folder).
     nonisolated(unsafe) static var lockDirectoryOverride: URL?
-    static let ideName = "Oh My Code"
+    nonisolated static let ideName = "Oh My Code"
     nonisolated static let headerName = "x-claude-code-ide-authorization"
 
     private final class Client {
@@ -115,6 +115,8 @@ final class ClaudeCodeServer {
         if let lockDirectoryOverride { return lockDirectoryOverride }
         // Tests never touch the real one (a running `claude` would see their windows).
         if AppSettings.isRunningTests { return FileManager.default.temporaryDirectory.appending(path: "omc-test-claude-ide") }
+        // Nor a run started with its own support folder (a trial run, the launch benchmark).
+        if UserDefaults.isolated { return URL.omcApplicationSupport.appending(path: "OhMyCode/claude-ide") }
         if let configured = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !configured.isEmpty {
             return URL(filePath: configured).appending(path: "ide")
         }
@@ -137,6 +139,7 @@ final class ClaudeCodeServer {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                     attributes: [.posixPermissions: 0o700])
+            Self.removeStaleLockFiles(in: directory)
             let data = try JSONSerialization.data(withJSONObject: lock, options: [.sortedKeys])
             let temporary = directory.appending(path: ".\(port).lock.\(UUID().uuidString)")
             // Made 0600 from the start (FileManager sets the permissions after writing): the
@@ -150,6 +153,21 @@ final class ClaudeCodeServer {
             lockURL = url
         } catch {
             lockURL = nil
+        }
+    }
+
+    /// Removes the lock files of this app's windows whose process is gone (it crashed or was
+    /// killed, so it couldn't remove them): `claude` would list those windows. Other IDEs'
+    /// are left alone.
+    nonisolated static func removeStaleLockFiles(in directory: URL) {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for file in files where file.pathExtension == "lock" {
+            guard let data = try? Data(contentsOf: file),
+                  let lock = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  lock["ideName"] as? String == ideName, let pid = lock["pid"] as? Int, pid > 0,
+                  kill(pid_t(pid), 0) != 0, errno == ESRCH
+            else { continue }
+            try? FileManager.default.removeItem(at: file)
         }
     }
 

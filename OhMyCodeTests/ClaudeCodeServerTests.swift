@@ -155,6 +155,26 @@ struct ClaudeCodeServerTests {
         #expect(listed == [fixture.root.path, second.path])
     }
 
+    /// Lock files left by this app's windows whose process is gone are removed; live ones,
+    /// and other IDEs', stay.
+    @Test func removesLockFilesOfWindowsThatAreGone() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "omc-stale-locks-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // A pid no process has (above the system's maximum).
+        let gone = 99_999_999
+        let own = Int(ProcessInfo.processInfo.processIdentifier)
+        let locks: [(String, String, Int)] = [("1.lock", "Oh My Code", gone), ("2.lock", "Oh My Code", own), ("3.lock", "Visual Studio Code", gone)]
+        for (name, ide, pid) in locks {
+            let data = try JSONSerialization.data(withJSONObject: ["ideName": ide, "pid": pid, "workspaceFolders": ["/tmp"]])
+            try data.write(to: directory.appending(path: name))
+        }
+        try "not json".write(to: directory.appending(path: "4.lock"), atomically: true, encoding: .utf8)
+        ClaudeCodeServer.removeStaleLockFiles(in: directory)
+        let left = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+        #expect(left == ["2.lock", "3.lock", "4.lock"])
+    }
+
     @Test func writesALockFileAndTakesOnlyItsToken() async throws {
         let fixture = try makeFixture()
         defer { tearDown(fixture) }
