@@ -8,11 +8,11 @@ fully before starting, honor its STOP conditions, and update your row when done.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| [001](001-agent-guide-and-ci.md) | Write down the repo's rules (CLAUDE.md) and run the tests in CI | P1 | S–M | — | DONE (approved 2026-11-19; branch `worktree-agent-a7e521923313cd194`, not merged) |
+| [001](001-agent-guide-and-ci.md) | Write down the repo's rules (CLAUDE.md) and run the tests in CI | P1 | S–M | — | DONE (merged 4972743..75b5b7a) — follow-up merged (`ci: run on the Xcode 27 image`): first CI run failed on Xcode 26.6 |
 | [002](002-extension-permission-boundary.md) | Extensions only get approved permissions; no code running or outside edits without them | P1 | M | 001 (soft) | TODO |
-| [003](003-symlinked-file-external-changes.md) | Notice external changes to files opened through a symlink | P1 | S | — | TODO |
-| [004](004-language-server-shutdown-safety.md) | Stop language servers without crashing or leaving hung processes | P1 | S | — | TODO |
-| [005](005-database-auth-and-parsing-safety.md) | No MySQL password without TLS; bad server data fails the query, not the app | P1 | S | — | TODO |
+| [003](003-symlinked-file-external-changes.md) | Notice external changes to files opened through a symlink | P1 | S | — | DONE (approved and merged 2026-11-19) |
+| [004](004-language-server-shutdown-safety.md) | Stop language servers without crashing or leaving hung processes | P1 | S | — | DONE (approved and merged 2026-11-19) |
+| [005](005-database-auth-and-parsing-safety.md) | No MySQL password without TLS; bad server data fails the query, not the app | P1 | S | — | DONE (approved and merged 2026-11-19) |
 | [006](006-workspace-trust.md) | Workspace trust: a new folder's tooling waits until the user trusts it | P2 | L | 001, 002 | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
@@ -26,6 +26,8 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 ## Other findings from the 2026-11-19 audit (not planned yet)
 
 Vetted and real, lower leverage — candidates for a later round:
+
+- (found while reviewing 004) `OhMyCodeTests/RangeFormattingTests.swift:38-49` `formatOnSaveCanFormatOnlyChangedLines` failed twice under heavy load (load avg 80+), on trees with and without plan 004, and passed in quiet full runs (01:57 and 04:03, 859/859 with 003+004+005 combined): a timing-dependent race, likely — the test sets `document.setDiffBase(...)` by hand while the workspace's async git refresh for the (non-git) temp folder can reset it, so the whole file gets formatted. Investigate; S.
 
 - Debugger pre-launch build output loses its last lines (the compiler error) — `OhMyCode/Debug/DebugSession.swift:451-463`; drain the pipe after exit like `ProcessIO.collect`. S.
 - A rename that can't reopen a file (e.g. one opened with "Open as Text Anyway") leaves its tab saving to the old path — `OhMyCode/Workspace/Workspace+Files.swift:217-225`. S.

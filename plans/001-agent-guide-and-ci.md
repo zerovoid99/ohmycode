@@ -198,3 +198,16 @@ No Swift tests change. Verification is: the workflow YAML parses; the exact CI t
 - When a new timing-sensitive suite is added, decide whether CI should skip it like the two guards.
 - If the maintainer adds a self-hosted runner later, the two skipped suites can run there.
 - Reviewers: check `CLAUDE.md` says nothing that contradicts the code (paths and command names are exact).
+
+## Follow-up (2026-11-19, after merge)
+
+The first CI run (44388897967) failed in "Build and test": the `macos-latest` label resolves to the
+`macos-26-arm64` image, whose Xcode is 26.6 (newest installed there: 26.6). The project needs Xcode 27
+(the maintainer builds with 27.2); under 26.6 it fails to compile (e.g. `OhMyCode/Git/GitStatus.swift:1023`
+`replaceSubrange` with `BlameLine?`, `OhMyCode/Workspace/Folding.swift:237` conditional binding of a
+non-optional). GitHub offers Xcode 27 as a preview image label `xcode-27` (actions/runner-images#14404).
+
+Fix: in `.github/workflows/ci.yml`, change `runs-on: macos-latest` to `runs-on: xcode-27`. Nothing else.
+Verify: `ruby -ryaml -e 'YAML.load_file(".github/workflows/ci.yml")'` → exit 0;
+`grep -n "runs-on: xcode-27" .github/workflows/ci.yml` → one match. The real check is the next CI run after
+the maintainer pushes. Do not change app code to compile under Xcode 26.6.
