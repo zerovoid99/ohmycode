@@ -299,12 +299,14 @@ actor MySQLDriver: DatabaseDriver {
                 } else if more == [0x04] {
                     // Full authentication: the password in clear over TLS, else RSA-encrypted.
                     signInPath = plugin + (wire.usesTLS ? " full (TLS)" : " full (RSA)")
+                    try requirePasswordSafe()
                     if wire.usesTLS {
                         try await writePacket(Data(Array(password.utf8) + [0]))
                     } else {
                         try await writePacket(Data([0x02]))
                     }
                 } else if let pem = String(bytes: more, encoding: .utf8), pem.contains("BEGIN") {
+                    try requirePasswordSafe()
                     let encrypted = try MySQLAuth.rsaEncrypt(MySQLAuth.xorPassword(password, scramble: scramble), publicKeyPEM: pem)
                     try await writePacket(encrypted)
                 } else {
@@ -316,11 +318,30 @@ actor MySQLDriver: DatabaseDriver {
         }
     }
 
+    /// Whether the password (in clear, or encrypted with a key the server sends) may go to this
+    /// server: over TLS, or to this Mac itself, where nobody sits in between. MySQL's own client
+    /// refuses both otherwise, unless asked to.
+    static func mayRevealPassword(usesTLS: Bool, host: String) -> Bool {
+        if usesTLS { return true }
+        let host = host.trimmingCharacters(in: .whitespaces).lowercased()
+        return host == "localhost" || host == "127.0.0.1" || host == "::1" || host.hasPrefix("/")
+    }
+
+    private func requirePasswordSafe() throws {
+        guard Self.mayRevealPassword(usesTLS: wire.usesTLS, host: config.host) else {
+            throw DBError.connection("The server needs the full password, which is only sent over an encrypted connection. Turn on SSL (Require or Verify Full) for this connection.")
+        }
+    }
+
     private func authResponse(plugin: String, password: String, scramble: [UInt8]) throws -> [UInt8] {
         switch plugin {
         case "mysql_native_password": return MySQLAuth.nativePassword(password, scramble: scramble)
         case "caching_sha2_password": return MySQLAuth.cachingSHA2(password, scramble: scramble)
-        case "mysql_clear_password": return Array(password.utf8) + [0]
+        case "mysql_clear_password":
+            guard Self.mayRevealPassword(usesTLS: wire.usesTLS, host: config.host) else {
+                throw DBError.connection("The server asks for the password in clear text without an encrypted connection. Turn on SSL (Require or Verify Full) for this connection.")
+            }
+            return Array(password.utf8) + [0]
         default: throw DBError.connection("The server asks for the “\(plugin)” sign-in method, which isn't supported.")
         }
     }
@@ -413,7 +434,10 @@ actor MySQLDriver: DatabaseDriver {
                 continue
             } else {
                 var reader = ByteReader(bytes: first)
-                let count = Int(try reader.lengthEncodedInt() ?? 0)
+                guard let count = Int(exactly: try reader.lengthEncodedInt() ?? 0) else {
+                    throw DBError.connection("A message from the server was cut short.")
+                }
+                guard count <= 4096 else { throw DBError.connection("The server sent a malformed result.") }
                 var columns: [ColumnDefinition] = []
                 for _ in 0..<count {
                     var r = ByteReader(bytes: try await readPacket())

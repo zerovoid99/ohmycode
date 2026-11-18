@@ -417,7 +417,7 @@ struct ByteReader {
     }
 
     mutating func bytes(_ count: Int) throws -> [UInt8] {
-        guard count >= 0, index + count <= data.count else { throw DBError.connection("A message from the server was cut short.") }
+        guard count >= 0, count <= data.count - index else { throw DBError.connection("A message from the server was cut short.") }
         defer { index += count }
         return Array(data[index..<index + count])
     }
@@ -470,7 +470,8 @@ struct ByteReader {
 
     mutating func lengthEncodedBytes() throws -> [UInt8]? {
         guard let length = try lengthEncodedInt() else { return nil }
-        return try bytes(Int(length))
+        guard let size = Int(exactly: length) else { throw DBError.connection("A message from the server was cut short.") }
+        return try bytes(size)
     }
 
     mutating func lengthEncodedString() throws -> String {

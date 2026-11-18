@@ -307,6 +307,7 @@ actor PostgresDriver: DatabaseDriver {
             case UInt8(ascii: "T"):
                 var reader = ByteReader(body)
                 let count = Int(try reader.int16())
+                guard count >= 0 else { throw DBError.connection("The server sent a malformed result.") }
                 var set = DBResultSet()
                 oids = []
                 for _ in 0..<count {

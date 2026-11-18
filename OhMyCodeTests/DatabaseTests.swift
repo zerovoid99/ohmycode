@@ -221,6 +221,22 @@ struct DatabaseProtocolTests {
         #expect(PostgresDriver.md5Hex(Data("md5hex".utf8)) == "38bb196673f7136f814a22e7966e0992")
     }
 
+    @Test func passwordsGoOnlyOverTLSOrToThisMac() {
+        #expect(MySQLDriver.mayRevealPassword(usesTLS: true, host: "db.example.com"))
+        #expect(!MySQLDriver.mayRevealPassword(usesTLS: false, host: "db.example.com"))
+        for host in ["localhost", "127.0.0.1", "::1", "/tmp/mysql.sock", " LocalHost "] {
+            #expect(MySQLDriver.mayRevealPassword(usesTLS: false, host: host), "\(host)")
+        }
+    }
+
+    @Test func malformedLengthsThrowInsteadOfTrapping() {
+        var huge = ByteReader(bytes: [0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])
+        #expect(throws: DBError.self) { try huge.lengthEncodedBytes() }
+        var reader = ByteReader(bytes: [1, 2, 3])
+        #expect(throws: DBError.self) { try reader.bytes(Int.max) }
+        #expect(throws: DBError.self) { try reader.bytes(-1) }
+    }
+
     @Test func rsaEncryptionWithTheServersKey() throws {
         let publicPEM = """
             -----BEGIN PUBLIC KEY-----

@@ -8,6 +8,7 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 ### Fixed
 - A file opened through a symbolic link that another program changed is now noticed (it was
   overwritten by the next save without asking).
+- MySQL connections no longer send the password in clear text, or encrypted with a key the server provides, without an encrypted connection (except to this Mac); malformed replies from a database server fail the query instead of closing the app.
 
 ## [0.2.5] - 2026-11-19
 
