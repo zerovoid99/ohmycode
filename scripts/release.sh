@@ -112,6 +112,11 @@ stage=$(mktemp -d)
 ditto "$APP" "$stage/Oh My Code.app"
 ln -s /Applications "$stage/Applications"
 hdiutil create -quiet -volname "Oh My Code $VERSION" -srcfolder "$stage" -fs HFS+ -format UDZO -ov "$DMG"
+# Launch Services registered the built copies: left registered, they show in Spotlight and
+# Launchpad as more copies of the app (and stay listed once their folder is gone).
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+"$LSREGISTER" -u "$APP" 2>/dev/null || true
+"$LSREGISTER" -u "$stage/Oh My Code.app" 2>/dev/null || true
 rm -rf "$stage"
 signature=$("$TOOLS/sign_update" --account $KEY_ACCOUNT "$DMG")  # sparkle:edSignature="…" length="…"
 sha=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
