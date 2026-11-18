@@ -28,8 +28,44 @@ struct LanguageClientTests {
         return LanguageServerConfig(name: server.name, command: server.command + ["--full-sync"], languages: server.languages)
     }
 
+    /// The fake server never answering `shutdown`, like a stuck one.
+    static var ignoringShutdownServer: LanguageServerConfig {
+        let server = fakeServer
+        return LanguageServerConfig(name: server.name, command: server.command + ["--ignore-shutdown"], languages: server.languages)
+    }
+
     func makeWorkspace(text: String, files: [String: String] = [:]) throws -> (Workspace, EditorDocument, EditorController, NSWindow) {
         try Self.makeWorkspace(text: text, files: files)
+    }
+
+    /// A stuck server (never answers `shutdown`) is ended anyway, not left running.
+    @Test func aServerThatIgnoresShutdownIsStoppedAnyway() async throws {
+        let previous = LanguageClient.shutdownTimeout
+        LanguageClient.shutdownTimeout = .milliseconds(300)
+        defer { LanguageClient.shutdownTimeout = previous }
+        let (workspace, document, _, window) = try Self.makeWorkspace(text: "let a = 1\n", server: Self.ignoringShutdownServer)
+        #expect(try await eventually { document.languageClient?.state == .ready })
+        let client = try #require(document.languageClient)
+        #expect(client.isServerRunning)
+        client.shutdown()
+        #expect(try await eventually(timeout: .seconds(5)) { client.state == .stopped && !client.isServerRunning })
+        withExtendedLifetime((workspace, window)) {}
+    }
+
+    /// The last reference can go while the read handler runs: `deinit` then runs on the read
+    /// queue, where a sync onto it would deadlock.
+    @Test func terminatingFromTheReadQueueDoesNotDeadlock() async throws {
+        let connection = try LanguageServerConnection(command: ["/bin/cat"], directory: FileManager.default.temporaryDirectory,
+                                                      environment: [:])
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            connection.onReadQueue {
+                connection.terminate()
+                continuation.resume()
+            }
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while connection.isRunning, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(!connection.isRunning)
     }
 
     /// Writing to a server that exited fails quietly (SIGPIPE would kill the app).

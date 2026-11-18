@@ -9,6 +9,8 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 - A file opened through a symbolic link that another program changed is now noticed (it was
   overwritten by the next save without asking).
 - MySQL connections no longer send the password in clear text, or encrypted with a key the server provides, without an encrypted connection (except to this Mac); malformed replies from a database server fail the query instead of closing the app.
+- Restarting or stopping a language server that stopped answering now ends it (it kept running),
+  and stopping an agent or server while it's sending a large message can't crash the app.
 
 ## [0.2.5] - 2026-11-19
 

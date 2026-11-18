@@ -7,7 +7,8 @@ With --workspace-folders it takes several workspace folders; omc/workspaceFolder
 the ones it started with and the changes it was sent. With --extras it registers file
 watchers once initialized; omc/askConfiguration, omc/ping, omc/progress and omc/state exercise
 settings, custom messages and progress for servers extensions contribute. With --colors it
-reports "@color(r,g,b)" as colors (documentColor, colorPresentation)."""
+reports "@color(r,g,b)" as colors (documentColor, colorPresentation). With --ignore-shutdown it
+never answers the shutdown request (a stuck server); exit still exits."""
 import json, os, re, sys
 from urllib.parse import unquote, urlparse, quote
 
@@ -551,7 +552,10 @@ while True:
     elif method == "omc/text":
         send({"jsonrpc": "2.0", "id": mid, "result": docs.get(params["uri"])})
     elif method == "shutdown":
-        send({"jsonrpc": "2.0", "id": mid, "result": None})
+        if "--ignore-shutdown" in sys.argv:
+            pass  # never answers, like a stuck server
+        else:
+            send({"jsonrpc": "2.0", "id": mid, "result": None})
     elif method == "exit":
         sys.exit(0)
     elif mid is not None:

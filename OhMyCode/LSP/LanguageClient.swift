@@ -30,6 +30,8 @@ final class LanguageClient {
     private(set) var state = State.starting
 
     @ObservationIgnored private let connection: LanguageServerConnection
+    /// Whether the server process is still alive.
+    var isServerRunning: Bool { connection.isRunning }
     @ObservationIgnored private let rootURL: URL
     @ObservationIgnored private var nextID = 1
     @ObservationIgnored private var pending: [Int: CheckedContinuation<JSONBox, Error>] = [:]
@@ -236,6 +238,10 @@ final class LanguageClient {
         for continuation in waiting { continuation.resume(throwing: LanguageServerError(message: message)) }
     }
 
+    /// How long `shutdown()` waits for the server's reply to `shutdown` before ending it anyway.
+    /// Tests shorten it.
+    nonisolated(unsafe) static var shutdownTimeout: Duration = .seconds(2)
+
     func shutdown() {
         guard state == .ready else {
             // Still starting (or failed): nothing to say goodbye to; what waits ends now.
@@ -245,7 +251,20 @@ final class LanguageClient {
             return
         }
         Task {
-            _ = try? await request("shutdown", params: nil)
+            // The reply, or the timeout, whichever comes first (`ExtensionHost.within` can't carry
+            // the non-Sendable reply). A request that timed out is failed by `failPending` below.
+            let once = ShutdownOnce()
+            let timeout = Self.shutdownTimeout
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                Task {
+                    _ = try? await self.request("shutdown", params: nil)
+                    if once.claim() { continuation.resume() }
+                }
+                Task {
+                    try? await Task.sleep(for: timeout)
+                    if once.claim() { continuation.resume() }
+                }
+            }
             notify("exit", params: nil)
             connection.terminate()
             state = .stopped
@@ -1052,4 +1071,11 @@ final class LanguageClient {
             write(response, force: true)
         }
     }
+}
+
+/// True for the first `claim()` only, from any thread.
+private final class ShutdownOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    func claim() -> Bool { lock.withLock { defer { done = true }; return !done } }
 }
