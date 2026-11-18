@@ -50,6 +50,11 @@ struct TabBarView: View {
                                 workspace.activeDocumentID = tab.id
                                 workspace.showFileHistory()
                             }
+                            Divider()
+                            Button("Compare with…") { Task { await workspace.pickFileToCompare(with: fileURL) } }
+                            Button("Compare with Clipboard") { workspace.compareWithClipboard(fileURL) }
+                            Button("Compare with Saved") { workspace.compareWithSaved(fileURL) }
+                                .disabled(workspace.document(id: tab.id)?.isDirty != true)
                         }
                         if fileURL != nil || isViewer {
                             Divider()

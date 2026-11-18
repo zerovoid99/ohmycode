@@ -21,6 +21,9 @@ final class DiffSession: Identifiable {
         case history(LocalHistoryEntry)
         /// A change a coding agent proposes: the file's text against the proposed text, fixed.
         case proposed(ProposedChange)
+        /// Compare files: another file, the clipboard or the saved file against the editor's text
+        /// (live, like compare), or two binary files.
+        case files(FileComparison)
     }
 
     let id = UUID()
@@ -67,10 +70,32 @@ final class DiffSession: Identifiable {
         self.ownsDocument = ownsDocument
     }
 
+    /// Compares the editor's text with another file, the clipboard or the saved file.
+    init(document: EditorDocument, ownsDocument: Bool, comparing comparison: FileComparison) {
+        mode = .files(comparison)
+        url = document.url
+        self.document = document
+        self.ownsDocument = ownsDocument
+    }
+
+    /// Two files that aren't both text: only whether they're the same is shown.
+    init(binary comparison: FileComparison, of url: URL, identical: Bool) {
+        mode = .files(comparison)
+        self.url = url
+        document = nil
+        ownsDocument = false
+        binaryDifference = !identical
+        isLoaded = true
+    }
+
+    /// Set when the files aren't text: whether they differ.
+    private(set) var binaryDifference: Bool?
+
     /// Loaded text on the left against the live document on the right (compare, history).
     var isLiveComparison: Bool {
         switch mode {
         case .compare, .history: true
+        case .files: document != nil
         default: false
         }
     }
@@ -139,6 +164,7 @@ final class DiffSession: Identifiable {
         case .history(let entry): "\(fileName) (\(Self.short(entry.date)) ↔ Current)"
         case .conflict: "\(fileName) (Current ↔ Incoming)"
         case .proposed(let change): change.title.isEmpty ? "\(fileName) (Proposed)" : change.title
+        case .files(let comparison): comparison.title(right: url)
         }
     }
 
@@ -151,6 +177,9 @@ final class DiffSession: Identifiable {
         case .history(let entry): "\(url.path) — local history (\(entry.reason.title), \(Self.short(entry.date))) ↔ current"
         case .conflict(let conflict): "\(url.path) — merge conflict: \(conflict.currentLabel) ↔ \(conflict.incomingLabel)"
         case .proposed(let change): "\(url.path) — proposed by \(change.source)"
+        case .files(.file(let left)): "\(left.path) ↔ \(url.path)"
+        case .files(.clipboard): "Clipboard ↔ \(url.path)"
+        case .files(.saved): "\(url.path) — saved ↔ edited"
         }
     }
 
@@ -164,6 +193,9 @@ final class DiffSession: Identifiable {
         case .history(let entry): ("\(entry.reason.title) \(Self.short(entry.date))", "Current")
         case .conflict(let conflict): ("Current: \(conflict.currentLabel)", "Incoming: \(conflict.incomingLabel)")
         case .proposed(let change): (change.old == nil ? "(new file)" : "Current", "Proposed by \(change.source)")
+        case .files(.file(let left)): { let names = FileComparison.distinctNames(left, url); return (names.left, names.right) }()
+        case .files(.clipboard): ("Clipboard", fileName)
+        case .files(.saved): ("Saved", "Edited")
         }
     }
 
@@ -187,6 +219,7 @@ final class DiffSession: Identifiable {
         switch mode {
         case .workingTree: document?.diffHunks ?? []
         case .compare, .history: compareHunks
+        case .files: isLiveComparison ? compareHunks : loadedHunks
         case .staged, .commit, .conflict, .proposed: loadedHunks
         }
     }
@@ -333,7 +366,11 @@ struct DiffView: View {
         VStack(spacing: 0) {
             header(hunks: hunks, count: starts.count)
             Divider()
-            if session.baseLines == nil {
+            if let differ = session.binaryDifference {
+                ContentUnavailableView(differ ? "Binary Files Differ" : "Binary Files Are Identical", systemImage: "doc.on.doc",
+                                       description: Text(differ ? "The files aren't text, so only that they differ is shown."
+                                                         : "The files aren't text; their bytes are the same."))
+            } else if session.baseLines == nil {
                 if isStaged {
                     if session.isLoaded {
                         ContentUnavailableView("Nothing Staged", systemImage: "tray",
@@ -399,6 +436,9 @@ struct DiffView: View {
         case .history: "The file matches this saved version."
         case .conflict: "Both sides of the conflict are the same."
         case .proposed: "The proposed text is the same as the file's."
+        case .files(.clipboard): "The file matches the clipboard."
+        case .files(.saved): "The edits leave the file as it's saved."
+        case .files(.file): "The files have the same content."
         }
     }
 
@@ -456,7 +496,7 @@ struct DiffView: View {
         return HStack(spacing: 10) {
             Text(session.sideLabels.base).font(.caption.weight(.semibold).monospaced()).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 6) {
+            if session.binaryDifference == nil { HStack(spacing: 6) {
                 Text("+\(added)").foregroundStyle(.green)
                 Text("−\(removed)").foregroundStyle(.red)
                 Text("~\(changed)").foregroundStyle(.orange)
@@ -466,11 +506,16 @@ struct DiffView: View {
                 .help("Previous Change").disabled(count == 0)
             Button { currentChange = min(count - 1, currentChange + 1) } label: { Image(systemName: "arrow.down") }
                 .help("Next Change").disabled(count == 0)
+            }
             if canEdit {
                 Button {
                     workspace.openChanges(for: session.url, staged: !isStaged)
                 } label: { Image(systemName: isStaged ? "pencil.and.list.clipboard" : "tray.full") }
                     .help(isStaged ? "Show Working Tree Changes" : "Show Staged Changes")
+            }
+            if case .files(.file) = session.mode {
+                Button { workspace.swapSides(of: session) } label: { Image(systemName: "arrow.left.arrow.right") }
+                    .help("Swap Sides")
             }
             Button {
                 workspace.open(fileAt: session.url)
@@ -595,4 +640,37 @@ struct ConflictComparison: Hashable, Sendable {
     let incoming: String
     let currentLabel: String
     let incomingLabel: String
+}
+
+/// What a file is compared with (Compare Files): the left side of the diff tab.
+enum FileComparison: Hashable, Sendable {
+    /// Another file (its text when compared).
+    case file(URL)
+    /// The clipboard's text when compared.
+    case clipboard
+    /// The file as it is on disk, against its unsaved edits.
+    case saved
+
+    /// The tab's title for `right` compared with this: "a.swift ↔ b.swift" (with their folders
+    /// when the names are the same), "a.swift (Clipboard)", "a.swift (Saved ↔ Edited)".
+    func title(right: URL) -> String {
+        switch self {
+        case .file(let left):
+            let names = Self.distinctNames(left, right)
+            return "\(names.left) ↔ \(names.right)"
+        case .clipboard: return "\(right.lastPathComponent) (Clipboard)"
+        case .saved: return "\(right.lastPathComponent) (Saved ↔ Edited)"
+        }
+    }
+
+    /// Names for two files or folders that tell them apart: their own names, or with the same
+    /// name, the nearest folders above them that differ ("left/main.swift", "a/…/main.swift").
+    static func distinctNames(_ left: URL, _ right: URL) -> (left: String, right: String) {
+        let a = left.lastPathComponent, b = right.lastPathComponent
+        let above = (left: Array(left.deletingLastPathComponent().pathComponents.reversed()),
+                     right: Array(right.deletingLastPathComponent().pathComponents.reversed()))
+        guard a == b, let depth = zip(above.left, above.right).enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset else { return (a, b) }
+        let gap = depth == 0 ? "/" : "/…/"
+        return (above.left[depth] + gap + a, above.right[depth] + gap + b)
+    }
 }

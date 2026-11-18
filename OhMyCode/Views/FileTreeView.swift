@@ -65,6 +65,8 @@ private struct ExplorerMenu: View {
             Button("Add Folder to Workspace…") { workspace.presentAddFolderPanel() }
             Button("Remove Folder from Workspace") { workspace.removeFolder(target) }
             Divider()
+            ExplorerCompareMenu(workspace: workspace, target: target)
+            Divider()
             Button("Reveal in Finder") { workspace.revealInFinder(target) }
             Button("Copy Path") { workspace.copyPath(target, relative: false) }
         } else if let target {
@@ -75,6 +77,8 @@ private struct ExplorerMenu: View {
             Button("Reveal in Finder") { workspace.revealInFinder(target) }
             Button("Copy Path") { workspace.copyPath(target, relative: false) }
             Button("Copy Relative Path") { workspace.copyPath(target, relative: true) }
+            Divider()
+            ExplorerCompareMenu(workspace: workspace, target: target)
         } else {
             Divider()
             Button("Add Folder to Workspace…") { workspace.presentAddFolderPanel() }

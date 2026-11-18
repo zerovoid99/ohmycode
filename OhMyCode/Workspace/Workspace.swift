@@ -119,6 +119,8 @@ final class Workspace {
     @ObservationIgnored private(set) lazy var http = HTTPWorkspaceClient(workspace: self)
     /// Database connections, SQL runs and their results tabs (see Workspace+Database.swift).
     @ObservationIgnored private(set) lazy var database = DatabaseWorkspace(workspace: self)
+    /// Compare Files and Folders: the Explorer's pick and folder comparison tabs (see Workspace+Compare.swift).
+    @ObservationIgnored private(set) lazy var comparisons = CompareController(workspace: self)
     /// Split editor panes, left to right; there is always at least one.
     private(set) var groups: [EditorGroup]
     var activeGroupID: EditorGroup.ID {
@@ -2643,6 +2645,8 @@ final class Workspace {
             http.closeResponseTab(tab, in: group)
         } else if let tab = database.resultsTab(id: id) {
             database.closeResultsTab(tab, in: group)
+        } else if let tab = comparisons.folderTab(id: id) {
+            comparisons.closeFolderTab(tab, in: group)
         }
     }
 
@@ -2666,6 +2670,7 @@ final class Workspace {
         if let viewer = viewer(id: id) { return (viewer.fileName, viewer.url.path, false, false) }
         if let tab = http.responseTab(id: id) { return (tab.title, tab.help, false, false) }
         if let tab = database.resultsTab(id: id) { return (tab.title, tab.help, false, false) }
+        if let tab = comparisons.folderTab(id: id) { return (tab.title, tab.help, false, true) }
         return nil
     }
 

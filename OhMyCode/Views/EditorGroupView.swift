@@ -74,11 +74,13 @@ struct EditorGroupView: View {
             } else if let tab = workspace.database.resultsTab(id: group.activeDocumentID) {
                 DatabaseResultsView(tab: tab, workspace: workspace)
                     .id(tab.id)
+            } else if let tab = workspace.comparisons.folderTab(id: group.activeDocumentID) {
+                FolderComparisonView(session: tab, workspace: workspace)
+                    .id(tab.id)
             } else {
                 StartPageView(workspace: workspace)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .editorBackground()
             }
-        }
-    }
+        }    }
 }

@@ -351,6 +351,20 @@ struct PaletteCommand: Identifiable {
         PaletteCommand(id: "history.restore", title: "Local History: Restore a Saved Version…", icon: "arrow.uturn.backward", key: nil,
                        isAvailable: { $0.activeDocument != nil },
                        perform: { workspace in Task { @MainActor in await workspace.pickLocalHistoryEntry(restoring: true) } }),
+        PaletteCommand(id: "compare.activeWith", title: "File: Compare Active File with…", icon: "arrow.left.arrow.right", key: nil,
+                       isAvailable: { $0.activeDocument != nil && $0.rootNode != nil },
+                       perform: { workspace in
+                           guard let url = workspace.activeDocument?.url else { return }
+                           Task { @MainActor in await workspace.pickFileToCompare(with: url) }
+                       }),
+        PaletteCommand(id: "compare.clipboard", title: "File: Compare Active File with Clipboard", icon: "doc.on.clipboard", key: nil,
+                       isAvailable: { $0.activeDocument != nil },
+                       perform: { workspace in if let url = workspace.activeDocument?.url { workspace.compareWithClipboard(url) } }),
+        PaletteCommand(id: "compare.saved", title: "File: Compare Active File with Saved", icon: "square.and.arrow.down.on.square", key: nil,
+                       isAvailable: { $0.activeDocument?.isDirty == true },
+                       perform: { workspace in if let url = workspace.activeDocument?.url { workspace.compareWithSaved(url) } }),
+        PaletteCommand(id: "compare.folder", title: "File: Compare Folder with…", icon: "folder.badge.questionmark", key: nil,
+                       isAvailable: { _ in true }, perform: { $0.presentCompareFolderPanel() }),
         PaletteCommand(id: "view.commandPalette", title: "View: Command Palette…", icon: "command", key: "shift+cmd+p",
                        isAvailable: { _ in true }, perform: { $0.showPalette(.commands) }),
         PaletteCommand(id: "view.zoomIn", title: "View: Zoom In", icon: "plus.magnifyingglass", key: "cmd+=",
