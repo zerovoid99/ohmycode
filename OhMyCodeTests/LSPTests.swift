@@ -492,3 +492,205 @@ struct SourceKitLSPTests {
         withExtendedLifetime((workspace, window)) {}
     }
 }
+
+/// Peek Definition / References: the places' order, the first one shown, when the panel closes,
+/// and the small editor editing the open tab's document.
+@MainActor
+struct PeekTests {
+    private func match(_ line: Int, _ column: Int, _ length: Int = 3) -> SearchMatch {
+        SearchMatch(line: line, column: column, length: length, preview: "preview", previewRange: NSRange(location: 0, length: 3))
+    }
+
+    private func file(_ path: String, _ matches: [SearchMatch]) -> SearchFileResult {
+        SearchFileResult(path: path, url: URL(filePath: "/tmp/peek/" + path), matches: matches)
+    }
+
+    /// The places of several files, by file (as the workspace sorts them) and position;
+    /// duplicates (a server and an extension naming one place) once.
+    @Test func groupsPlacesByFileInPathOrder() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-peek-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appending(path: "Sources"), withIntermediateDirectories: true)
+        try "let a = 1\nprint(a)\nprint(a)\n".write(to: root.appending(path: "Sources/z.swift"), atomically: true, encoding: .utf8)
+        try "func b() { a }\n".write(to: root.appending(path: "b.swift"), atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        workspace.openFolder(root)
+        func location(_ path: String, _ line: Int, _ character: Int) -> LSPLocation {
+            LSPLocation(json: ["uri": root.appending(path: path).absoluteString,
+                               "range": ["start": ["line": line, "character": character], "end": ["line": line, "character": character + 1]]])!
+        }
+        let found = [location("Sources/z.swift", 2, 6), location("b.swift", 0, 11), location("Sources/z.swift", 0, 4),
+                     location("Sources/z.swift", 2, 6), location("Sources/z.swift", 1, 6)]
+        let model = PeekModel(kind: .references, symbol: "a", files: workspace.referenceResults(found))
+        #expect(model.files.map(\.path) == ["b.swift", "Sources/z.swift"])
+        #expect(model.entries.map { "\($0.path):\($0.match.line)" } == ["b.swift:0", "Sources/z.swift:0", "Sources/z.swift:1", "Sources/z.swift:2"])
+        #expect(model.entries[2].match.preview == "print(a)")
+        #expect(model.countText == "4 references")
+        #expect(model.showsList)
+    }
+
+    /// References start at the one under the cursor (else the next in its file, else that
+    /// file's last); definitions at the first. Moving wraps around.
+    @Test func choosesTheInitialPlace() {
+        let files = [file("a.swift", [match(0, 0), match(5, 4)]), file("b.swift", [match(1, 2), match(3, 2), match(9, 0)])]
+        let b = URL(filePath: "/tmp/peek/b.swift")
+        func initial(_ kind: PeekKind, _ url: URL?, _ line: Int, _ character: Int) -> Int {
+            PeekModel(kind: kind, symbol: "x", files: files, origin: url.map { ($0, LSPPosition(line: line, character: character)) }).selection
+        }
+        #expect(initial(.references, b, 3, 4) == 3) // inside b:3
+        #expect(initial(.references, b, 3, 2) == 3) // at its start
+        #expect(initial(.references, b, 4, 0) == 4) // between: the next one
+        #expect(initial(.references, b, 20, 0) == 4) // after the last: the last
+        #expect(initial(.references, URL(filePath: "/tmp/peek/c.swift"), 0, 0) == 0) // not among them
+        #expect(initial(.references, nil, 0, 0) == 0)
+        #expect(initial(.definition, b, 3, 4) == 0)
+        var model = PeekModel(kind: .definition, symbol: "x", files: files)
+        model.move(by: -1)
+        #expect(model.selection == 4)
+        model.move(by: 1)
+        #expect(model.selection == 0)
+        model.select(9)
+        #expect(model.selection == 0)
+        #expect(!PeekModel(kind: .definition, symbol: "x", files: [file("a.swift", [match(0, 0)])]).showsList)
+    }
+
+    /// Typing in the editor at or above the peek's line closes it; below it, or from elsewhere
+    /// (the peek's own editor), it stays and moves with its line.
+    @Test func closingRules() {
+        #expect(PeekModel.editCloses(editLocation: 3, anchorLineEnd: 20, fromHostEditor: true))
+        #expect(PeekModel.editCloses(editLocation: 20, anchorLineEnd: 20, fromHostEditor: true))
+        #expect(!PeekModel.editCloses(editLocation: 21, anchorLineEnd: 20, fromHostEditor: true))
+        #expect(!PeekModel.editCloses(editLocation: 3, anchorLineEnd: 20, fromHostEditor: false))
+        #expect(PeekModel.shifted(10, editLocation: 2, oldLength: 1, newLength: 4) == 13)
+        #expect(PeekModel.shifted(10, editLocation: 10, oldLength: 0, newLength: 2) == 12)
+        #expect(PeekModel.shifted(10, editLocation: 12, oldLength: 3, newLength: 0) == 10)
+        #expect(PeekModel.shifted(10, editLocation: 8, oldLength: 5, newLength: 1) == 8)
+    }
+
+    /// Peek References through a language server: the panel opens below the cursor's line with
+    /// room made for it, the list grouped by file at the cursor's reference; the small editor
+    /// edits the open tab's document (undo included); a file without a tab is read for the
+    /// peek and let go when it closes; typing above in the editor closes it.
+    @Test func peeksReferencesAndSharesTheDocument() async throws {
+        let (workspace, document, controller, window) = try LanguageClientTests.makeWorkspace(
+            text: "let count = 1\nprint(count)\nfunc f() { print(count) }\n",
+            files: ["other.swift": "func other() { print(count) }\n"])
+        #expect(try await LanguageClientTests.eventually { document.languageClient?.state == .ready })
+        document.undoManager.groupsByEvent = false
+        controller.textView.setSelectedRange(NSRange(location: 22, length: 0)) // "count" in print(count)
+        await workspace.peek(.references, in: document)?.value
+        let peek = try #require(controller.peek)
+        #expect(peek.model.files.map(\.path) == ["main.swift", "other.swift"])
+        #expect(peek.model.entries.count == 4)
+        #expect(peek.model.selection == 1)
+        #expect(peek.panel.superview === controller.textView)
+        // The room: the panel at the bottom of the cursor's line, the next line below it; the
+        // line numbers stay with their lines.
+        let first = try #require(controller.rect(for: NSRange(location: 0, length: 1)))
+        let line = try #require(controller.rect(for: NSRange(location: 14, length: 12)))
+        #expect(abs(line.minY - first.maxY) < 0.5)
+        #expect(abs(peek.panel.frame.minY - line.maxY) < 0.5)
+        let next = try #require(controller.rect(for: NSRange(location: 27, length: 1)))
+        #expect(abs(next.minY - peek.panel.frame.maxY) < 0.5)
+        #expect(controller.gutterView.visibleRows().map(\.line) == [0, 1, 2, 3])
+        #expect(abs(controller.gutterView.visibleRows()[2].y - controller.gutterView.convert(next.origin, from: controller.textView).y) < 0.5)
+        #expect(!document.isDirty)
+        #expect(document.textStorage.attribute(.paragraphStyle, at: 14, effectiveRange: nil) == nil) // the text is untouched
+
+        // The small editor is the tab's document, at the reference.
+        #expect(try await LanguageClientTests.eventually { peek.editor?.textView.selectedRange() == NSRange(location: 20, length: 5) })
+        let small = try #require(peek.editor)
+        #expect(small.document === document)
+        #expect(small.document === workspace.document(matching: document.url))
+        // Its editor has no room under the line (the room is the host editor's own layout).
+        let smallLine = try #require(small.rect(for: NSRange(location: 14, length: 1)))
+        let smallNext = try #require(small.rect(for: NSRange(location: 27, length: 1)))
+        #expect(abs(smallNext.minY - smallLine.maxY) < 0.5)
+        window.makeFirstResponder(small.textView)
+        small.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        document.undoManager.beginUndoGrouping()
+        small.textView.insertText("// x\n", replacementRange: NSRange(location: NSNotFound, length: 0))
+        document.undoManager.endUndoGrouping()
+        #expect(document.textStorage.string.hasPrefix("// x\nlet count"))
+        #expect(!peek.isClosed) // an edit from the peek above its line moves it
+        #expect(try await LanguageClientTests.eventually { peek.anchor == 19 })
+        controller.textView.layoutSubtreeIfNeeded()
+        let movedLine = try #require(controller.rect(for: NSRange(location: 19, length: 12)))
+        #expect(abs(peek.panel.frame.minY - movedLine.maxY) < 0.5)
+        let movedNext = try #require(controller.rect(for: NSRange(location: 32, length: 1)))
+        #expect(abs(movedNext.minY - peek.panel.frame.maxY) < 0.5)
+        document.undoManager.undo()
+        #expect(document.textStorage.string == "let count = 1\nprint(count)\nfunc f() { print(count) }\n")
+        #expect(try await LanguageClientTests.eventually { peek.anchor == 14 })
+
+        // Another file, not open: read for the peek, without a tab.
+        peek.select(3, focusList: true)
+        #expect(try await LanguageClientTests.eventually { peek.editor?.document.fileName == "other.swift" })
+        let other = try #require(peek.editor?.document)
+        #expect(peek.ownedDocuments.first === other)
+        #expect(workspace.documents.contains { $0 === other })
+        #expect(!workspace.groups.contains { $0.contains(other.id) })
+        #expect(try await LanguageClientTests.eventually { peek.editor?.textView.selectedRange() == NSRange(location: 21, length: 5) })
+
+        // Typing in the editor above the peek closes it, and takes the room away.
+        window.makeFirstResponder(controller.textView)
+        controller.textView.setSelectedRange(NSRange(location: 0, length: 0))
+        document.undoManager.beginUndoGrouping()
+        controller.textView.insertText("x", replacementRange: NSRange(location: NSNotFound, length: 0))
+        document.undoManager.endUndoGrouping()
+        #expect(try await LanguageClientTests.eventually { peek.isClosed })
+        #expect(controller.peek == nil)
+        #expect(peek.panel.superview == nil)
+        #expect(controller.textView.textLayoutManager?.delegate == nil)
+        let closedLine = try #require(controller.rect(for: NSRange(location: 15, length: 1)))
+        let closedNext = try #require(controller.rect(for: NSRange(location: 28, length: 1)))
+        #expect(abs(closedNext.minY - closedLine.maxY) < 0.5) // the room is gone
+        #expect(!workspace.documents.contains { $0 === other }) // unchanged: let go
+        withExtendedLifetime((workspace, window)) {}
+    }
+
+    /// A file read for the peek and changed there gets a tab when the peek closes (Esc), so
+    /// the change can be saved; Open puts the place in a tab.
+    @Test func keepsAChangedPeekDocumentAndOpensInATab() async throws {
+        let (workspace, document, controller, window) = try LanguageClientTests.makeWorkspace(
+            text: "print(count)\n", files: ["other.swift": "let count = 2\n"])
+        #expect(try await LanguageClientTests.eventually { document.languageClient?.state == .ready })
+        controller.textView.setSelectedRange(NSRange(location: 8, length: 0))
+        await workspace.peek(.references, in: document)?.value
+        let peek = try #require(controller.peek)
+        peek.select(1, focusList: false)
+        #expect(try await LanguageClientTests.eventually { peek.editor?.document.fileName == "other.swift" })
+        let other = try #require(peek.editor?.document)
+        other.undoManager.groupsByEvent = false
+        let small = try #require(peek.editor)
+        #expect(try await LanguageClientTests.eventually { small.textView.selectedRange().length == 5 })
+        window.makeFirstResponder(small.textView)
+        other.undoManager.beginUndoGrouping()
+        small.textView.insertText("total", replacementRange: small.textView.selectedRange())
+        other.undoManager.endUndoGrouping()
+        #expect(other.isDirty)
+        #expect(small.textView.delegate?.textView?(small.textView, doCommandBy: #selector(NSResponder.cancelOperation(_:))) == true)
+        #expect(peek.isClosed)
+        #expect(workspace.activeGroup.contains(other.id))
+        #expect(workspace.activeDocument === document) // in the background
+
+        // Open: the place in a tab.
+        await workspace.peek(.references, in: document)?.value
+        let second = try #require(controller.peek)
+        #expect(second !== peek)
+        second.openSelection()
+        #expect(second.isClosed)
+        #expect(workspace.activeDocument?.fileName == second.model.selected?.url.lastPathComponent)
+        withExtendedLifetime((workspace, window)) {}
+    }
+
+    /// Nothing found: a short note below the line instead of a panel.
+    @Test func showsANoteWhenNothingIsFound() async throws {
+        let (workspace, document, controller, window) = try LanguageClientTests.makeWorkspace(text: "let count = 1\n")
+        #expect(try await LanguageClientTests.eventually { document.languageClient?.state == .ready })
+        controller.textView.setSelectedRange(NSRange(location: 6, length: 0))
+        await workspace.peek(.implementation, in: document)?.value
+        #expect(controller.peek == nil)
+        #expect(controller.inlineMessage == "No implementation found for ‘count’")
+        withExtendedLifetime((workspace, window)) {}
+    }
+}

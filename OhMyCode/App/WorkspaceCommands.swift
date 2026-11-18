@@ -219,6 +219,20 @@ struct WorkspaceCommands: Commands {
             Button("Go to Type Definition") { workspace?.goToTypeDefinition() }
                 .keyboardShortcut(keys.shortcut("go.typeDefinition"))
                 .disabled(!supports(.typeDefinition))
+            Menu("Peek") {
+                Button("Peek Definition") { workspace?.peek(.definition) }
+                    .keyboardShortcut(keys.shortcut(PeekKind.definition.commandID))
+                    .disabled(workspace?.activeDocument?.languageClient == nil)
+                Button("Peek References") { workspace?.peek(.references) }
+                    .keyboardShortcut(keys.shortcut(PeekKind.references.commandID))
+                    .disabled(!supports(.references))
+                Button("Peek Implementations") { workspace?.peek(.implementation) }
+                    .keyboardShortcut(keys.shortcut(PeekKind.implementation.commandID))
+                    .disabled(!supports(.implementation))
+                Button("Peek Type Definition") { workspace?.peek(.typeDefinition) }
+                    .keyboardShortcut(keys.shortcut(PeekKind.typeDefinition.commandID))
+                    .disabled(!supports(.typeDefinition))
+            }
             Button("Show Call Hierarchy") { workspace?.showCallHierarchy() }
                 .keyboardShortcut(keys.shortcut("go.callHierarchy"))
                 .disabled(!supports(.callHierarchy))

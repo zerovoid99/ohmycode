@@ -157,6 +157,7 @@ final class EditorCache {
     private func drop(_ id: EditorDocument.ID) {
         order.removeAll { $0 == id }
         guard let entry = entries.removeValue(forKey: id) else { return }
+        entry.controller.peek?.close(refocus: false) // lets go of the documents it read
         // Out of its superview before it goes: AppKit keeps a view that's still in one.
         if let host = entry.view.superview as? EditorHostView, host.shownID == id { host.shownID = nil }
         resignFocus(in: entry.view)

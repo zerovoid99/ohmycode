@@ -970,6 +970,10 @@ final class Workspace {
         case .formatSelection: formatSelection(document)
         case .stageSelectedLines: stageSelectedLines(in: document)
         case .revertSelectedLines: revertSelectedLines(in: document)
+        case .peekDefinition: peek(.definition, in: document)
+        case .peekReferences: peek(.references, in: document)
+        case .peekImplementation: peek(.implementation, in: document)
+        case .peekTypeDefinition: peek(.typeDefinition, in: document)
         }
     }
 
@@ -2752,6 +2756,13 @@ final class Workspace {
             errorMessage = error.localizedDescription
             return nil
         }
+    }
+
+    /// Closes a document no tab shows (one read for a peek): it leaves the open documents.
+    func closeUntabbedDocument(_ document: EditorDocument) {
+        guard !groups.contains(where: { $0.contains(document.id) }) else { return }
+        documents.removeAll { $0.id == document.id }
+        document.languageClient?.didClose(url: document.url)
     }
 
     func selectAdjacentDocument(offset: Int) {

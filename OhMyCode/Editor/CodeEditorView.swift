@@ -47,6 +47,10 @@ final class EditorController: NSObject {
     var isParked = false
     /// Cursors besides the text view's own selection (see MultiCursor.swift).
     var extraSelections: [NSRange] = []
+    /// The peek (definition, references) open below a line of this editor (see PeekView.swift).
+    var peek: PeekController?
+    /// The peek this editor is the small editor of (nil: a tab's editor). Set before `makeView`.
+    weak var peekHost: PeekController?
     /// The 💡 for the cursor line's fixes.
     private(set) lazy var lightbulb = LightbulbController(editor: self)
     /// Parameter hints while typing a call's arguments.
@@ -215,6 +219,7 @@ final class EditorController: NSObject {
         }
         textView.onClick = { [weak self] point in
             self?.clearExtraCursors()
+            self?.peekClicked()
             if self?.handleConflictClick(at: point) == true { return true }
             if self?.handleCodeLensClick(at: point) == true { return true }
             if self?.handleBlameClick(at: point) == true { return true }
@@ -243,6 +248,7 @@ final class EditorController: NSObject {
             if self?.restoreTopLine() == false { self?.keepScrollAnchor() }
             self?.noteScrollAnchor()
             self?.layoutDidChange()
+            self?.peek?.positionPanel()
             self?.refreshHighlights(force: false)
             self?.minimapView?.refresh()
             if self?.stickyNeedsUpdate == true {
@@ -252,13 +258,16 @@ final class EditorController: NSObject {
         }
         let containerView = EditorContainerView(gutterView: gutter, scrollView: scrollView)
         self.containerView = containerView
-        let minimap = MinimapView(editor: self)
-        containerView.minimapView = minimap
-        minimapView = minimap
-        let sticky = StickyScrollView(editor: self)
-        sticky.onHeightChange = { [weak containerView] in containerView?.needsLayout = true }
-        containerView.stickyView = sticky
-        stickyView = sticky
+        // A peek's small editor has neither (see PeekView.swift).
+        if peekHost == nil {
+            let minimap = MinimapView(editor: self)
+            containerView.minimapView = minimap
+            minimapView = minimap
+            let sticky = StickyScrollView(editor: self)
+            sticky.onHeightChange = { [weak containerView] in containerView?.needsLayout = true }
+            containerView.stickyView = sticky
+            stickyView = sticky
+        }
         applySettings()
         NotificationCenter.default.addObserver(self, selector: #selector(settingsDidChange),
                                                name: AppSettings.didChange, object: nil)
@@ -760,6 +769,7 @@ final class EditorController: NSObject {
                  enabled: supports(.implementation, .implementation)),
             item("Find All References", #selector(contextFindReferences), f12, .shift,
                  enabled: supports(.references, .references)),
+            peekMenuItem(supports: supports),
             item("Show Call Hierarchy", #selector(contextCallHierarchy), "h", [.option, .shift],
                  enabled: client?.supports(.callHierarchy) == true),
             item("Rename Symbol", #selector(contextRename), f2, enabled: supports(.rename, .rename)),
@@ -980,6 +990,7 @@ final class EditorController: NSObject {
         signatureHelp.dismiss()
         inlineSuggestions.dismiss()
         inlineEdit.cancel()
+        peek?.close(refocus: false)
     }
 
     func reveal(_ range: NSRange) {
@@ -1174,6 +1185,7 @@ extension EditorController: NSTextViewDelegate {
         if selector == #selector(NSResponder.insertNewline(_:)) { return handleNewline() }
         if selector == #selector(NSResponder.deleteBackward(_:)) { return handleLinkedDelete(forward: false) || handleDeleteBackward() }
         if selector == #selector(NSResponder.deleteForward(_:)), handleLinkedDelete(forward: true) { return true }
+        if selector == #selector(NSResponder.cancelOperation(_:)), closePeekOnEscape() { return true }
         // Esc with nothing else to dismiss: twice leaves zen mode.
         if selector == #selector(NSResponder.cancelOperation(_:)), document.workspace?.zenEscape() == true { return true }
         if selector == #selector(NSResponder.complete(_:)) {
@@ -1506,6 +1518,7 @@ extension EditorController: SyntaxHighlighterClient {
 enum EditorCommand: String {
     case goToDefinition, findReferences, rename, format, formatSelection, stageSelectedLines, revertSelectedLines
     case goToImplementation, callHierarchy, codeActions
+    case peekDefinition, peekReferences, peekImplementation, peekTypeDefinition
 }
 
 extension Notification.Name {
