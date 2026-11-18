@@ -860,3 +860,735 @@ struct ExtensionLanguageTests {
         withExtendedLifetime((workspace, window)) {}
     }
 }
+
+// MARK: - Languages
+
+/// A language contributed straight to the registry (no extension), gone after `body`.
+@MainActor
+private func withLanguage<T>(_ contribution: LanguageContribution, _ body: @MainActor () async throws -> T) async rethrows -> T {
+    let owner = "test.registry-\(UUID().uuidString)"
+    LanguageRegistry.shared.setContributions([contribution], from: owner)
+    defer { LanguageRegistry.shared.setContributions([], from: owner) }
+    return try await body()
+}
+
+@MainActor
+struct LanguageRegistryTests {
+    @Test func builtInLanguagesKeepTheirBehavior() {
+        #expect(SourceLanguage(fileExtension: "ts") == .typescript && SourceLanguage(fileExtension: "unknownext") == .plaintext)
+        #expect(SourceLanguage.swift.lineComment == "//" && SourceLanguage.python.lineComment == "#" && SourceLanguage.sql.lineComment == "--")
+        #expect(SourceLanguage.html.lineComment == nil && SourceLanguage.html.blockComment?.start == "<!--")
+        #expect(SourceLanguage.tsx.languageId == "typescriptreact" && SourceLanguage.objc.languageId == "objective-c")
+        #expect(SourceLanguage(languageId: "shellscript") == .shell && SourceLanguage(languageId: "toy").rawValue == "toy")
+        #expect(SourceLanguage.cpp.displayName == "C++" && SourceLanguage(rawValue: "brandnew").displayName == "brandnew")
+        // A switch over the open type still reads as it did over the enum.
+        let kind = switch SourceLanguage.rust { case .rust: "rust"; default: "other" }
+        #expect(kind == "rust")
+    }
+
+    @Test func resolvesFilesInOrder() async {
+        let tag = UUID().uuidString.prefix(6).lowercased()
+        let id = "lang\(tag)"
+        await withLanguage(LanguageContribution(id: id, aliases: ["Lang \(tag)"], extensions: [".l\(tag)", ".d.l\(tag)"],
+                                                filenames: ["Build\(tag)"], filenamePatterns: ["*.\(tag).conf"],
+                                                firstLine: "^#!.*\\bl\(tag)\\b")) {
+            let registry = LanguageRegistry.shared
+            let mine = SourceLanguage(languageId: id)
+            func language(_ name: String, firstLine: String? = nil, _ associations: [String: String] = [:]) -> SourceLanguage {
+                registry.language(for: URL(filePath: "/tmp/x/\(name)"), firstLine: firstLine, associations: associations)
+            }
+            #expect(language("Build\(tag)") == mine)                       // filenames
+            #expect(language("app.\(tag).conf") == mine)                    // filenamePatterns
+            #expect(language("a.l\(tag)") == mine && language("a.d.l\(tag)") == mine) // extensions
+            #expect(language("script", firstLine: "#!/usr/bin/env l\(tag)") == mine)  // firstLine
+            #expect(language("script", firstLine: "#!/bin/sh") == .plaintext)
+            #expect(language("a.swift") == .swift)                          // built-in
+            // files.associations come first: a whole name over a glob.
+            #expect(language("a.l\(tag)", ["*.l\(tag)": "python"]) == .python)
+            #expect(language("special.l\(tag)", ["*.l\(tag)": "python", "special.l\(tag)": "go"]) == .go)
+            #expect(language("a.swift", ["**/x/*.swift": id]) == mine)
+            #expect(registry.displayName(for: mine) == "Lang \(tag)" && mine.displayName == "Lang \(tag)")
+            #expect(registry.languages.contains { $0.language == mine } && registry.language(named: "lang \(tag)") == mine)
+            #expect(SourceLanguage(fileExtension: "l\(tag)") == mine)
+        }
+        #expect(LanguageRegistry.shared.language(for: URL(filePath: "/tmp/a.l\(tag)")) == .plaintext) // gone with its extension
+    }
+
+    @Test func aContributionExtendsABuiltInLanguage() async {
+        let ext = "mjsx\(UUID().uuidString.prefix(4).lowercased())"
+        await withLanguage(LanguageContribution(id: "javascript", extensions: [".\(ext)"])) {
+            #expect(LanguageRegistry.shared.language(for: URL(filePath: "/tmp/a.\(ext)")) == .javascript)
+            #expect(SourceLanguage.javascript.displayName == "JavaScript" && SourceLanguage.javascript.lineComment == "//")
+        }
+    }
+
+    @Test func readsLanguageConfigurations() throws {
+        let configuration = try LanguageConfiguration(json: Data(Self.configuration.utf8))
+        #expect(configuration.comments?.lineComment == ";;" && configuration.comments?.blockComment?.start == "#|")
+        #expect(configuration.brackets?.map(\.open) == ["(", "<"])
+        #expect(configuration.autoClosingPairs?.first { $0.open == "\"" }?.notIn == ["string"])
+        #expect(configuration.surroundingPairs?.map(\.open) == ["*"] && configuration.autoCloseBefore == " )\n")
+        #expect(configuration.onEnterRules?.first?.appendText == ";; " && configuration.onEnterRules?.first?.indent == LanguageConfiguration.OnEnterRule.Indent.none)
+        #expect(configuration.indentationRules?.increaseIndent?.matches("x do") == true)
+        let markers = try #require(configuration.foldingMarkers)
+        let lines = ";; region a\nx\n  ;; region b\ny\n  ;; endregion\n;; endregion\n".split(separator: "\n", omittingEmptySubsequences: false)
+        #expect(LanguageConfiguration.markerRegions(markers, lines: lines).map { [$0.start, $0.end] } == [[0, 5], [2, 4]])
+        #expect(configuration.wordRange(in: "say foo-bar now", at: 6) == NSRange(location: 4, length: 7))
+        #expect(EditorController.context(of: "x \"ab", lineComment: ";;", quotes: ["\""]) == "string")
+        #expect(EditorController.context(of: "x ;; \"", lineComment: ";;", quotes: ["\""]) == "comment")
+        #expect(EditorController.context(of: "x \"a\" ", lineComment: ";;", quotes: ["\""]) == nil)
+    }
+
+    static let configuration = """
+    {
+      // VS Code's format: comments and trailing commas are fine.
+      "comments": { "lineComment": ";;", "blockComment": ["#|", "|#"] },
+      "brackets": [["(", ")"], ["<", ">"]],
+      "autoClosingPairs": [{ "open": "(", "close": ")" }, ["<", ">"], { "open": "\\"", "close": "\\"", "notIn": ["string"] }],
+      "surroundingPairs": [["*", "*"]],
+      "autoCloseBefore": " )\\n",
+      "folding": { "markers": { "start": "^\\\\s*;;\\\\s*region\\\\b", "end": "^\\\\s*;;\\\\s*endregion\\\\b" } },
+      "wordPattern": "[a-z][a-z0-9-]*",
+      "indentationRules": { "increaseIndentPattern": "\\\\bdo\\\\s*$", "decreaseIndentPattern": "^\\\\s*end\\\\b" },
+      "onEnterRules": [{ "beforeText": "^\\\\s*;;.*$", "action": { "indent": "none", "appendText": ";; " } }],
+    }
+    """
+
+    /// The configuration's effects in an editor: comments, closing, surrounding, Enter, indentation,
+    /// folding and words.
+    @Test func configurationDrivesTheEditor() async throws {
+        let tag = UUID().uuidString.prefix(6).lowercased()
+        var contribution = LanguageContribution(id: "cfg\(tag)", extensions: [".cfg\(tag)"])
+        contribution.configuration = try LanguageConfiguration(json: Data(Self.configuration.utf8))
+        try await withLanguage(contribution) {
+            let wasOn = AppSettings.shared.autoClosePairs
+            AppSettings.shared.autoClosePairs = true
+            defer { AppSettings.shared.autoClosePairs = wasOn }
+            let url = FileManager.default.temporaryDirectory.appending(path: "omc-cfg-\(UUID().uuidString).cfg\(tag)")
+            try ";; region top\nkeep it\n;; endregion\n".write(to: url, atomically: true, encoding: .utf8)
+            let document = try EditorDocument(url: url)
+            #expect(document.language.rawValue == "cfg\(tag)")
+            let controller = EditorController(document: document)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+            window.contentView = controller.makeView()
+            window.makeFirstResponder(controller.textView)
+            document.attach(controller)
+            document.editor = controller
+            let text = { @MainActor in document.textStorage.string }
+            @MainActor func set(_ string: String, cursor: Int, length: Int = 0) {
+                document.textStorage.replaceCharacters(in: NSRange(location: 0, length: document.textStorage.length), with: string)
+                controller.textView.setSelectedRange(NSRange(location: cursor, length: length))
+            }
+            @MainActor func type(_ keys: String) {
+                for key in keys {
+                    if key == "\n" {
+                        _ = controller.textView.delegate?.textView?(controller.textView, doCommandBy: #selector(NSResponder.insertNewline(_:)))
+                    } else {
+                        controller.textView.insertText(String(key), replacementRange: NSRange(location: NSNotFound, length: 0))
+                    }
+                }
+            }
+            @MainActor func state() -> String {
+                (text() as NSString).replacingCharacters(in: NSRange(location: controller.textView.selectedRange().location, length: 0), with: "|")
+            }
+
+            // Folding markers fold where nothing else has regions.
+            document.refreshFoldRegions()
+            await document.waitForFoldRegions()
+            #expect(document.foldRegions[0]?.end == 2 && document.foldRegions[0]?.kind == .region)
+
+            // Toggle Line Comment uses ";;".
+            set("keep it", cursor: 0)
+            controller.perform(.toggleComment)
+            #expect(text() == ";; keep it")
+
+            // Pairs close themselves; a quote doesn't inside a string; nothing closes before a word.
+            set("", cursor: 0)
+            type("(<")
+            #expect(state() == "(<|>)")
+            set("x \"ab", cursor: 5)
+            type("\"")
+            #expect(text() == "x \"ab\"")
+            set("x ", cursor: 2)
+            type("\"")
+            #expect(state() == "x \"|\"")
+            set("word", cursor: 0)
+            type("(")
+            #expect(state() == "(|word") // "w" isn't in autoCloseBefore
+            // A selection is wrapped in a surrounding pair.
+            set("word", cursor: 0, length: 4)
+            type("*")
+            #expect(text() == "*word*")
+
+            // onEnterRules: a comment continues; indentationRules: `do` indents, `end` goes back.
+            set(";; note", cursor: 7)
+            type("\n")
+            #expect(state() == ";; note\n;; |")
+            set("run do", cursor: 6)
+            type("\n")
+            #expect(state() == "run do\n    |")
+            type("end")
+            #expect(state() == "run do\nend|")
+
+            // The word pattern: dashes are part of words (double-click, completion's prefix).
+            set("say foo-bar now", cursor: 6)
+            #expect(document.wordRange(at: 6) == NSRange(location: 4, length: 7))
+            #expect(controller.textView.selectionRange(forProposedRange: NSRange(location: 6, length: 0), granularity: .selectByWord)
+                    == NSRange(location: 4, length: 7))
+            // Brackets from the configuration match.
+            set("(<a>)", cursor: 0)
+            #expect(controller.matchingBracket(at: 1) == 3)
+            withExtendedLifetime(window) {}
+        }
+    }
+
+    @Test func changeLanguageModeAndAssociations() async throws {
+        let store = makeStore()
+        let (workspace, root) = try makeWorkspace(store: store, files: ["notes.txt": "hi\n", "page.tpl": "<b>\n"])
+        workspace.open(fileAt: root.appending(path: "notes.txt"))
+        let document = try #require(workspace.activeDocument)
+        #expect(document.language == .plaintext)
+
+        // The picker: Auto Detect, then every language by name.
+        workspace.changeLanguageMode()
+        #expect(try await eventually { workspace.palette?.mode == .prompt })
+        let pick = try #require(workspace.palette)
+        #expect(pick.items.first?.title == "Auto Detect" && pick.items.contains { $0.title == "Markdown" })
+        pick.query = "Markdown"
+        pick.acceptSelection()
+        #expect(try await eventually { document.language == .markdown })
+        // Kept for the file while the window is open: a registry change doesn't undo it.
+        workspace.updateLanguageModes()
+        #expect(document.language == .markdown)
+
+        // Folder settings' files.associations.
+        let settings = root.appending(path: ".omc/settings.json")
+        try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{ "files.associations": { "*.tpl": "html" } }"#.write(to: settings, atomically: true, encoding: .utf8)
+        workspace.loadProjectSettings()
+        workspace.open(fileAt: root.appending(path: "page.tpl"))
+        #expect(workspace.activeDocument?.language == .html)
+        withExtendedLifetime(workspace) {}
+    }
+}
+
+// MARK: - Language providers
+
+@MainActor
+struct ExtensionProviderTests {
+    /// A language of its own (`toyp`), its snippets, and a provider of every kind.
+    static let manifest = """
+    { "id": "test.toyp", "name": "Toy Providers", "version": "1", "main": "main.js",
+      "contributes": {
+        "languages": [{ "id": "toyp", "aliases": ["Toy P"], "extensions": [".toyp"], "configuration": "./config.json" }],
+        "snippets": [{ "language": "toyp", "path": "./snippets.json" }],
+        "commands": [{ "command": "toyp.count", "title": "Count" }] } }
+    """
+
+    static let source = """
+    const omc = require('omc');
+    exports.activate = (context) => {
+      const sub = (d) => context.subscriptions.push(d);
+      const sel = { language: 'toyp' };
+      const word = (doc, pos) => { const r = doc.getWordRangeAtPosition(pos); return r ? doc.getText(r) : ''; };
+      const occurrences = (doc, name) => {
+        const found = [];
+        for (let i = 0; i < doc.lineCount; i++) {
+          const re = new RegExp('\\\\b' + name + '\\\\b', 'g'); const text = doc.lineAt(i).text; let m;
+          while ((m = re.exec(text))) found.push(new omc.Range(i, m.index, i, m.index + name.length));
+        }
+        return found;
+      };
+      const fnLines = (doc) => { const out = []; for (let i = 0; i < doc.lineCount; i++) { const m = /^fn (\\w+)/.exec(doc.lineAt(i).text); if (m) out.push([i, m[1]]); } return out; };
+      sub(omc.commands.registerCommand('toyp.count', (n) => context.storage.update('counted', n)));
+      sub(omc.languages.registerDefinitionProvider(sel, { provideDefinition(doc, pos) {
+        const hit = fnLines(doc).find(([, name]) => name === word(doc, pos));
+        return hit ? new omc.Location(doc.uri, new omc.Range(hit[0], 3, hit[0], 3 + hit[1].length)) : undefined;
+      } }));
+      sub(omc.languages.registerTypeDefinitionProvider(sel, { provideTypeDefinition: (doc) => [{ targetUri: doc.path, targetRange: new omc.Range(0, 0, 0, 2) }] }));
+      sub(omc.languages.registerImplementationProvider(sel, { provideImplementation: (doc) => [new omc.Location(doc.uri, new omc.Position(1, 0)), new omc.Location(doc.uri, new omc.Position(2, 0))] }));
+      sub(omc.languages.registerReferenceProvider(sel, { provideReferences: (doc, pos, ctx) => occurrences(doc, word(doc, pos)).map((r) => new omc.Location(doc.uri, r)) }));
+      sub(omc.languages.registerDocumentSymbolProvider(sel, { provideDocumentSymbols(doc) {
+        return fnLines(doc).map(([line, name]) => {
+          const symbol = new omc.DocumentSymbol(name, 'fn', omc.SymbolKind.Function, new omc.Range(line, 0, line, doc.lineAt(line).text.length), new omc.Range(line, 3, line, 3 + name.length));
+          symbol.children = [new omc.DocumentSymbol('inner', '', omc.SymbolKind.Variable, new omc.Range(line, 0, line, 1), new omc.Range(line, 0, line, 1))];
+          return symbol;
+        });
+      } }));
+      sub(omc.languages.registerWorkspaceSymbolProvider({ provideWorkspaceSymbols: (query) => query === 'zz' ? [] :
+        [new omc.SymbolInformation('toypGlobal', omc.SymbolKind.Constant, 'toyp', new omc.Location('main.toyp', new omc.Range(0, 0, 0, 2)))] }));
+      sub(omc.languages.registerCodeActionsProvider(sel, { provideCodeActions(doc, range, ctx) {
+        const fix = new omc.CodeAction('Remove TODO', omc.CodeActionKind.QuickFix);
+        fix.edit = new omc.WorkspaceEdit();
+        fix.edit.replace(doc.uri, new omc.Range(range.start.line, 0, range.start.line, 3), 'DONE');
+        fix.isPreferred = true;
+        fix.diagnostics = ctx.diagnostics;
+        return [fix, { title: 'Count Three', command: 'toyp.count', arguments: [3] }];
+      } }, { providedCodeActionKinds: [omc.CodeActionKind.QuickFix] }));
+      sub(omc.languages.registerCodeLensProvider(sel, {
+        provideCodeLenses: (doc) => fnLines(doc).map(([line]) => new omc.CodeLens(new omc.Range(line, 0, line, 2))),
+        resolveCodeLens(lens) { lens.command = { title: 'run line ' + lens.range.start.line, command: 'toyp.count', arguments: [lens.range.start.line] }; return lens; },
+      }));
+      sub(omc.languages.registerSignatureHelpProvider(sel, { provideSignatureHelp(doc, pos, token, ctx) {
+        const help = new omc.SignatureHelp();
+        const signature = new omc.SignatureInformation('add(a, b)', new omc.MarkdownString('Adds **two**'));
+        signature.parameters = [new omc.ParameterInformation('a'), new omc.ParameterInformation('b', 'the second')];
+        help.signatures = [signature];
+        help.activeParameter = doc.lineAt(pos.line).text.slice(0, pos.character).split(',').length - 1;
+        context.storage.update('sigContext', ctx.triggerCharacter || 'none');
+        return help;
+      } }, { triggerCharacters: ['('], retriggerCharacters: [','] }));
+      sub(omc.languages.registerRenameProvider(sel, {
+        prepareRename(doc, pos) { const r = doc.getWordRangeAtPosition(pos); if (!r || doc.getText(r) === 'fn') throw new Error('not here'); return { range: r, placeholder: doc.getText(r) }; },
+        provideRenameEdits(doc, pos, newName) { const edit = new omc.WorkspaceEdit(); for (const r of occurrences(doc, word(doc, pos))) edit.replace(doc.uri, r, newName); return edit; },
+      }));
+      sub(omc.languages.registerDocumentHighlightProvider(sel, { provideDocumentHighlights: (doc, pos) =>
+        occurrences(doc, word(doc, pos)).map((r, i) => new omc.DocumentHighlight(r, i === 0 ? omc.DocumentHighlightKind.Write : omc.DocumentHighlightKind.Read)) }));
+      sub(omc.languages.registerDocumentLinkProvider(sel, {
+        provideDocumentLinks(doc) { const out = []; for (let i = 0; i < doc.lineCount; i++) { const at = doc.lineAt(i).text.indexOf('see:'); if (at >= 0) out.push(new omc.DocumentLink(new omc.Range(i, at, i, at + 4))); } return out; },
+        resolveDocumentLink(link) { link.target = 'https://example.com/toyp'; return link; },
+      }));
+      sub(omc.languages.registerFoldingRangeProvider(sel, { provideFoldingRanges: () => [new omc.FoldingRange(0, 2, omc.FoldingRangeKind.Region)] }));
+      sub(omc.languages.registerInlayHintsProvider(sel, { provideInlayHints(doc, range) {
+        const hints = [];
+        for (let i = range.start.line; i <= range.end.line && i < doc.lineCount; i++) {
+          const text = doc.lineAt(i).text;
+          if (text.startsWith('let ')) { const hint = new omc.InlayHint(new omc.Position(i, text.length), ': num', omc.InlayHintKind.Type); hint.paddingLeft = true; hints.push(hint); }
+        }
+        return hints;
+      } }));
+      const legend = new omc.SemanticTokensLegend(['function', 'variable'], []);
+      sub(omc.languages.registerDocumentSemanticTokensProvider(sel, { provideDocumentSemanticTokens(doc) {
+        const builder = new omc.SemanticTokensBuilder(legend);
+        for (const [line, name] of fnLines(doc)) builder.push(new omc.Range(line, 3, line, 3 + name.length), 'function');
+        return builder.build();
+      } }, legend));
+      sub(omc.languages.registerDocumentRangeFormattingEditProvider(sel, { provideDocumentRangeFormattingEdits(doc, range) {
+        const edits = [];
+        for (let i = range.start.line; i <= range.end.line; i++) { const text = doc.lineAt(i).text; if (text !== text.trim()) edits.push(omc.TextEdit.replace(new omc.Range(i, 0, i, text.length), text.trim())); }
+        return edits;
+      } }));
+      sub(omc.languages.registerOnTypeFormattingEditProvider(sel, { provideOnTypeFormattingEdits: (doc, pos, ch) => [omc.TextEdit.insert(pos, ' ')] }, ';'));
+      sub(omc.languages.registerCompletionItemProvider(sel, {
+        provideCompletionItems(doc, pos) {
+          const item = new omc.CompletionItem('println', omc.CompletionItemKind.Function);
+          item.insertText = new omc.SnippetString('println(').appendPlaceholder('value').appendText(')');
+          item.commitCharacters = ['('];
+          item.command = { title: 'count', command: 'toyp.count', arguments: [7] };
+          return [item, { label: 'module', kind: omc.CompletionItemKind.Module, documentation: new omc.MarkdownString('A **module**') }];
+        },
+        resolveCompletionItem(item) {
+          item.documentation = new omc.MarkdownString('docs for ' + item.label);
+          item.additionalTextEdits = [omc.TextEdit.insert(new omc.Position(0, 0), 'use io\\n')];
+          return item;
+        },
+      }));
+      // Never answers: it hears the cancellation instead.
+      sub(omc.languages.registerHoverProvider({ language: 'toyp', pattern: '**/slow.toyp' }, { provideHover: (doc, pos, token) => new Promise((resolve) => {
+        token.onCancellationRequested(() => { context.storage.update('cancelled', (context.storage.get('cancelled', 0)) + 1); resolve(undefined); });
+      }) }));
+    };
+    """
+
+    static let text = "fn add do\nlet total = add\nadd TODO see: here\n"
+
+    private func make() async throws -> (Workspace, URL, EditorDocument, ExtensionHost) {
+        let store = makeStore()
+        let folder = try makeExtension(Self.manifest, source: Self.source)
+        try #"{ "comments": { "lineComment": "--" }, "brackets": [["(", ")"]] }"#.write(to: folder.appending(path: "config.json"), atomically: true, encoding: .utf8)
+        try #"{ "Loop": { "prefix": ["loop", "lp"], "body": ["loop do", "\t$0", "end"], "description": "A loop" } }"#
+            .write(to: folder.appending(path: "snippets.json"), atomically: true, encoding: .utf8)
+        try store.install(from: folder)
+        let (workspace, root) = try makeWorkspace(store: store, files: ["main.toyp": Self.text, "slow.toyp": "x\n"])
+        let host = workspace.extensions
+        host.providerTimeout = .milliseconds(300)
+        await host.waitUntilIdle()
+        workspace.open(fileAt: root.appending(path: "main.toyp"))
+        let document = try #require(workspace.activeDocument)
+        // A file of the language it adds activates it (no activation event needed).
+        #expect(try await eventually { host.extensions.first?.state == .active })
+        return (workspace, root, document, host)
+    }
+
+    @Test func everyProviderKind() async throws {
+        let (workspace, _, document, host) = try await make()
+        defer { LanguageRegistry.shared.setContributions([], from: "test.toyp") }
+        #expect(document.language.rawValue == "toyp" && document.language.displayName == "Toy P" && document.language.lineComment == "--")
+        let offset = { (line: Int, character: Int) in document.offset(for: LSPPosition(line: line, character: character)) }
+
+        // Navigation, merged (no server here) and deduplicated.
+        let definitions = await workspace.definitions(in: document, at: offset(1, 13))
+        #expect(definitions.map(\.range.start.line) == [0] && definitions.first?.range.start.character == 3)
+        #expect(await workspace.locations("textDocument/typeDefinition", .typeDefinition, in: document, at: 0).map(\.range.end.character) == [2])
+        #expect(await workspace.locations("textDocument/implementation", .implementation, in: document, at: 0).count == 2)
+        #expect(try await workspace.references(in: document, at: offset(0, 4)).map(\.range.start.line) == [0, 1, 2])
+
+        // Symbols: the Outline, and Go to Symbol in Workspace.
+        document.refreshSymbols()
+        await document.waitForSymbols()
+        #expect(document.symbols.map(\.name) == ["add"] && document.symbols.first?.children.map(\.name) == ["inner"])
+        #expect(await host.workspaceSymbols(query: "toyp").map(\.name) == ["toypGlobal"])
+
+        // Code actions: an edit, and a command that runs in the extension.
+        let actions = await workspace.codeActions(for: document, range: NSRange(location: offset(2, 4), length: 0))
+        #expect(actions.map(\.title) == ["Remove TODO", "Count Three"] && actions.first?.isQuickFix == true)
+        await workspace.run(actions[0], in: document)
+        #expect(document.textStorage.string.contains("DONE TODO"))
+        await workspace.run(actions[1], in: document)
+        #expect(try await eventually { host.store.stored("counted", of: "test.toyp") == .number(3) })
+        #expect(await workspace.codeActions(for: document, range: NSRange(location: 0, length: 0), only: ["refactor"]).isEmpty)
+
+        // Code lenses, resolved by the extension.
+        let wasShown = AppSettings.shared.showsCodeLens
+        AppSettings.shared.showsCodeLens = true
+        defer { AppSettings.shared.showsCodeLens = wasShown }
+        document.refreshCodeLenses()
+        await document.waitForCodeLenses()
+        let lens = try #require(document.codeLenses[0]?.first)
+        #expect(lens.title == "run line 0")
+        workspace.run(lens, in: document)
+        #expect(try await eventually { host.store.stored("counted", of: "test.toyp") == .number(0) })
+
+        // Signature help, with the trigger character.
+        let help = await host.signatureHelp(for: document, at: offset(0, 3), trigger: "(", isRetrigger: false)
+        #expect(help?.signatures.first?.label == "add(a, b)" && help?.signatures.first?.documentation == "Adds **two**", "\(String(describing: help))")
+        #expect(help?.signatures.first?.parameters.count == 2 && host.store.stored("sigContext", of: "test.toyp") == .string("("))
+        #expect(host.signatureHelpTriggers(for: document) == (open: ["("], update: ["(", ","]))
+
+        // Rename: prepared, then reviewed as one edit.
+        #expect(await host.prepareRename(for: document, at: offset(0, 0)) == .invalid)
+        #expect(await host.prepareRename(for: document, at: offset(0, 4)) == .range(LSPRange(start: LSPPosition(line: 0, character: 3), end: LSPPosition(line: 0, character: 6)), placeholder: "add"))
+        workspace.renamePrompt = { _ in "plus" }
+        document.editor = nil
+        document.viewState = EditorViewState(topLineOffset: 0, topLineDelta: 0, scrollX: 0, selection: NSRange(location: offset(0, 4), length: 0))
+        await workspace.renameSymbol(in: document)?.value
+        let preview = try #require(workspace.pendingEdit)
+        #expect(preview.title == "Rename “add” to “plus”" && preview.changeCount == 2)
+        workspace.pendingEdit = nil
+
+        // Highlights, links (resolved), folding, inlay hints, semantic tokens.
+        let highlights = await host.documentHighlights(for: document, at: offset(0, 4))
+        #expect(highlights.map(\.kind) == [.write, .read])
+        document.refreshLinks()
+        await document.waitForLinks()
+        let link = try #require(document.serverLinks.first)
+        #expect(await host.resolve(link) == URL(string: "https://example.com/toyp"))
+        document.refreshFoldRegions()
+        await document.waitForFoldRegions()
+        #expect(document.foldRegions[0]?.end == 2 && document.foldRegions[0]?.kind == .region)
+        let hints = await host.inlayHints(for: document, range: LSPRange(start: LSPPosition(line: 0, character: 0), end: LSPPosition(line: 3, character: 0)))
+        #expect(hints.map(\.label) == [": num"] && hints.first?.position.line == 1 && hints.first?.kind == .type)
+        let tokens = try #require(await host.semanticTokens(for: document))
+        #expect(tokens.map(\.type) == ["function"] && tokens.first?.range == NSRange(location: 3, length: 3))
+
+        // Range and on-type formatting.
+        let lines = await host.rangeFormattingEdits(for: document, range: LSPRange(start: LSPPosition(line: 0, character: 0), end: LSPPosition(line: 0, character: 0)))
+        #expect(lines?.isEmpty == true)
+        #expect(host.onTypeFormattingTriggers(for: document) == [";"])
+        let typed = await host.onTypeFormattingEdits(for: document, at: 2, character: ";")
+        #expect(typed?.first?.text == " " && typed?.first?.range.location == 2)
+        #expect(await host.onTypeFormattingEdits(for: document, at: 2, character: "}") == nil)
+
+        // Completion: a snippet, commit characters, a command, Markdown docs, and resolving.
+        let completions = await host.completions(for: document, at: 0, trigger: nil, firstID: 0)
+        let println = try #require(completions.items.first)
+        #expect(println.isSnippet && println.insertText == "println(${1:value})" && println.commitCharacters == ["("])
+        #expect(println.kind == 3 && println.origin?.extensionID == "test.toyp" && println.resolvesFromExtension)
+        #expect(completions.items[1].documentation == "A **module**")
+        let resolved = try #require(await host.resolve(println))
+        #expect(resolved.documentation == "docs for println" && resolved.additionalTextEdits.first?.newText == "use io\n")
+
+        // Snippets contributed for the language.
+        let snippets = SnippetLibrary.shared.snippets(for: document.languageId, root: nil)
+        #expect(snippets.first { $0.name == "Loop" }?.prefixes == ["loop", "lp"] && snippets.first?.body == "loop do\n\t$0\nend")
+        #expect(!SnippetLibrary.shared.snippets(for: "swift", root: nil).contains { $0.name == "Loop" })
+        withExtendedLifetime(workspace) {}
+    }
+
+    @Test func providersAreCancelledWhenNotNeeded() async throws {
+        let (workspace, root, _, host) = try await make()
+        defer { LanguageRegistry.shared.setContributions([], from: "test.toyp") }
+        workspace.open(fileAt: root.appending(path: "slow.toyp"))
+        let slow = try #require(workspace.activeDocument)
+        func cancelled() -> Int { host.store.stored("cancelled", of: "test.toyp")?.integer ?? 0 }
+
+        // Past the timeout: left out, and its token is cancelled.
+        let started = ContinuousClock.now
+        #expect(await host.hovers(for: slow, at: 0).isEmpty)
+        #expect(ContinuousClock.now - started < .seconds(2))
+        #expect(try await eventually { cancelled() == 1 })
+
+        // The editor stops waiting (typed on): cancelled at once.
+        host.providerTimeout = .seconds(30)
+        let asking = Task { await host.hovers(for: slow, at: 0) }
+        try await Task.sleep(for: .milliseconds(100))
+        asking.cancel()
+        #expect(await asking.value.isEmpty)
+        #expect(try await eventually { cancelled() == 2 })
+        // The pattern in the selector: main.toyp has no hover provider.
+        let main = try #require(workspace.documents.first { $0.fileName == "main.toyp" })
+        #expect(host.hasProviders(.hover, for: slow) && !host.hasProviders(.hover, for: main))
+        withExtendedLifetime(workspace) {}
+    }
+}
+
+// MARK: - Language servers from extensions
+
+@MainActor
+struct ExtensionLanguageServerTests {
+    static var fakeServer: String {
+        Bundle(for: LanguageServerBundleToken.self).url(forResource: "fake_lsp", withExtension: "py", subdirectory: "Fixtures")!.path
+    }
+
+    static func manifest(permissions: String = #"["process"]"#) -> String {
+        """
+        { "id": "test.toyls", "name": "Toy LS", "version": "1", "main": "main.js", "activationEvents": ["onLanguage:toyls"],
+          "permissions": \(permissions),
+          "contributes": {
+            "languages": [{ "id": "toyls", "extensions": [".toyls"] }, { "id": "toydyn", "extensions": [".toydyn"] }],
+            "configuration": { "toyls.level": { "type": "string", "default": "basic" } },
+            "languageServers": [{
+              "id": "toy-ls", "name": "Toy LS", "languages": ["toyls"], "command": "/usr/bin/python3",
+              "args": ["\(fakeServer)", "--extras"], "env": { "TOY": "1" },
+              "initializationOptions": { "level": "${config:toyls.level}", "fixed": true },
+              "settings": { "toyls": { "level": "${config:toyls.level}", "label": "level ${config:toyls.level}" } }
+            }] } }
+        """
+    }
+
+    static let source = """
+    const omc = require('omc');
+    exports.activate = (context) => {
+      const sub = (d) => context.subscriptions.push(d);
+      const server = omc.languages.getLanguageServer('toy-ls');
+      sub(server.onNotification('omc/pinged', (params) => context.storage.update('pinged', params.value)));
+      sub(server.onRequest('omc/question', (params) => Promise.resolve('blue for ' + params.question)));
+      sub(omc.commands.registerCommand('toyls.ping', () => server.sendRequest('omc/ping', { value: 7 })));
+      sub(omc.commands.registerCommand('toyls.notify', () => server.sendNotification('omc/notify', { n: 1 })));
+      sub(omc.commands.registerCommand('toyls.state', () => server.sendRequest('omc/state')));
+      sub(omc.commands.registerCommand('toyls.progress', () => server.sendRequest('omc/progress')));
+      sub(omc.commands.registerCommand('toyls.progressEnd', () => server.sendRequest('omc/progressEnd')));
+      let dynamic;
+      sub(omc.commands.registerCommand('toyls.register', () => {
+        dynamic = omc.languages.registerLanguageServer({ id: 'toy-dyn', languages: ['toydyn'], command: '/usr/bin/python3', args: ['\(fakeServer)'] });
+      }));
+      sub(omc.commands.registerCommand('toyls.unregister', () => dynamic.dispose()));
+    };
+    """
+
+    private func state(_ workspace: Workspace) async throws -> JSONValue {
+        try #require(try await workspace.extensions.executeCommand("toyls.state"))
+    }
+
+    @Test func aContributedServerRunsWithItsSettings() async throws {
+        let store = makeStore()
+        try store.install(from: try makeExtension(Self.manifest(), source: Self.source))
+        defer { LanguageRegistry.shared.setContributions([], from: "test.toyls") }
+        let (workspace, root) = try makeWorkspace(store: store, files: ["main.toyls": "hello\n", "other.toydyn": "x\n"])
+        await workspace.extensions.waitUntilIdle()
+        workspace.open(fileAt: root.appending(path: "main.toyls"))
+        let document = try #require(workspace.activeDocument)
+        #expect(try await eventually(.seconds(10)) { document.languageClient?.state == .ready })
+        let client = try #require(document.languageClient)
+        #expect(client.serverID == "toy-ls" && client.name == "Toy LS")
+        #expect(try await eventually { workspace.extensions.extensions.first?.state == .active })
+
+        // initializationOptions and settings with ${config:…} filled in; sent once it's ready.
+        let server = try await state(workspace)
+        #expect(server["initializationOptions"] == .object(["level": .string("basic"), "fixed": .bool(true)]))
+        #expect(try await eventuallyAsync {
+            (try? await self.state(workspace))?["settings"]?.array?.last?["toyls"]?["label"] == .string("level basic")
+        })
+        // workspace/configuration is answered from the settings, by section.
+        _ = try await client.request("omc/askConfiguration", params: ["sections": ["toyls.level", "toyls", "missing"]])
+        #expect(try await eventuallyAsync {
+            (try? await self.state(workspace))?["answers"]?.object?.values.contains {
+                $0 == .array([.string("basic"), .object(["level": .string("basic"), "label": .string("level basic")]), .null])
+            } == true
+        })
+        // A setting change reaches it (workspace/didChangeConfiguration).
+        store.setSetting("toyls.level", to: .string("expert"), of: "test.toyls")
+        #expect(try await eventuallyAsync {
+            (try? await self.state(workspace))?["settings"]?.array?.last?["toyls"]?["level"] == .string("expert")
+        })
+
+        // Dynamic registration: it watches *.toy (any change) and *.cfg (deletions only).
+        #expect(try await eventually { client.registrations["watch-1"]?.method == "workspace/didChangeWatchedFiles" })
+        let created = root.appending(path: "new.toy"), cfg = root.appending(path: "a.cfg")
+        try "a".write(to: cfg, atomically: true, encoding: .utf8) // changed, not created or deleted: left out
+        workspace.languageServersHear([
+            FileWatcher.Event(path: created.path, flags: FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated)),
+            FileWatcher.Event(path: cfg.path, flags: FSEventStreamEventFlags(kFSEventStreamEventFlagItemModified)),
+            FileWatcher.Event(path: root.appending(path: "gone.cfg").path, flags: FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved)),
+        ])
+        #expect(try await eventuallyAsync {
+            (try? await self.state(workspace))?["watched"] == .array([.array([.string("new.toy"), .number(3)]), .array([.string("gone.cfg"), .number(3)])])
+        })
+        try "x".write(to: created, atomically: true, encoding: .utf8)
+        workspace.languageServersHear([FileWatcher.Event(path: created.path, flags: FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated))])
+        // (The folder's own watcher may report it too.)
+        #expect(try await eventuallyAsync {
+            (try? await self.state(workspace))?["watched"]?.array?.contains(.array([.string("new.toy"), .number(1)])) == true
+        })
+
+        // Its own protocol, both ways: a request, the notification and request it sends back.
+        let pong = try #require(try await workspace.extensions.executeCommand("toyls.ping"))
+        #expect(pong["pong"] == .number(7))
+        let asked = try #require(pong["asked"]?.integer)
+        #expect(try await eventually { workspace.extensions.store.stored("pinged", of: "test.toyls") == .number(7) })
+        #expect(try await eventuallyAsync { (try? await self.state(workspace))?["answers"]?[String(asked)] == .string("blue for color?") })
+        _ = try await workspace.extensions.executeCommand("toyls.notify")
+        #expect(try await eventuallyAsync { (try? await self.state(workspace))?["notified"] == .array([.object(["n": .number(1)])]) })
+
+        // Progress in the status bar, and the log (stderr and window/logMessage).
+        _ = try await workspace.extensions.executeCommand("toyls.progress")
+        #expect(try await eventually { client.progress["work-1"]?.title == "Indexing" && client.progress["work-1"]?.percentage == 10 })
+        #expect(try await eventually { client.log.contains("indexing started") && client.log.contains("fake stderr line") })
+        _ = try await workspace.extensions.executeCommand("toyls.progressEnd")
+        #expect(try await eventually { client.progress.isEmpty })
+
+        // Restart for the user: a new client, the file open in it again.
+        workspace.restartLanguageServer(id: "toy-ls")
+        #expect(try await eventually(.seconds(10)) { document.languageClient !== client && document.languageClient?.state == .ready })
+
+        // Turned off in the folder's settings: the file has no server.
+        let settings = root.appending(path: ".omc/settings.json")
+        try FileManager.default.createDirectory(at: settings.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{ "languageServers.toy-ls.enabled": false }"#.write(to: settings, atomically: true, encoding: .utf8)
+        workspace.loadProjectSettings()
+        #expect(!workspace.isLanguageServerEnabled("toy-ls", for: document.url))
+        #expect(try await eventually { document.languageClient == nil && !workspace.languageClients.values.contains { $0.serverID == "toy-ls" } })
+        withExtendedLifetime(workspace) {}
+    }
+
+    @Test func registeredFromCodeAndChosenFirst() async throws {
+        let store = makeStore()
+        try store.install(from: try makeExtension(Self.manifest(), source: Self.source))
+        defer { LanguageRegistry.shared.setContributions([], from: "test.toyls") }
+        let (workspace, root) = try makeWorkspace(store: store, files: ["main.toyls": "hello\n", "other.toydyn": "x\n"])
+        await workspace.extensions.waitUntilIdle()
+        workspace.open(fileAt: root.appending(path: "main.toyls")) // activates the extension
+        #expect(try await eventually { workspace.extensions.extensions.first?.state == .active })
+        workspace.open(fileAt: root.appending(path: "other.toydyn"))
+        let other = try #require(workspace.activeDocument)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(other.languageClient == nil)
+        _ = try await workspace.extensions.executeCommand("toyls.register")
+        #expect(try await eventually(.seconds(10)) { other.languageClient?.serverID == "toy-dyn" && other.languageClient?.state == .ready })
+        _ = try await workspace.extensions.executeCommand("toyls.unregister")
+        #expect(try await eventually { other.languageClient == nil && !workspace.languageClients.values.contains { $0.serverID == "toy-dyn" } })
+
+        // Contributed servers come before built-in ones for their languages, unless turned off.
+        var contributed = LanguageServerConfig(id: "my-swift", name: "Mine", command: ["/bin/cat"], languages: [.swift])
+        contributed.extensionID = "x.y"
+        #expect(LanguageServers.config(for: .swift, path: "/usr/bin", contributed: [contributed])?.id == "my-swift")
+        #expect(LanguageServers.config(for: .swift, path: "/nonexistent", contributed: [contributed], isEnabled: { $0 != "my-swift" }) == nil)
+        withExtendedLifetime(workspace) {}
+    }
+
+    @Test func serversNeedTheProcessPermissionAndSubstituteSettings() throws {
+        let folder = try makeExtension(Self.manifest(permissions: "[]"), source: "")
+        #expect(throws: ExtensionManifest.ValidationError.needsPermission("A language server", .process)) { try ExtensionManifest.load(from: folder) }
+        let value = LanguageServerDefinition.substitute(.object(["a": .string("${config:x.n}"), "b": .string("n=${config:x.n}, s=${config:x.s}"),
+                                                                 "c": .array([.string("${config:missing}")])]),
+                                                        { ["x.n": .number(3), "x.s": .string("hi")][$0] })
+        #expect(value == .object(["a": .number(3), "b": .string("n=3, s=hi"), "c": .array([.null])]))
+    }
+}
+
+private final class LanguageServerBundleToken {}
+
+// MARK: - Merging with a language server
+
+@MainActor
+struct ExtensionMergesWithServerTests {
+    @Test func extensionAnswersJoinTheServers() async throws {
+        let store = makeStore()
+        try store.install(from: try makeExtension("""
+        { "id": "test.swiftmore", "name": "More Swift", "version": "1", "main": "main.js", "activationEvents": ["onLanguage:swift"] }
+        """, source: """
+        const omc = require('omc');
+        exports.activate = (context) => {
+          context.subscriptions.push(omc.languages.registerDefinitionProvider('swift', {
+            provideDefinition: (doc) => new omc.Location(doc.path, new omc.Range(1, 0, 1, 4)) }));
+          context.subscriptions.push(omc.languages.registerReferenceProvider('swift', {
+            provideReferences: (doc) => [new omc.Location(doc.uri, new omc.Range(1, 0, 1, 4))] }));
+        };
+        """))
+        let root = FileManager.default.temporaryDirectory.appending(path: "omc-merge-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try "func target() {}\ntarget()\n".write(to: root.appending(path: "main.swift"), atomically: true, encoding: .utf8)
+        let workspace = Workspace()
+        workspace.extensions.store = store
+        workspace.languageServerOverrides[.swift] = LanguageClientTests.fakeServer
+        workspace.openFolder(root)
+        await workspace.extensions.waitUntilIdle()
+        workspace.open(fileAt: root.appending(path: "main.swift"))
+        let document = try #require(workspace.activeDocument)
+        #expect(try await eventually(.seconds(10)) { document.languageClient?.state == .ready })
+        #expect(try await eventually { workspace.extensions.extensions.first?.state == .active })
+
+        // The server's definition first, then the extension's.
+        let definitions = await workspace.definitions(in: document, at: document.offset(for: LSPPosition(line: 1, character: 2)))
+        #expect(definitions.map(\.range.start.line) == [0, 1])
+        let references = try await workspace.references(in: document, at: document.offset(for: LSPPosition(line: 1, character: 2)))
+        #expect(references.count >= 2 && references.contains { $0.range.start.line == 1 && $0.range.start.character == 0 })
+        withExtendedLifetime(workspace) {}
+    }
+}
+
+// MARK: - Language Support template
+
+@MainActor
+struct LanguageTemplateTests {
+    @Test func theTemplateLoadsAndWorks() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "omc-lang-ext-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let folder = try ExtensionScaffold.create(named: "Toy Lang", in: parent, template: .languageSupport)
+        for file in ["extension.json", "language-configuration.json", "snippets/toy.json", "src/extension.ts", "dist/extension.js",
+                     "sample.toy", "tsconfig.json", "package.json", "omc.d.ts", "README.md"] {
+            #expect(FileManager.default.fileExists(atPath: folder.appending(path: file).path), "\(file)")
+        }
+        let manifest = try ExtensionManifest.load(from: folder)
+        #expect(manifest.id == "local.toy-lang" && manifest.name == "Toy Lang" && manifest.languages.first?.id == "toy")
+
+        // Installed, it runs as written: .toy files get its language, configuration and providers.
+        let store = makeStore()
+        try store.install(from: folder, development: true)
+        defer { LanguageRegistry.shared.setContributions([], from: "local.toy-lang") }
+        let sample = try String(contentsOf: folder.appending(path: "sample.toy"), encoding: .utf8)
+        let (workspace, root) = try makeWorkspace(store: store, files: ["sample.toy": sample])
+        await workspace.extensions.waitUntilIdle()
+        workspace.open(fileAt: root.appending(path: "sample.toy"))
+        let document = try #require(workspace.activeDocument)
+        let host = workspace.extensions
+        #expect(document.language.rawValue == "toy" && document.language.lineComment == "#")
+        #expect(try await eventually { host.extensions.first?.state == .active })
+        #expect(host.extensions.first?.log.filter { $0.level == "warning" || $0.level == "error" }.isEmpty == true)
+
+        let greetCall = document.offset(for: LSPPosition(line: 10, character: 4))
+        #expect(await workspace.definitions(in: document, at: greetCall).first?.range.start == LSPPosition(line: 3, character: 3))
+        #expect(await host.hovers(for: document, at: greetCall) == ["\n```toy\nfn greet(name) do\n```\n"])
+        #expect(await host.hovers(for: document, at: document.offset(for: LSPPosition(line: 3, character: 0))).first?.hasPrefix("Declares a function") == true)
+        let items = await host.completions(for: document, at: 0, trigger: nil, firstID: 0).items
+        #expect(items.contains { $0.label == "greet" && $0.insertText == "greet(${1:args})" && $0.isSnippet })
+        document.refreshSymbols()
+        await document.waitForSymbols()
+        #expect(document.symbols.map(\.name) == ["greet", "answer"])
+        #expect(SnippetLibrary.shared.snippets(for: "toy", root: nil).contains { $0.prefixes.contains("fn") })
+        document.refreshFoldRegions()
+        await document.waitForFoldRegions()
+        #expect(document.foldRegions[2]?.end == 6) // # region … # endregion
+        withExtendedLifetime(workspace) {}
+    }
+}
+
+@MainActor
+private func eventuallyAsync(_ timeout: Duration = .seconds(5), _ condition: @MainActor () async -> Bool) async throws -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while !(await condition()) {
+        if ContinuousClock.now > deadline { return false }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    return true
+}

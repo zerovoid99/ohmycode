@@ -1,0 +1,33 @@
+{
+  "name": "vscode-acme-lang",
+  "displayName": "Acme Language",
+  "description": "Syntax highlighting for Acme files",
+  "version": "2.1.0",
+  "publisher": "acme",
+  "engines": { "vscode": "^1.80.0" },
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "acme",
+        "aliases": ["Acme", "acme"],
+        "extensions": [".acme"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "acme",
+        "scopeName": "source.acme",
+        "path": "./syntaxes/acme.tmLanguage.json",
+        "embeddedLanguages": { "meta.embedded.sql": "sql" }
+      },
+      { "scopeName": "text.acme.notes", "path": "./syntaxes/notes.tmLanguage.yaml" }
+    ],
+    "snippets": [
+      { "language": "acme", "path": "./snippets/acme.json" },
+      { "language": "acme", "path": "./snippets/missing.json" }
+    ],
+    "commands": [{ "command": "acme.run", "title": "Run Acme" }]
+  }
+}

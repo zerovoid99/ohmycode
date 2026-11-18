@@ -14,6 +14,8 @@ import TreeSitterTypeScript
 struct Grammar: @unchecked Sendable {
     let language: SwiftTreeSitter.Language
     let highlightsQuery: Query
+    /// `folds.scm` (contributed grammars): fold regions from its `@fold` captures.
+    var foldsQuery: Query? = nil
 }
 
 /// Loads tree-sitter grammars and compiles their highlight queries once per language, on
@@ -28,7 +30,24 @@ enum GrammarRegistry {
 
     private static let slots = Mutex<[SourceLanguage: Slot]>([:])
 
+    /// The languages with a tree-sitter grammar built in.
+    static let builtInLanguages: Set<SourceLanguage> = [.swift, .javascript, .typescript, .tsx, .python, .json, .rust, .go]
+
+    /// Whether the app highlights `language` without extensions (tree-sitter, or the
+    /// hand-written highlighters of `.http` and `.sql`).
+    static func hasBuiltInHighlighting(_ language: SourceLanguage) -> Bool {
+        builtInLanguages.contains(language) || language == .http || language == .sql
+    }
+
+    /// The language's tree-sitter grammar: the built-in one, else one an extension contributes.
     static func grammar(for language: SourceLanguage) -> Grammar? {
+        guard builtInLanguages.contains(language) else { return ContributedGrammars.shared.treeSitterGrammar(for: language) }
+        return builtInGrammar(for: language)
+    }
+
+    /// The built-in grammar only.
+    static func builtInGrammar(for language: SourceLanguage) -> Grammar? {
+        guard builtInLanguages.contains(language) else { return nil }
         let slot = slots.withLock { slots in
             if let slot = slots[language] { return slot }
             let slot = Slot()
@@ -65,7 +84,7 @@ enum GrammarRegistry {
         case .python: SwiftTreeSitter.Language(tree_sitter_python())
         case .rust: SwiftTreeSitter.Language(tree_sitter_rust())
         case .go: SwiftTreeSitter.Language(tree_sitter_go())
-        default: nil
+        default: ContributedGrammars.shared.treeSitterGrammar(for: language)?.language
         }
     }
 
@@ -89,7 +108,8 @@ enum GrammarRegistry {
             make(tree_sitter_rust(), [QueryFile(bundle: "TreeSitterRust_TreeSitterRust")])
         case .go:
             make(tree_sitter_go(), [QueryFile(bundle: "TreeSitterGo_TreeSitterGo")])
-        case .markdown, .c, .cpp, .objc, .html, .css, .yaml, .toml, .shell, .http, .sql, .plaintext:
+        default:
+            // Markdown, C, HTML… and languages extensions add: no tree-sitter grammar (yet).
             nil
         }
     }

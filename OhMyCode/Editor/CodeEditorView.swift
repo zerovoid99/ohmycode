@@ -198,6 +198,7 @@ final class EditorController: NSObject {
             if self.blameHover.mouseMoved(to: point) { self.hover.dismiss() } else { self.hover.mouseMoved(to: point) }
         }
         textView.onOptionClick = { [weak self] location in self?.toggleCursor(at: location) }
+        textView.languageWordRange = { [weak self] index in self?.document.configuredWordRange(at: index) }
         textView.onInsertText = { [weak self] text in
             guard let self else { return false }
             if self.hasExtraCursors {
@@ -205,6 +206,8 @@ final class EditorController: NSObject {
                 return true
             }
             if self.inlineSuggestions.typed(text) { return true }
+            // A commit character accepts the selected completion first, then is typed.
+            self.completion.commit(on: text)
             return self.handleTyped(text)
         }
         textView.onClick = { [weak self] point in
@@ -668,7 +671,12 @@ final class EditorController: NSObject {
 
     /// Language actions at the top of the editor's context menu.
     fileprivate func languageMenuItems() -> [NSMenuItem] {
-        guard let client = document.languageClient else { return [] }
+        // The server's features and the extensions' providers for the file.
+        guard document.languageClient != nil || !(document.extensionHost?.providers.filter { $0.handles(document) }.isEmpty ?? true) else { return [] }
+        let client = document.readyLanguageClient
+        func supports(_ feature: LanguageClient.Feature, _ kind: ExtensionHost.ProviderKind) -> Bool {
+            client?.supports(feature) == true || document.extensionHost?.hasProviders(kind, for: document) == true
+        }
         func item(_ title: String, _ action: Selector, _ key: String = "", _ modifiers: NSEvent.ModifierFlags = [],
                   enabled: Bool = true) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: enabled ? action : nil, keyEquivalent: key)
@@ -681,17 +689,17 @@ final class EditorController: NSObject {
         return [
             item("Go to Definition", #selector(contextGoToDefinition), f12),
             item("Go to Implementation", #selector(contextGoToImplementation), f12, .command,
-                 enabled: client.supports(.implementation)),
+                 enabled: supports(.implementation, .implementation)),
             item("Find All References", #selector(contextFindReferences), f12, .shift,
-                 enabled: client.supports(.references)),
+                 enabled: supports(.references, .references)),
             item("Show Call Hierarchy", #selector(contextCallHierarchy), "h", [.option, .shift],
-                 enabled: client.supports(.callHierarchy)),
-            item("Rename Symbol", #selector(contextRename), f2, enabled: client.supports(.rename)),
-            item("Quick Fix & Refactor…", #selector(contextCodeActions), ".", .command, enabled: client.supports(.codeAction)),
+                 enabled: client?.supports(.callHierarchy) == true),
+            item("Rename Symbol", #selector(contextRename), f2, enabled: supports(.rename, .rename)),
+            item("Quick Fix & Refactor…", #selector(contextCodeActions), ".", .command, enabled: supports(.codeAction, .codeAction)),
             .separator(),
             item("Format Document", #selector(contextFormat), "f", [.shift, .option],
-                 enabled: client.supports(.formatting)),
-            item("Format Selection", #selector(contextFormatSelection), enabled: client.supports(.rangeFormatting)),
+                 enabled: supports(.formatting, .formatting)),
+            item("Format Selection", #selector(contextFormatSelection), enabled: supports(.rangeFormatting, .rangeFormatting)),
             .separator(),
         ]
     }
@@ -1059,6 +1067,7 @@ extension EditorController: NSTextViewDelegate {
         pendingTypedText = nil
         completion.textDidChange(typed: typed)
         signatureHelp.textDidChange(typed: typed)
+        formatOnType(typed)
         inlineSuggestions.textDidChange()
         minimapView?.refresh(textChanged: true)
         updateStickyAfterLayout()
@@ -1299,6 +1308,16 @@ final class CodeTextView: NSTextView, @preconcurrency NSTextFinderClient {
     var onOptionClick: ((Int) -> Void)?
     /// Typed text; returns true if handled (several cursors).
     var onInsertText: ((String) -> Bool)?
+    /// The word around a character, when the language defines words (`wordPattern`); nil: the
+    /// text view's own idea of a word.
+    var languageWordRange: ((Int) -> NSRange?)?
+
+    override func selectionRange(forProposedRange proposedCharRange: NSRange, granularity: NSSelectionGranularity) -> NSRange {
+        if granularity == .selectByWord, proposedCharRange.length == 0, let range = languageWordRange?(proposedCharRange.location) {
+            return range
+        }
+        return super.selectionRange(forProposedRange: proposedCharRange, granularity: granularity)
+    }
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
         let text = (string as? NSAttributedString)?.string ?? (string as? String)

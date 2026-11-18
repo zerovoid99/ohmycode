@@ -11,15 +11,15 @@ struct ReferenceList {
 
 /// Language server actions that span files: references, rename, formatting.
 extension Workspace {
-    private func languageTarget(_ target: EditorDocument?, _ feature: LanguageClient.Feature)
-        -> (EditorDocument, LanguageClient, Int)? {
-        guard let document = target ?? activeDocument, let client = document.languageClient,
-              client.state == .ready, client.supports(feature),
+    /// The document and cursor for `feature`, when its server or an extension has it.
+    private func languageTarget(_ target: EditorDocument?, _ feature: LanguageClient.Feature, _ kind: ExtensionHost.ProviderKind)
+        -> (EditorDocument, Int)? {
+        guard let document = target ?? activeDocument, document.canUse(feature, kind),
               let selection = document.editor?.textView.selectedRange() ?? document.viewState?.selection else {
             NSSound.beep()
             return nil
         }
-        return (document, client, selection.location)
+        return (document, selection.location)
     }
 
     /// Shows hover info for the symbol at the cursor (from the keyboard or palette).
@@ -35,33 +35,29 @@ extension Workspace {
     /// interface's classes, an overridden method's overrides). One opens; several are listed.
     @discardableResult
     func goToImplementation(in target: EditorDocument? = nil) -> Task<Void, Never>? {
-        goToLocations("textDocument/implementation", .implementation, noun: "implementation", in: target)
+        goToLocations("textDocument/implementation", .implementation, .implementation, noun: "implementation", in: target)
     }
 
     /// The type of the symbol at the cursor (a variable's struct, a parameter's class).
     @discardableResult
     func goToTypeDefinition(in target: EditorDocument? = nil) -> Task<Void, Never>? {
-        goToLocations("textDocument/typeDefinition", .typeDefinition, noun: "type definition", in: target)
+        goToLocations("textDocument/typeDefinition", .typeDefinition, .typeDefinition, noun: "type definition", in: target)
     }
 
-    private func goToLocations(_ method: String, _ feature: LanguageClient.Feature, noun: String,
+    private func goToLocations(_ method: String, _ feature: LanguageClient.Feature, _ kind: ExtensionHost.ProviderKind, noun: String,
                                in target: EditorDocument?) -> Task<Void, Never>? {
-        guard let (document, client, location) = languageTarget(target, feature) else { return nil }
+        guard let (document, location) = languageTarget(target, feature, kind) else { return nil }
         let symbol = document.wordRange(at: location).map { document.textStorage.mutableString.substring(with: $0) } ?? ""
         return Task {
-            do {
-                let locations = try await client.locations(method, url: document.url, position: document.lspPosition(at: location))
-                if locations.isEmpty { NSSound.beep(); return }
-                if locations.count == 1 {
-                    open(fileAt: workspaceURL(for: locations[0].url))
-                    if let target = activeDocument { target.reveal(target.range(for: locations[0].range)) }
-                    return
-                }
-                references = ReferenceList(symbol: symbol, results: referenceResults(locations), noun: noun)
-                sidebarMode = .references
-            } catch {
-                errorMessage = error.localizedDescription
+            let locations = await locations(method, kind, in: document, at: location)
+            if locations.isEmpty { NSSound.beep(); return }
+            if locations.count == 1 {
+                open(fileAt: workspaceURL(for: locations[0].url))
+                if let target = activeDocument { target.reveal(target.range(for: locations[0].range)) }
+                return
             }
+            references = ReferenceList(symbol: symbol, results: referenceResults(locations), noun: noun)
+            sidebarMode = .references
         }
     }
 
@@ -70,11 +66,11 @@ extension Workspace {
     /// ⇧F12: lists every use of the symbol at the cursor in the sidebar.
     @discardableResult
     func findReferences(in target: EditorDocument? = nil) -> Task<Void, Never>? {
-        guard let (document, client, location) = languageTarget(target, .references) else { return nil }
+        guard let (document, location) = languageTarget(target, .references, .references) else { return nil }
         let symbol = document.wordRange(at: location).map { document.textStorage.mutableString.substring(with: $0) } ?? ""
         return Task {
             do {
-                let locations = try await client.references(url: document.url, position: document.lspPosition(at: location))
+                let locations = try await references(in: document, at: location)
                 guard !locations.isEmpty else { NSSound.beep(); return }
                 references = ReferenceList(symbol: symbol, results: referenceResults(locations))
                 sidebarMode = .references
@@ -128,13 +124,24 @@ extension Workspace {
     /// F2: renames the symbol at the cursor across the workspace.
     @discardableResult
     func renameSymbol(in target: EditorDocument? = nil) -> Task<Void, Never>? {
-        guard let (document, client, location) = languageTarget(target, .rename) else { return nil }
+        guard let (document, location) = languageTarget(target, .rename, .rename) else { return nil }
+        // An extension's rename for the language comes first (installing one is a choice), else the server's.
+        let fromExtension = extensions.hasProviders(.rename, for: document)
+        let client = document.readyLanguageClient
         let position = document.lspPosition(at: location)
         let version = document.editVersion
         return Task {
             do {
                 let current: String
-                switch try await client.prepareRename(url: document.url, position: position) {
+                let prepared: LanguageClient.PrepareRename
+                if fromExtension {
+                    prepared = await extensions.prepareRename(for: document, at: location) ?? .invalid
+                } else if let client {
+                    prepared = try await client.prepareRename(url: document.url, position: position)
+                } else {
+                    return
+                }
+                switch prepared {
                 case .invalid:
                     NSSound.beep()
                     return
@@ -146,8 +153,9 @@ extension Workspace {
                 }
                 guard document.editVersion == version,
                       let newName = promptForNewName(current), !newName.isEmpty, newName != current else { return }
-                guard let edit = try await client.rename(url: document.url, position: position, newName: newName),
-                      edit.editCount > 0 else { NSSound.beep(); return }
+                let edit = fromExtension ? await extensions.rename(in: document, at: location, to: newName)
+                    : try await client?.rename(url: document.url, position: position, newName: newName)
+                guard let edit, edit.editCount > 0 else { NSSound.beep(); return }
                 guard document.editVersion == version else {
                     errorMessage = "\(document.fileName) changed while renaming. Try again."
                     return

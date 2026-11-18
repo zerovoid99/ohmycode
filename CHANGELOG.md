@@ -21,6 +21,53 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
   underlined where the database says they are.
 - Query history per connection (the last 100), and with AI set up, Explain Query, Fix Query with
   AI, and the connection's schema included when you use ⌘I in a SQL file.
+- Extensions can add whole languages: new file types (by extension, file name, pattern or first
+  line), their comments, brackets, auto-closing and surrounding pairs, folding markers, word
+  definition and Enter indentation rules (VS Code's `language-configuration.json`), and snippets.
+  They can also add more file types or a configuration to a language the editor already knows.
+- *Change Language Mode*: click the language in the status bar (or use the palette) to open a file
+  as another language. `files.associations` in Settings ▸ Languages or a folder's
+  `.omc/settings.json` (`{ "*.tpl": "html" }`) does it for every matching file.
+- Extensions can bring language servers, started for their languages before the built-in ones,
+  with their own settings. *Settings ▸ Languages* lists every language server with whether it's
+  running, a switch to turn it off (`languageServers.<id>.enabled`), Restart, and its log. Work a
+  server reports (indexing, building) shows in the status bar, and its messages as notifications.
+- Language servers can now register features after they start, watch files (they hear when
+  matching files are created, changed or deleted), ask for their settings, and show messages
+  with choices.
+- Extensions can provide Go to Definition, Type Definition and Implementation, Find References,
+  the Outline and breadcrumbs, Go to Symbol in Workspace, quick fixes and refactorings (⌘. and
+  the lightbulb), code lenses, signature help, rename, symbol highlights, links, folding, inlay
+  hints, semantic colors, selection and on-type formatting, and richer completions (snippets,
+  documentation, extra edits such as imports, commit characters), together with the language
+  server's. Slow answers are cancelled when they're no longer needed.
+- *Extensions: New Language Support Extension…* starts a new extension from a working toy
+  language, and `ExtensionAPI/examples/toy-language` shows every part of language support.
+- Extensions can color languages with TextMate grammars, the same `.tmLanguage.json` files VS
+  Code extensions use: multi-line strings and comments, embedded languages (JavaScript inside
+  HTML), injections, and grammars that include each other all work. Imported VS Code themes color
+  them by their own token colors, the way VS Code does; the built-in themes color the common scopes.
+- Extensions can also bring tree-sitter parsers, built into a library with the new
+  `ExtensionAPI/tools/build-tree-sitter-grammar.sh`, with their highlight and folding queries.
+  Because a parser is native code, the extension has to ask for the new `nativeCode` permission,
+  and the install dialog says so.
+- *Settings ▸ Languages ▸ Highlighting* picks what colors a language when there's a choice. The
+  editor's own highlighting stays for the languages it knows unless you pick a grammar there (or
+  the grammar asks to replace it).
+- *Extensions: Import VS Code Language Extension…* installs the languages, grammars and snippets of
+  an unpacked VS Code extension, so its colors and snippets work here too.
+- *Developer: Inspect Editor Tokens and Scopes* shows what colors the text under the caret: its
+  scopes or syntax nodes, the semantic token over it, and the theme rule that decides its color.
+- The toy language example is now colored by its own grammar, and the guide
+  `docs/extensions/syntax-highlighting.md` explains both kinds of grammars from start to finish.
+- A developer guide for extensions in `docs/extensions/`: a tutorial from an empty folder to an
+  installed extension, a reference for `extension.json` and for the whole API, how extensions run
+  and what their permissions allow, debugging and testing, publishing, the examples explained, and
+  a cookbook of recipes.
+
+### Fixed
+- Signature help now shows the documentation of signatures and parameters that language servers
+  send as Markdown.
 
 ## [0.2.2] - 2026-11-18
 

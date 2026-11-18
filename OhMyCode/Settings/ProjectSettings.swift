@@ -14,10 +14,14 @@ struct ProjectSettings: Equatable {
     var showsInlayHints: Bool?
     var semanticHighlighting: Bool?
     var showsCodeLens: Bool?
+    /// `files.associations`: glob → language id, over the app's.
+    var fileAssociations: [String: String]?
+    /// `languageServers.<id>.enabled`, over the app's.
+    var languageServersEnabled: [String: Bool] = [:]
 
     /// The names it understands, for the template and for warnings.
     static let keys = ["formatOnSave", "formatOnSaveScope", "autoSave", "autoSaveDelay", "wordWrap", "renderWhitespace",
-                       "showsInlayHints", "semanticHighlighting", "showsCodeLens"]
+                       "showsInlayHints", "semanticHighlighting", "showsCodeLens", "files.associations"]
 
     init() {}
 
@@ -37,8 +41,12 @@ struct ProjectSettings: Equatable {
         showsInlayHints = object["showsInlayHints"] as? Bool
         semanticHighlighting = object["semanticHighlighting"] as? Bool
         showsCodeLens = object["showsCodeLens"] as? Bool
+        fileAssociations = object["files.associations"] as? [String: String]
+        for (key, value) in object where key.hasPrefix("languageServers.") && key.hasSuffix(".enabled") {
+            if let enabled = value as? Bool { languageServersEnabled[String(key.dropFirst(16).dropLast(8))] = enabled }
+        }
         // REST Client's environments are read by the HTTP client (see `HTTPEnvironments`).
-        unknownKeys = object.keys.filter { !Self.keys.contains($0) && !$0.hasPrefix("rest-client.") }.sorted()
+        unknownKeys = object.keys.filter { !Self.keys.contains($0) && !$0.hasPrefix("rest-client.") && !$0.hasPrefix("languageServers.") }.sorted()
     }
 
     /// Names in the file it didn't understand.
@@ -88,7 +96,9 @@ struct ProjectSettings: Equatable {
       // "renderWhitespace": "boundary",         // "none", "selection", "boundary", "all"
       // "showsInlayHints": true,
       // "semanticHighlighting": true,
-      // "showsCodeLens": true
+      // "showsCodeLens": true,
+      // "files.associations": { "*.tpl": "html" },
+      // "languageServers.rust-analyzer.enabled": false
     }
 
     """
@@ -128,6 +138,8 @@ extension Workspace {
         projectSettings = primary
         // Editors apply settings when they change: the same path as the app's.
         for document in documents { document.editors.forEach { $0.projectSettingsChanged() } }
+        updateLanguageModes()
+        refreshLanguageServerSettings()
     }
 
     /// Whether a file is one of the folders' `.omc/settings.json`.

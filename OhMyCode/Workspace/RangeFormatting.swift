@@ -38,8 +38,7 @@ extension EditorDocument {
 
 extension Workspace {
     func canFormatRanges(_ document: EditorDocument) -> Bool {
-        guard let client = document.languageClient else { return false }
-        return client.state == .ready && client.supports(.rangeFormatting)
+        document.canUse(.rangeFormatting, .rangeFormatting)
     }
 
     /// Format Selection: the selected lines (the cursor's line without a selection).
@@ -63,15 +62,25 @@ extension Workspace {
     /// text) as one undoable step. Returns whether the text changed.
     @discardableResult
     func format(_ document: EditorDocument, lines: [Range<Int>], actionName: String) async throws -> Bool {
-        guard let client = document.languageClient, !lines.isEmpty else { return false }
+        guard !lines.isEmpty else { return false }
         let version = document.editVersion
         let (tabSize, insertSpaces) = document.indentation
         var edits: [TextReplacement] = []
-        for range in lines {
-            let result = try await client.rangeFormatting(url: document.url, range: document.lspRange(ofLines: range),
-                                                          tabSize: tabSize, insertSpaces: insertSpaces)
-            guard document.editVersion == version, !Task.isCancelled else { return false }
-            edits += result.map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) }
+        // An extension's range formatter for the language comes first (installing one is a choice).
+        if extensions.hasProviders(.rangeFormatting, for: document) {
+            for range in lines {
+                let result = await extensions.rangeFormattingEdits(for: document, range: document.lspRange(ofLines: range)) ?? []
+                guard document.editVersion == version, !Task.isCancelled else { return false }
+                edits += result
+            }
+        }
+        if edits.isEmpty, let client = document.readyLanguageClient, client.supports(.rangeFormatting) {
+            for range in lines {
+                let result = try await client.rangeFormatting(url: document.url, range: document.lspRange(ofLines: range),
+                                                              tabSize: tabSize, insertSpaces: insertSpaces)
+                guard document.editVersion == version, !Task.isCancelled else { return false }
+                edits += result.map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) }
+            }
         }
         // Ranges next to each other can both touch the line between them: keep the first.
         var kept: [TextReplacement] = []

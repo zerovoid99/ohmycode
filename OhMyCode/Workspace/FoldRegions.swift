@@ -17,6 +17,7 @@ extension SyntaxEngine {
     /// `// MARK:` / `#region` sections.
     func foldRegions() -> [FoldRegion] {
         guard let root = currentRoot else { return [] }
+        if let foldsQuery, let tree = currentTree { return Self.queryFoldRegions(foldsQuery, root: root, tree: tree) }
         let text = currentText
         var byStart: [Int: FoldRegion] = [:]
         func add(_ region: FoldRegion) {
@@ -126,6 +127,28 @@ extension SyntaxEngine {
         return result
     }
 
+    /// A grammar's `folds.scm`: each `@fold` node folds from its first line to its last (to
+    /// the line before, when that one is its closing bracket).
+    private static func queryFoldRegions(_ query: Query, root: Node, tree: MutableTree) -> [FoldRegion] {
+        var byStart: [Int: FoldRegion] = [:]
+        for match in query.execute(node: root, in: tree) {
+            for capture in match.captures where capture.name == "fold" {
+                let node = capture.node
+                let startRow = Int(node.pointRange.lowerBound.row), endRow = Int(node.pointRange.upperBound.row)
+                var end = endRow
+                if let closer = rightmostToken(of: node), let type = closer.nodeType, ["}", ")", "]", "end"].contains(type),
+                   Int(closer.pointRange.lowerBound.row) == endRow {
+                    end -= 1
+                }
+                guard end > startRow else { continue }
+                let kind: FoldRegion.Kind = (node.nodeType ?? "").contains("comment") ? .comment : .code
+                if let existing = byStart[startRow], existing.end >= end { continue }
+                byStart[startRow] = FoldRegion(start: startRow, end: end, kind: kind)
+            }
+        }
+        return byStart.values.sorted { $0.start < $1.start }
+    }
+
     private static func rightmostToken(of node: Node) -> Node? {
         var current = node
         for _ in 0..<12 {
@@ -164,8 +187,16 @@ extension EditorDocument {
             if regions == nil, let client = self.languageClient, client.state == .ready, client.supports(.foldingRange) {
                 regions = try? await client.foldingRanges(url: self.url)
             }
+            if regions?.isEmpty ?? true, let host = self.extensionHost, host.hasProviders(.foldingRange, for: self) {
+                regions = await host.foldingRanges(for: self)
+            }
             if regions?.isEmpty ?? true, let highlighter = self.highlighter {
                 regions = await highlighter.foldRegions()
+            }
+            // The language configuration's markers (`// #region`) where nothing else has regions.
+            if regions?.isEmpty ?? true, let markers = LanguageRegistry.shared.configuration(for: self.language)?.foldingMarkers {
+                let text = self.textStorage.string
+                regions = await Task.detached { LanguageConfiguration.markerRegions(markers, lines: text.split(separator: "\n", omittingEmptySubsequences: false)) }.value
             }
             guard !Task.isCancelled, version == self.editVersion else { return }
             let byStart = Dictionary((regions ?? []).map { ($0.start, $0) }, uniquingKeysWith: { $0.end >= $1.end ? $0 : $1 })

@@ -18,6 +18,9 @@ struct EditorThemeDefinition: Identifiable {
     var chrome: ChromeColors? = nil
     /// The 16 ANSI terminal colors (black…white, then bright); nil keeps Ghostty's defaults.
     var ansi: [UInt32]? = nil
+    /// An imported VS Code theme's `tokenColors`, for TextMate grammars' scopes (built-in
+    /// themes map common scopes to their syntax roles instead).
+    var textMateRules: TextMateThemeRules? = nil
 
     struct ChromeColors {
         let sidebar: NSColor
@@ -111,9 +114,15 @@ enum EditorTheme {
         "attribute": "attribute", "tag": "keyword", "label": "attribute",
     ]
 
-    /// Color for a capture like `keyword.function`, falling back to `keyword`.
+    /// Color for a capture like `keyword.function`, falling back to `keyword`; or for a
+    /// TextMate token's scopes (`source.toy string.quoted.toy`, see `TextMateScopes`).
     static func color(forCapture name: String) -> NSColor? {
         if let resolved = resolvedColors[name] { return resolved }
+        if TextMateScopes.isScopeList(name) {
+            let result = color(forScopes: TextMateScopes.scopes(of: name), in: current)
+            resolvedColors[name] = result
+            return result
+        }
         var components = name.split(separator: ".")
         var result: NSColor?
         while !components.isEmpty {
@@ -125,6 +134,19 @@ enum EditorTheme {
         }
         resolvedColors[name] = result
         return result
+    }
+
+    /// A TextMate token's color in `theme`: by its `tokenColors` when it's an imported VS Code
+    /// theme, else by the syntax role of the capture name its scopes map to.
+    static func color(forScopes scopes: [String], in theme: EditorThemeDefinition) -> NSColor? {
+        if let rules = theme.textMateRules { return rules.match(scopes)?.color }
+        guard let capture = TextMateScopes.captureName(for: scopes) else { return nil }
+        var components = capture.split(separator: ".")
+        while !components.isEmpty {
+            if let role = captureRoles[components.joined(separator: ".")] { return theme.syntax[role] }
+            components.removeLast()
+        }
+        return nil
     }
 
     // MARK: Themes

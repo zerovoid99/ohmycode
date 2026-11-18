@@ -120,6 +120,13 @@ final class AppSettings {
     var autoClosePairs: Bool { didSet { changed() } }
     /// Vim's modes and keys in the code editor.
     var vimMode: Bool { didSet { changed() } }
+    /// `files.associations`: a glob on the file name (or path) → the language id its files are in.
+    var fileAssociations: [String: String] { didSet { changed() } }
+    /// `languageServers.<id>.enabled`: servers turned off (false) or on; unlisted ones are on.
+    var languageServersEnabled: [String: Bool] { didSet { changed() } }
+    /// `languages.highlighting`: language id → what colors it ("builtin", "tree-sitter",
+    /// "textmate"); unlisted languages use the default order (see `ContributedGrammars`).
+    var languageHighlighting: [String: String] { didSet { changed() } }
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var isLoading = false
@@ -155,6 +162,9 @@ final class AppSettings {
         stagesResolvedConflicts = defaults.object(forKey: Keys.stagesResolvedConflicts) as? Bool ?? true
         autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
         vimMode = defaults.object(forKey: Keys.vimMode) as? Bool ?? false
+        fileAssociations = defaults.dictionary(forKey: Keys.fileAssociations) as? [String: String] ?? [:]
+        languageServersEnabled = defaults.dictionary(forKey: Keys.languageServersEnabled) as? [String: Bool] ?? [:]
+        languageHighlighting = defaults.dictionary(forKey: Keys.languageHighlighting) as? [String: String] ?? [:]
         isLoading = false
     }
 
@@ -187,6 +197,9 @@ final class AppSettings {
         static let stagesResolvedConflicts = "stagesResolvedConflicts"
         static let autoClosePairs = "autoClosePairs"
         static let vimMode = "vimMode"
+        static let fileAssociations = "files.associations"
+        static let languageServersEnabled = "languageServers.enabled"
+        static let languageHighlighting = "languages.highlighting"
     }
 
     private static func clampedSize(_ size: Double) -> Double {
@@ -229,6 +242,9 @@ final class AppSettings {
         defaults.set(stagesResolvedConflicts, forKey: Keys.stagesResolvedConflicts)
         defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
         defaults.set(vimMode, forKey: Keys.vimMode)
+        defaults.set(fileAssociations, forKey: Keys.fileAssociations)
+        defaults.set(languageServersEnabled, forKey: Keys.languageServersEnabled)
+        defaults.set(languageHighlighting, forKey: Keys.languageHighlighting)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
         EditorTheme.invalidate()
         applyAppearance()
@@ -253,6 +269,9 @@ final class AppSettings {
             "zenModeFullScreen": .bool(zenModeFullScreen), "showsCodeLens": .bool(showsCodeLens),
             "autoSave": .string(autoSave.rawValue), "autoSaveDelay": .number(autoSaveDelay), "hotExit": .bool(hotExit),
             "linkedEditing": .bool(linkedEditing),
+            "files.associations": .object(fileAssociations.mapValues(JSONValue.string)),
+            "languageServers.enabled": .object(languageServersEnabled.mapValues(JSONValue.bool)),
+            "languages.highlighting": .object(languageHighlighting.mapValues(JSONValue.string)),
         ]
     }
 
@@ -287,6 +306,9 @@ final class AppSettings {
         if let value = values["stagesResolvedConflicts"]?.bool { stagesResolvedConflicts = value }
         if let value = values["autoClosePairs"]?.bool { autoClosePairs = value }
         if let value = values["vimMode"]?.bool { vimMode = value }
+        if let value = values["files.associations"]?.object { fileAssociations = value.compactMapValues(\.string) }
+        if let value = values["languageServers.enabled"]?.object { languageServersEnabled = value.compactMapValues(\.bool) }
+        if let value = values["languages.highlighting"]?.object { languageHighlighting = value.compactMapValues(\.string) }
         isLoading = false
         changed()
     }

@@ -1,0 +1,5 @@
+{
+  // Comments, as VS Code writes them (JSON with comments).
+  "comments": { "lineComment": "--" },
+  "brackets": [["{", "}"]],
+}

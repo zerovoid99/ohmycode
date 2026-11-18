@@ -4,7 +4,9 @@ positions), reports a diagnostic for every "BAD", and answers completion/definit
 With --full-sync it asks for the whole text on every change (textDocumentSync 1); with
 --fail-initialize it answers initialize (late) with an error; omc/crash makes it exit.
 With --workspace-folders it takes several workspace folders; omc/workspaceFolders reports
-the ones it started with and the changes it was sent."""
+the ones it started with and the changes it was sent. With --extras it registers file
+watchers once initialized; omc/askConfiguration, omc/ping, omc/progress and omc/state exercise
+settings, custom messages and progress for servers extensions contribute."""
 import json, os, re, sys
 from urllib.parse import unquote, urlparse, quote
 
@@ -145,12 +147,24 @@ completions_asked = 0
 cancelled = []
 initial_folders = []
 folder_changes = []
+# For extension-contributed servers (--extras): what the client sent and answered.
+state = {"initializationOptions": None, "settings": [], "configuration": [], "watched": [], "answers": {}, "clientInfo": None}
+next_request = 9000
+
+def ask(method, params):
+    global next_request
+    next_request += 1
+    send({"jsonrpc": "2.0", "id": next_request, "method": method, "params": params})
+    return next_request
 
 while True:
     msg = read()
     method, mid, params = msg.get("method"), msg.get("id"), msg.get("params", {})
     if method is None:
-        continue  # the client answering our own request (workspace/applyEdit)
+        # The client answering our own request (workspace/applyEdit, workspace/configuration…).
+        if mid is not None:
+            state["answers"][str(mid)] = msg.get("result", msg.get("error"))
+        continue
     if method == "initialize" and "--fail-initialize" in sys.argv:
         import time
         time.sleep(0.3)  # requests sent meanwhile wait for it
@@ -159,6 +173,7 @@ while True:
         sys.exit(3)
     elif method == "initialize":
         root = path_of(params["rootUri"])
+        state["initializationOptions"] = params.get("initializationOptions")
         initial_folders = [f["uri"] for f in params.get("workspaceFolders") or []]
         workspace_caps = {"fileOperations": {
             "willRename": {"filters": [{"pattern": {"glob": "**/*.swift", "matches": "file"}}]},
@@ -483,6 +498,38 @@ while True:
         # What it was started with, the changes it heard, and the documents opened in it.
         send({"jsonrpc": "2.0", "id": mid, "result": {"root": root, "initial": initial_folders,
               "changes": folder_changes, "documents": sorted(docs)}})
+    elif method == "initialized" and "--extras" in sys.argv:
+        # Dynamic registration: it watches .toy and .cfg files.
+        ask("client/registerCapability", {"registrations": [{"id": "watch-1", "method": "workspace/didChangeWatchedFiles",
+            "registerOptions": {"watchers": [{"globPattern": "**/*.toy"}, {"globPattern": "**/*.cfg", "kind": 4}]}}]})
+    elif method == "workspace/didChangeConfiguration":
+        state["settings"].append(params.get("settings"))
+    elif method == "workspace/didChangeWatchedFiles":
+        state["watched"].extend([[path_of(c["uri"]).split("/")[-1], c["type"]] for c in params.get("changes", [])])
+    elif method == "omc/askConfiguration":
+        # Asks the client for its settings; the answer is in omc/state once it comes.
+        rid = ask("workspace/configuration", {"items": [{"section": s} for s in params.get("sections", [])]})
+        send({"jsonrpc": "2.0", "id": mid, "result": rid})
+    elif method == "omc/ping":
+        # A custom request: answered, with a notification and a request of its own to the client.
+        send({"jsonrpc": "2.0", "method": "omc/pinged", "params": {"value": params.get("value")}})
+        rid = ask("omc/question", {"question": "color?"})
+        send({"jsonrpc": "2.0", "id": mid, "result": {"pong": params.get("value"), "asked": rid}})
+    elif method == "omc/notify":
+        state.setdefault("notified", []).append(params)
+    elif method == "omc/progress":
+        token = "work-1"
+        ask("window/workDoneProgress/create", {"token": token})
+        send({"jsonrpc": "2.0", "method": "$/progress", "params": {"token": token, "value": {"kind": "begin", "title": "Indexing", "percentage": 10}}})
+        send({"jsonrpc": "2.0", "method": "window/logMessage", "params": {"type": 3, "message": "indexing started"}})
+        sys.stderr.write("fake stderr line\n")
+        sys.stderr.flush()
+        send({"jsonrpc": "2.0", "id": mid, "result": None})
+    elif method == "omc/progressEnd":
+        send({"jsonrpc": "2.0", "method": "$/progress", "params": {"token": "work-1", "value": {"kind": "end"}}})
+        send({"jsonrpc": "2.0", "id": mid, "result": None})
+    elif method == "omc/state":
+        send({"jsonrpc": "2.0", "id": mid, "result": state})
     elif method == "omc/text":
         send({"jsonrpc": "2.0", "id": mid, "result": docs.get(params["uri"])})
     elif method == "shutdown":

@@ -82,7 +82,8 @@ enum VSCodeTheme {
                           tabBar: colors["editorGroupHeader.tabsBackground"] ?? colors["tab.inactiveBackground"] ?? sidebar,
                           statusBar: colors["statusBar.background"] ?? sidebar,
                           panel: colors["panel.background"] ?? colors["terminal.background"] ?? sidebar),
-            ansi: ansi.count == 16 ? ansi : nil)
+            ansi: ansi.count == 16 ? ansi : nil,
+            textMateRules: tokens.textMate.isEmpty ? nil : tokens.textMate)
     }
 
     // MARK: Token colors
@@ -103,6 +104,8 @@ enum VSCodeTheme {
         /// (selector, color), only simple selectors like "keyword.control" (no descendants).
         var rules: [(String, NSColor)] = []
         var defaultForeground: NSColor?
+        /// Every rule, descendant selectors too: what TextMate grammars' scopes are colored by.
+        var textMate = TextMateThemeRules()
 
         /// The color of the most specific rule matching any of `scopes` (earlier scopes win ties).
         func color(forAnyOf scopes: [String]) -> NSColor? {
@@ -131,8 +134,9 @@ enum VSCodeTheme {
                 result.defaultForeground = foreground // a rule without scope sets the default text color
                 continue
             }
-            for selector in selectors where !selector.isEmpty && !selector.contains(" ") {
-                result.rules.append((selector, foreground))
+            for selector in selectors where !selector.isEmpty {
+                result.textMate.add(selector: selector, color: foreground)
+                if !selector.contains(" ") { result.rules.append((selector, foreground)) }
             }
         }
         return result

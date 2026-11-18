@@ -303,6 +303,10 @@ final class Workspace {
     @ObservationIgnored var confirmation: ((String) -> Bool)?
     /// Replaces server discovery per language (tests point a workspace at a fake server).
     @ObservationIgnored var languageServerOverrides: [SourceLanguage: LanguageServerConfig] = [:]
+    /// Why a server couldn't start (its program wouldn't run), by server id; Settings ▸ Languages shows it.
+    private(set) var languageServerFailures: [String: String] = [:]
+    /// Change Language Mode's choices, by file path: kept while the window is open.
+    @ObservationIgnored var languageModeOverrides: [String: SourceLanguage] = [:]
     /// One client per language server, shared by all documents it handles.
     private(set) var languageClients: [String: LanguageClient] = [:]
     /// When each server was last restarted after failing (per server name), for the limit.
@@ -356,6 +360,16 @@ final class Workspace {
         }
         NotificationCenter.default.addObserver(forName: AgentStore.integrationDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateClaudeCodeIntegration() }
+        }
+        // Languages extensions add, and `files.associations`, can change what open files are in.
+        NotificationCenter.default.addObserver(forName: LanguageRegistry.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateLanguageModes() }
+        }
+        NotificationCenter.default.addObserver(forName: AppSettings.didChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateLanguageModes()
+                self?.refreshLanguageServerSettings()
+            }
         }
     }
 
@@ -503,6 +517,7 @@ final class Workspace {
 
     func handleFileEvents(_ events: [FileWatcher.Event]) {
         guard !rootNodes.isEmpty else { return }
+        languageServersHear(events)
         let roots = self.roots
         var directoriesToReload = Set<FolderPath>()
         var changedPaths = Set<String>()
@@ -663,32 +678,64 @@ final class Workspace {
 
     // MARK: Language servers
 
+    /// The server for a document: a test's override, else an extension's for its language, else
+    /// a built-in one; servers the settings turn off (`languageServers.<id>.enabled`) are skipped.
+    func languageServerConfig(for document: EditorDocument, path: String) -> LanguageServerConfig? {
+        LanguageServers.config(for: document.language, path: path, overrides: languageServerOverrides,
+                               contributed: extensions.languageServerConfigs(path: path),
+                               isEnabled: { [weak self] id in self?.isLanguageServerEnabled(id, for: document.url) ?? true })
+    }
+
+    /// `languageServers.<id>.enabled`: the file's folder's setting, else the app's; on unless set.
+    func isLanguageServerEnabled(_ id: String, for url: URL?) -> Bool {
+        settings(for: url).languageServersEnabled[id] ?? AppSettings.shared.languageServersEnabled[id] ?? true
+    }
+
     func attachLanguageServer(to document: EditorDocument) {
         guard !folders.isEmpty else { return }
         let folders = self.folders
         Task { [weak self] in
             let environment = await ShellEnvironment.shared.environment()
             guard let self, self.folders == folders, self.documents.contains(where: { $0 === document }),
-                  let config = LanguageServers.config(for: document.language, path: environment["PATH"] ?? "",
-                                                      overrides: self.languageServerOverrides)
+                  document.languageClient == nil,
+                  let config = self.languageServerConfig(for: document, path: environment["PATH"] ?? "")
             else { return }
             // Server missing or failed to launch: the editor works without it.
             guard let client = await self.languageClient(config, for: document.url, environment: environment),
-                  self.folders == folders, self.documents.contains(where: { $0 === document }) else { return }
+                  self.folders == folders, self.documents.contains(where: { $0 === document }),
+                  document.languageClient == nil else { return }
             connect(document, to: client)
         }
     }
 
+    /// Moves a document to the server its language and the settings call for now (its language
+    /// changed, a server was turned on or off, an extension added one).
+    func reattachLanguageServer(_ document: EditorDocument) {
+        if let client = document.languageClient {
+            client.didClose(url: document.url)
+            document.languageClient = nil
+            problems.set([], for: document.url, source: "lsp:" + client.name)
+            document.setDiagnostics([])
+        }
+        attachLanguageServer(to: document)
+    }
+
     /// The client for a file: the server's one, started with all the window's folders. A server
     /// that doesn't take several folders (`workspace.workspaceFolders`) works on the first one
-    /// only, so a file in another folder gets a client of its own, started in that folder.
+    /// only, so a file in another folder gets a client of its own, started in that folder. A
+    /// server with `rootPatterns` starts in the project folder the file is in.
     private func languageClient(_ config: LanguageServerConfig, for url: URL, environment: [String: String]) async -> LanguageClient? {
         guard let rootURL else { return nil }
+        if !config.rootPatterns.isEmpty, let project = projectRoot(of: url, patterns: config.rootPatterns) {
+            let key = Self.languageClientKey(config.id, folder: project)
+            if let existing = languageClients[key] { return existing }
+            return startLanguageClient(config, key: key, rootURL: project, folders: [project], environment: environment)
+        }
         let shared: LanguageClient
-        if let existing = languageClients[config.name] {
+        if let existing = languageClients[config.id] {
             shared = existing
         } else {
-            guard let started = startLanguageClient(config, key: config.name, rootURL: rootURL, folders: folders,
+            guard let started = startLanguageClient(config, key: config.id, rootURL: rootURL, folders: folders,
                                                     environment: environment) else { return nil }
             shared = started
         }
@@ -696,9 +743,27 @@ final class Workspace {
         // Whether it takes several folders is known once it has started.
         while shared.state == .starting { try? await Task.sleep(for: .milliseconds(50)) }
         guard shared.state == .ready, !shared.supportsWorkspaceFolders else { return shared }
-        let key = Self.languageClientKey(config.name, folder: folder)
+        let key = Self.languageClientKey(config.id, folder: folder)
         if let existing = languageClients[key] { return existing }
         return startLanguageClient(config, key: key, rootURL: folder, folders: [folder], environment: environment)
+    }
+
+    /// The nearest folder above `url` (up to the window's folder it's in) that has one of
+    /// `patterns` ("Cargo.toml", "*.csproj").
+    func projectRoot(of url: URL, patterns: [String]) -> URL? {
+        guard let top = folder(containing: url)?.standardizedFileURL else { return nil }
+        var directory = url.standardizedFileURL.deletingLastPathComponent()
+        while directory.path.hasPrefix(top.path) {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+            if patterns.contains(where: { pattern in
+                pattern.contains("*") ? names.contains { EditorConfig.matches("/" + pattern, relative: $0) } : names.contains(pattern)
+            }) {
+                return directory
+            }
+            guard directory.path != top.path else { break }
+            directory = directory.deletingLastPathComponent()
+        }
+        return nil
     }
 
     /// A server's client for one folder (a server that doesn't take several).
@@ -709,11 +774,11 @@ final class Workspace {
     func workspaceFoldersChanged(added: [URL], removed: [URL]) {
         guard !added.isEmpty || !removed.isEmpty else { return }
         for (key, client) in languageClients {
-            if removed.contains(client.rootFolder) {
+            if removed.contains(where: { client.rootFolder.path == $0.path || client.rootFolder.path.hasPrefix($0.path + "/") }) {
                 client.shutdown()
                 languageClients[key] = nil
                 for document in documents where document.languageClient === client { document.languageClient = nil }
-            } else if key == client.name {
+            } else if key == client.serverID {
                 client.changeWorkspaceFolders(added: added, removed: removed)
             }
         }
@@ -724,11 +789,14 @@ final class Workspace {
                                      environment: [String: String]) -> LanguageClient? {
         let client: LanguageClient
         do {
-            client = try LanguageClient(name: config.name, command: config.command, rootURL: rootURL,
-                                        workspaceFolders: folders, environment: environment)
+            client = try LanguageClient(id: config.id, name: config.name, command: config.command, rootURL: rootURL,
+                                        workspaceFolders: folders, environment: environment.merging(config.environment) { $1 },
+                                        initializationOptions: config.initializationOptions, settings: config.settings)
         } catch {
+            languageServerFailures[config.id] = error.localizedDescription
             return nil
         }
+        languageServerFailures[config.id] = nil
         client.onFailure = { [weak self, weak client] in
             guard let self, let client else { return }
             self.restartLanguageServer(config, key: key, after: client, rootURL: rootURL, environment: environment)
@@ -742,8 +810,33 @@ final class Workspace {
         client.onSemanticTokensRefresh = { [weak self, weak client] in
             self?.documents.filter { $0.languageClient === client }.forEach { $0.refreshSemanticTokens() }
         }
+        client.onRegistrationsChanged = { [weak self, weak client] in
+            // Features it registered later (symbols, links, tokens…) are asked for now.
+            for document in self?.documents ?? [] where document.languageClient === client { document.refreshLanguageFeatures() }
+        }
         client.onApplyEdit = { [weak self] edit, label in
             self?.applyServerEdit(edit, actionName: label ?? "\(config.name) Edit") ?? false
+        }
+        client.onShowMessage = { [weak self] type, message, actions in
+            guard let self else { return nil }
+            // Log messages (4) stay in the server's log; the others are notifications.
+            guard type < 4 else { return nil }
+            let kind: AppNotification.Kind = type == 1 ? .error : type == 2 ? .warning : .info
+            return await self.notify(kind, message, source: config.name, items: actions)
+        }
+        client.onShowDocument = { [weak self] url, selection in
+            guard let self, url.isFileURL else { return false }
+            self.open(fileAt: self.workspaceURL(for: url))
+            if let selection, let document = self.activeDocument { document.reveal(document.range(for: selection)) }
+            return true
+        }
+        client.onNotification = { [weak self, weak client] method, params in
+            guard let self, let client else { return }
+            self.extensions.languageServerNotification(from: client, method: method, params: params)
+        }
+        client.onCustomRequest = { [weak self, weak client] method, params in
+            guard let self, let client else { return nil }
+            return try await self.extensions.languageServerRequest(from: client, method: method, params: params)
         }
         let source = "lsp:" + config.name
         client.onDiagnostics = { [weak self] url, diagnostics in
@@ -772,12 +865,68 @@ final class Workspace {
             try? await Task.sleep(for: delay)
             guard let self, self.languageClients[key] === failed,
                   let client = self.startLanguageClient(config, key: key, rootURL: rootURL,
-                                                        folders: key == config.name ? self.folders : [rootURL],
+                                                        folders: key == config.id ? self.folders : [rootURL],
                                                         environment: environment) else { return }
             for document in self.documents where document.languageClient === failed {
                 self.connect(document, to: client)
             }
         }
+    }
+
+    /// Restarts a server for the user (Settings ▸ Languages): its clients stop, and the files
+    /// they had open start it again.
+    func restartLanguageServer(id: String) {
+        for (key, client) in languageClients where client.serverID == id {
+            languageServerRestarts[key] = nil
+            languageClients[key] = nil
+            client.shutdown()
+            for document in documents where document.languageClient === client { reattachLanguageServer(document) }
+        }
+        languageServerFailures[id] = nil
+        for document in documents where document.languageClient == nil { attachLanguageServer(to: document) }
+    }
+
+    /// Settings changed (a server turned on or off, an extension's configuration): files move to
+    /// the servers they call for now, a server nothing uses stops, and the extensions' servers
+    /// get their new settings.
+    func refreshLanguageServerSettings() {
+        guard !folders.isEmpty else { return }
+        Task { [weak self] in
+            let environment = await ShellEnvironment.shared.environment()
+            guard let self else { return }
+            let path = environment["PATH"] ?? ""
+            for document in self.documents {
+                let wanted = self.languageServerConfig(for: document, path: path)?.id
+                if document.languageClient?.serverID != wanted { self.reattachLanguageServer(document) }
+            }
+            for (key, client) in self.languageClients where !self.documents.contains(where: { $0.languageClient === client }) {
+                // Nothing of the window's uses it any more (turned off, or its extension gone).
+                if !self.isLanguageServerEnabled(client.serverID, for: client.rootFolder)
+                    || (self.extensions.hasLanguageServerDefinition(client.serverID) == false
+                        && !LanguageServers.candidates.contains { $0.id == client.serverID }
+                        && !self.languageServerOverrides.values.contains { $0.id == client.serverID }) {
+                    self.languageClients[key] = nil
+                    client.shutdown()
+                }
+            }
+            let configs = self.extensions.languageServerConfigs(path: path)
+            for client in self.languageClients.values {
+                if let config = configs.first(where: { $0.id == client.serverID }) { client.updateSettings(config.settings) }
+            }
+        }
+    }
+
+    /// Files changed on disk: servers hear about those they watch (`workspace/didChangeWatchedFiles`).
+    func languageServersHear(_ events: [FileWatcher.Event]) {
+        guard !languageClients.isEmpty else { return }
+        let changes: [(url: URL, type: Int)] = events.compactMap { event in
+            guard !event.requiresRescan, !event.path.contains("/.git/") else { return nil }
+            let exists = FileManager.default.fileExists(atPath: event.path)
+            let type = !exists ? 3 : event.has(kFSEventStreamEventFlagItemCreated) ? 1 : 2
+            return (workspaceURL(for: URL(filePath: event.path)), type)
+        }
+        guard !changes.isEmpty else { return }
+        for client in languageClients.values { client.filesChanged(changes) }
     }
 
     private func connect(_ document: EditorDocument, to client: LanguageClient) {
@@ -787,12 +936,7 @@ final class Workspace {
         // The server's symbols once it's ready (the syntax tree's until then).
         Task { [weak document = document, weak client = client] in
             while let client, client.state == .starting { try? await Task.sleep(for: .milliseconds(200)) }
-            document?.refreshSymbols()
-            document?.refreshInlayHints()
-            document?.refreshLinks()
-            document?.refreshSemanticTokens()
-            document?.refreshFoldRegions()
-            document?.refreshCodeLenses()
+            document?.refreshLanguageFeatures()
         }
     }
 
@@ -829,11 +973,11 @@ final class Workspace {
 
     /// Jumps to the definition of the symbol at the cursor (F12, ⌘-click).
     func goToDefinition(in target: EditorDocument? = nil) {
-        guard let document = target ?? activeDocument, let client = document.languageClient,
-              let selection = document.editor?.textView.selectedRange() else { return }
-        let position = document.lspPosition(at: selection.location)
+        guard let document = target ?? activeDocument, let selection = document.editor?.textView.selectedRange(),
+              document.languageClient != nil || extensions.hasProviders(.definition, for: document) else { return }
         Task {
-            guard let location = try? await client.definition(url: document.url, position: position).first else {
+            // The server's and the extensions' (asked together); the first wins.
+            guard let location = await definitions(in: document, at: selection.location).first else {
                 NSSound.beep()
                 return
             }
@@ -2324,7 +2468,7 @@ final class Workspace {
     /// Asks for a name and a place, writes a Hello World extension there, installs it for
     /// development and opens its folder in a new window.
     @discardableResult
-    func createExtension() async -> URL? {
+    func createExtension(template: ExtensionScaffold.Template = .helloWorld) async -> URL? {
         guard let name = await showInputBox(prompt: "Name of the new extension", value: "", placeholder: "My Extension"),
               !ExtensionScaffold.slug(name).isEmpty else { return nil }
         let parent = extensionFolderChooser.map { $0() } ?? {
@@ -2338,7 +2482,7 @@ final class Workspace {
         }()
         guard let parent else { return nil }
         do {
-            let folder = try ExtensionScaffold.create(named: name, in: parent)
+            let folder = try ExtensionScaffold.create(named: name, in: parent, template: template)
             try extensions.store.install(from: folder, development: true)
             openInNewWindow?(folder)
             return folder
@@ -2456,6 +2600,7 @@ final class Workspace {
     /// A document read from disk joins the open ones (no tab yet), with its git base and server.
     func addDocument(_ document: EditorDocument) {
         documents.append(document)
+        document.setLanguage(resolvedLanguage(for: document))
         loadDiffBase(for: document)
         attachLanguageServer(to: document)
     }
@@ -2595,6 +2740,7 @@ final class Workspace {
         do {
             let document = try EditorDocument(url: url)
             documents.append(document)
+            document.setLanguage(resolvedLanguage(for: document))
             loadDiffBase(for: document)
             return document
         } catch {

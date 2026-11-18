@@ -30,6 +30,8 @@ final class ExtensionInstance: Identifiable {
     @ObservationIgnored var activation: Task<Bool, Never>?
     /// Commands its code registered (contributed ones are in the manifest).
     @ObservationIgnored var registeredCommands: Set<String> = []
+    /// Language server messages its code listens for ("<server>\n<method>", "request:" first for requests).
+    @ObservationIgnored var serverListeners: Set<String> = []
 
     init(installed: InstalledExtension, enabled: Bool) {
         self.installed = installed
@@ -67,7 +69,7 @@ struct ExtensionStatusItem: Identifiable, Equatable {
 final class ExtensionHost {
     /// Weak: work still in flight when the window closes goes to a closed workspace (does nothing).
     @ObservationIgnored private weak var owner: Workspace?
-    private var workspace: Workspace { owner ?? Workspace.closed }
+    var workspace: Workspace { owner ?? Workspace.closed }
     private(set) var extensions: [ExtensionInstance] = []
     private(set) var statusItems: [ExtensionStatusItem] = []
     /// Folders in the extensions folder that aren't valid extensions, with why.
@@ -81,6 +83,8 @@ final class ExtensionHost {
     @ObservationIgnored var changeDelay: Duration = .milliseconds(150)
     /// The folders extensions were last told about (`omc.workspace.folders`).
     @ObservationIgnored private var knownFolders: [JSONValue] = []
+    /// Language servers the extensions' code registered (`omc.languages.registerLanguageServer`).
+    @ObservationIgnored private(set) var registeredServers: [LanguageServerDefinition] = []
 
     init(workspace: Workspace) {
         self.owner = workspace
@@ -98,6 +102,21 @@ final class ExtensionHost {
                 guard let id = note.userInfo?["id"] as? String, let key = note.userInfo?["key"] as? String else { return }
                 MainActor.assumeIsolated {
                     self?.emit("didChangeConfiguration", .object(["key": .string(key)]), to: id)
+                    // Its servers' settings may name the setting (`${config:…}`).
+                    if self?.languageServerDefinitions.contains(where: { $0.extensionID == id }) == true {
+                        self?.workspace.refreshLanguageServerSettings()
+                    }
+                }
+            })
+            // A grammar that fails to load (on first use, in the background) says why in its log.
+            observers.append(NotificationCenter.default.addObserver(forName: ContributedGrammars.didReportProblem, object: nil, queue: .main) { [weak self] note in
+                guard let id = note.object as? String else { return }
+                MainActor.assumeIsolated {
+                    guard let instance = self?.extensions.first(where: { $0.id == id }) else { return }
+                    for problem in ContributedGrammars.shared.problems.withLock({ $0[id] ?? [] })
+                    where !instance.log.contains(where: { $0.message == problem }) {
+                        instance.append("warning", problem)
+                    }
                 }
             })
             trackActiveEditor()
@@ -124,10 +143,13 @@ final class ExtensionHost {
                     kept.append(instance)
                 }
             }
+            let previous = extensions.map(\.id)
             extensions = installed.map { item in
                 kept.first { $0.id == item.id } ?? ExtensionInstance(installed: item, enabled: store.isEnabled(item.id))
             }
             updateKeybindings()
+            publishContributions(previous: previous)
+            workspace.refreshLanguageServerSettings()
             for instance in extensions where instance.state == .inactive && instance.manifest.activatesOnStartup {
                 _ = await activate(instance)
             }
@@ -168,7 +190,7 @@ final class ExtensionHost {
                     try await runtime.start(source: source, filename: installed.mainURL.path, contextJSON: context.json)
                 }
                 guard started != nil else {
-                    throw ExtensionRuntime.RuntimeError.script("activate() didn't finish within \(timeout.components.seconds) seconds.")
+                    throw ExtensionRuntime.RuntimeError.script("activate() didn't finish within \(Self.seconds(timeout)) seconds.")
                 }
                 instance.state = .active
                 return true
@@ -203,7 +225,7 @@ final class ExtensionHost {
         let timeout = stopTimeout
         let stopped: Void?? = try? await Self.within(timeout) { await runtime.stop() }
         if stopped == nil {
-            instance.append("warning", "deactivate() didn't finish within \(timeout.components.seconds) seconds; the extension was left running in the background.")
+            instance.append("warning", "deactivate() didn't finish within \(Self.seconds(timeout)) seconds; the extension was left running in the background.")
         }
     }
 
@@ -214,6 +236,12 @@ final class ExtensionHost {
     @ObservationIgnored var stopTimeout: Duration = .seconds(3)
 
     /// Runs `operation`, giving up after `timeout` (nil); it keeps running in the background then.
+    /// A timeout as people read it: 1.5, not 1.
+    nonisolated static func seconds(_ duration: Duration) -> String {
+        let (seconds, attoseconds) = duration.components
+        return (Double(seconds) + Double(attoseconds) / 1e18).formatted(.number.precision(.fractionLength(0...2)))
+    }
+
     static func within<T: Sendable>(_ timeout: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
         let once = OnceFlag()
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T?, Error>) in
@@ -234,6 +262,13 @@ final class ExtensionHost {
 
     private func removeContributions(of instance: ExtensionInstance) {
         instance.registeredCommands = []
+        instance.serverListeners = []
+        let kinds = Set(providers.filter { $0.extensionID == instance.id }.map(\.kind))
+        if registeredServers.contains(where: { $0.extensionID == instance.id }) {
+            registeredServers.removeAll { $0.extensionID == instance.id }
+            workspace.refreshLanguageServerSettings()
+        }
+        defer { kinds.forEach(providersChanged) }
         statusItems.removeAll { $0.extensionID == instance.id }
         providers.removeAll { $0.extensionID == instance.id }
         let collections = Set(diagnostics.values.flatMap(\.keys).filter { $0.hasPrefix(instance.id + "#") })
@@ -242,20 +277,64 @@ final class ExtensionHost {
 
     // MARK: Language features
 
-    enum ProviderKind: String { case completion, hover, formatting }
+    enum ProviderKind: String, CaseIterable {
+        case completion, hover, formatting, rangeFormatting, onTypeFormatting
+        case definition, typeDefinition, implementation, references
+        case documentSymbol, workspaceSymbol, codeAction, codeLens, signatureHelp, rename
+        case documentHighlight, documentLink, foldingRange, inlayHint, semanticTokens
+    }
+
+    /// One part of a `DocumentSelector`: a language id ("*": any), a scheme ("file",
+    /// "untitled") and a glob on the path; what's missing matches anything.
+    struct DocumentFilter: Equatable {
+        var language: String?
+        var scheme: String?
+        var pattern: String?
+
+        @MainActor
+        func matches(_ document: EditorDocument) -> Bool {
+            if let language, language != "*", language != document.languageId, language != document.language.rawValue { return false }
+            if let scheme, scheme != "*", scheme != "file" { return false }
+            if let pattern {
+                let path = String(document.url.standardizedFileURL.path.drop { $0 == "/" })
+                let glob = pattern.hasPrefix("/") || pattern.hasPrefix("**") ? pattern : (pattern.contains("/") ? "**/" + pattern : pattern)
+                guard LanguageRegistry.matches(glob, name: document.fileName, path: path) else { return false }
+            }
+            return true
+        }
+    }
 
     struct Provider {
         let extensionID: String
         let id: Int
         let kind: ProviderKind
-        /// Language ids ("*": every language).
-        let languages: Set<String>
-        let triggerCharacters: [String]
+        let filters: [DocumentFilter]
+        /// What the kind says about itself: trigger characters, a semantic tokens legend,
+        /// whether it resolves items or prepares renames…
+        var metadata: JSONValue = .null
+
+        var triggerCharacters: [String] { metadata["triggerCharacters"]?.array?.compactMap(\.string) ?? [] }
+
+        init(extensionID: String, id: Int, kind: ProviderKind, filters: [DocumentFilter], metadata: JSONValue = .null) {
+            self.extensionID = extensionID
+            self.id = id
+            self.kind = kind
+            self.filters = filters
+            self.metadata = metadata
+        }
 
         @MainActor
         func handles(_ document: EditorDocument) -> Bool {
-            if languages.contains("*") { return true }
-            return languages.contains(document.languageId)
+            filters.contains { $0.matches(document) }
+        }
+
+        /// From `languages.register`'s selector: ids, `{ language, scheme, pattern }`, or a list.
+        static func filters(_ selector: JSONValue?) -> [DocumentFilter] {
+            let items = selector?.array ?? [selector ?? .string("*")]
+            return items.map { item in
+                if let language = item.string { return DocumentFilter(language: language) }
+                return DocumentFilter(language: item["language"]?.string, scheme: item["scheme"]?.string, pattern: item["pattern"]?.string)
+            }
         }
     }
 
@@ -265,7 +344,7 @@ final class ExtensionHost {
     /// How long a provider may take before its answer is left out.
     @ObservationIgnored var providerTimeout: Duration = .milliseconds(1500)
 
-    private func providers(_ kind: ProviderKind, for document: EditorDocument) -> [Provider] {
+    func providers(_ kind: ProviderKind, for document: EditorDocument) -> [Provider] {
         providers.filter { $0.kind == kind && $0.handles(document) }
     }
 
@@ -277,16 +356,23 @@ final class ExtensionHost {
         Set(providers(.completion, for: document).flatMap(\.triggerCharacters))
     }
 
-    /// Asks the providers of `kind` for `document` (all at once, each within the timeout).
-    private func ask(_ kind: ProviderKind, for document: EditorDocument, _ arguments: [String: JSONValue]) async -> [(Provider, JSONValue)] {
+    /// Asks the providers of `kind` for `document` (all at once, each within the timeout; when
+    /// the caller stops waiting, they're told through their cancellation token). `method`
+    /// picks what's asked ("provide", "resolve", "prepare"); `only` limits it to one provider.
+    func ask(_ kind: ProviderKind, for document: EditorDocument?, method: String = "provide", only: (extensionID: String, id: Int)? = nil,
+             _ arguments: [String: JSONValue]) async -> [(Provider, JSONValue)] {
         var payload = arguments
-        payload["document"] = Self.info(document)
+        payload["method"] = .string(method)
+        if let document { payload["document"] = Self.info(document) }
         let json = JSONValue.object(payload).json
-        let asked = providers(kind, for: document).compactMap { provider -> (Provider, ExtensionRuntime, ExtensionInstance)? in
+        let candidates = only.map { only in providers.filter { $0.extensionID == only.extensionID && $0.id == only.id } }
+            ?? (document.map { providers(kind, for: $0) } ?? providers.filter { $0.kind == kind })
+        let asked = candidates.compactMap { provider -> (Provider, ExtensionRuntime, ExtensionInstance)? in
             guard let instance = extensions.first(where: { $0.id == provider.extensionID }), instance.state == .active,
                   let runtime = instance.runtime else { return nil }
             return (provider, runtime, instance)
         }
+        guard !asked.isEmpty else { return [] }
         let timeout = providerTimeout
         var answers: [(index: Int, provider: Provider, value: JSONValue)] = []
         await withTaskGroup(of: (Int, String?, String?).self) { group in
@@ -294,10 +380,12 @@ final class ExtensionHost {
                 let runtime = entry.1, id = entry.0.id
                 group.addTask {
                     do {
-                        guard let answer = try await Self.within(timeout, { try await runtime.provide(id, argumentsJSON: json) }) else {
-                            return (index, nil, "didn't answer within \(timeout.components.seconds) s")
+                        guard let answer = try await Self.racing(timeout, { try await runtime.provide(id, argumentsJSON: json) }) else {
+                            return (index, nil, "didn't answer within \(Self.seconds(timeout)) s")
                         }
                         return (index, answer, nil)
+                    } catch is CancellationError {
+                        return (index, nil, nil) // the editor stopped waiting
                     } catch {
                         return (index, nil, error.localizedDescription)
                     }
@@ -316,6 +404,20 @@ final class ExtensionHost {
         return answers.sorted { $0.index < $1.index }.map { ($0.provider, $0.value) }
     }
 
+    /// Runs `operation`, giving up after `timeout` (nil): unlike `within`, it's cancelled then,
+    /// and cancelling the caller cancels it.
+    static func racing<T: Sendable>(_ timeout: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
+        try await withThrowingTaskGroup(of: T?.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                return nil
+            }
+            defer { group.cancelAll() }
+            return try await group.next() ?? nil
+        }
+    }
+
     private static func position(_ document: EditorDocument, _ offset: Int) -> JSONValue {
         let position = document.lspPosition(at: min(offset, document.textStorage.length))
         return .object(["line": .number(Double(position.line)), "character": .number(Double(position.character))])
@@ -327,11 +429,17 @@ final class ExtensionHost {
                                                              "triggerCharacter": trigger.map(JSONValue.string) ?? .null])
         var items: [CompletionItem] = []
         var isIncomplete = false
-        for (_, answer) in answers {
+        for (provider, answer) in answers {
             isIncomplete = isIncomplete || answer["isIncomplete"]?.bool == true
-            for item in answer["items"]?.array ?? [] {
-                let json = try? JSONSerialization.jsonObject(with: Data(item.json.utf8))
-                if let completion = CompletionItem(json: json, id: firstID + items.count) { items.append(completion) }
+            for (index, item) in (answer["items"]?.array ?? []).enumerated() {
+                guard var completion = CompletionItem(json: item.foundation, id: firstID + items.count) else { continue }
+                completion.origin = Origin(extensionID: provider.extensionID, providerID: provider.id, item: index)
+                completion.resolvesFromExtension = provider.metadata["resolves"]?.bool == true
+                if var command = completion.command?.value as? [String: Any] {
+                    command["__omcExtension"] = provider.extensionID
+                    completion.command = RawJSON(command)
+                }
+                items.append(completion)
             }
         }
         return (items, isIncomplete)
@@ -588,8 +696,8 @@ final class ExtensionHost {
         }
     }
 
-    private func activateForLanguage(of document: EditorDocument) {
-        for instance in extensions where instance.state == .inactive && instance.manifest.activates(onLanguage: document.languageId) {
+    func activateForLanguage(of document: EditorDocument) {
+        for instance in extensions where instance.state == .inactive && instance.manifest.activates(onLanguage: document.language) {
             Task { await activate(instance) }
         }
     }
@@ -612,7 +720,7 @@ final class ExtensionHost {
         }
     }
 
-    private func emitAll(_ event: String, _ payload: JSONValue) {
+    func emitAll(_ event: String, _ payload: JSONValue) {
         let json = payload.json
         for instance in extensions where instance.state == .active { instance.runtime?.emit(event, payloadJSON: json) }
     }
@@ -717,6 +825,7 @@ final class ExtensionHost {
         case permission(ExtensionManifest.Permission)
         case outsideWorkspace(String)
         case gitDirectory(String)
+        case serverNotRunning(String)
 
         var errorDescription: String? {
             switch self {
@@ -724,10 +833,11 @@ final class ExtensionHost {
             case .badArguments(let method): "Wrong arguments for \(method)."
             case .notOpen(let path): "\(path) isn't open: open it with omc.workspace.openTextDocument first."
             case .permission(let permission):
-                "This extension didn't ask to \(permission.title.lowercased()): add \"\(permission.rawValue)\" to \"permissions\" in its extension.json."
+                "This extension didn't ask to \(permission.title.prefix(1).lowercased() + permission.title.dropFirst()): add \"\(permission.rawValue)\" to \"permissions\" in its extension.json."
             case .outsideWorkspace(let path): "\(path) is outside the open folder."
             case .gitDirectory(let path):
                 "\(path) is inside .git: changing it needs the \"fileSystem\" permission in the extension's extension.json."
+            case .serverNotRunning(let id): "The language server “\(id)” isn't running: open a file it handles first."
             }
         }
     }
@@ -818,12 +928,39 @@ final class ExtensionHost {
             guard let provider = args["id"]?.integer, let kind = args["kind"]?.string.flatMap(ProviderKind.init) else {
                 throw APIError.badArguments(method)
             }
-            providers.append(Provider(extensionID: id, id: provider, kind: kind,
-                                      languages: Set(args["languages"]?.array?.compactMap(\.string) ?? ["*"]),
-                                      triggerCharacters: args["triggerCharacters"]?.array?.compactMap(\.string) ?? []))
+            providers.append(Provider(extensionID: id, id: provider, kind: kind, filters: Provider.filters(args["selector"]),
+                                      metadata: args["metadata"] ?? .null))
+            providersChanged(kind)
             return nil
         case "languages.unregister":
-            if let provider = args["id"]?.integer { providers.removeAll { $0.extensionID == id && $0.id == provider } }
+            if let provider = args["id"]?.integer, let index = providers.firstIndex(where: { $0.extensionID == id && $0.id == provider }) {
+                providersChanged(providers.remove(at: index).kind)
+            }
+            return nil
+        case "languages.registerServer":
+            guard instance.manifest.grantedPermissions.contains(.process) else { throw APIError.permission(.process) }
+            guard let definition = LanguageServerDefinition(json: args, extensionID: id, folder: instance.installed.folder) else {
+                throw APIError.badArguments(method)
+            }
+            registeredServers.removeAll { $0.id == definition.id }
+            registeredServers.append(definition)
+            workspace.refreshLanguageServerSettings()
+            return nil
+        case "languages.unregisterServer":
+            if let server = args["id"]?.string {
+                registeredServers.removeAll { $0.id == server && $0.extensionID == id }
+                workspace.refreshLanguageServerSettings()
+            }
+            return nil
+        case "languageServer.notify":
+            guard let server = args["id"]?.string, let notification = args["method"]?.string else { throw APIError.badArguments(method) }
+            guard let client = languageClient(server) else { throw APIError.serverNotRunning(server) }
+            client.sendNotification(notification, params: args["params"].flatMap { $0 == .null ? nil : $0.foundation })
+            return nil
+        case "languageServer.listen":
+            guard let server = args["id"]?.string, let name = args["method"]?.string else { throw APIError.badArguments(method) }
+            let key = Self.listenerKey(server, name, request: args["request"]?.bool == true)
+            if args["remove"]?.bool == true { instance.serverListeners.remove(key) } else { instance.serverListeners.insert(key) }
             return nil
         case "diagnostics.set":
             guard let collection = args["id"]?.integer, let path = args["path"]?.string else { throw APIError.badArguments(method) }
@@ -924,6 +1061,19 @@ final class ExtensionHost {
             return try await ExtensionProcess.run(command, arguments: args["args"]?.array?.compactMap(\.string) ?? [],
                                                   directory: cwd, input: args["input"]?.string,
                                                   timeout: args["timeout"]?.number.flatMap { $0.isNaN ? nil : min(max($0 / 1000, 0), 86_400) } ?? 60)
+        case "languages.list":
+            return .array(workspace.languageIds.map(JSONValue.string))
+        case "languages.setDocumentLanguage":
+            let document = try openDocument(args)
+            guard let id = args["languageId"]?.string, !id.isEmpty else { throw APIError.badArguments(method) }
+            workspace.languageModeOverrides[document.url.standardizedFileURL.path] = SourceLanguage(languageId: id)
+            workspace.changeLanguage(of: document, to: SourceLanguage(languageId: id))
+            return Self.info(document)
+        case "languageServer.request":
+            guard let server = args["id"]?.string, let request = args["method"]?.string else { throw APIError.badArguments(method) }
+            guard let client = languageClient(server) else { throw APIError.serverNotRunning(server) }
+            let result = try await client.request(request, params: args["params"].flatMap { $0 == .null ? nil : $0.foundation })
+            return JSONValue(foundation: result)
         case "net.fetch":
             guard permissions.contains(.network) else { throw APIError.permission(.network) }
             guard let text = args["url"]?.string, let url = URL(string: text), url.scheme == "https" || url.scheme == "http"

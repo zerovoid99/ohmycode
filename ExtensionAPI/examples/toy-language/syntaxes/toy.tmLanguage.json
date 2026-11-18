@@ -1,0 +1,78 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Toy",
+  "scopeName": "source.toy",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#calls" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.toy",
+          "begin": "#\\[",
+          "end": "\\]#",
+          "captures": { "0": { "name": "punctuation.definition.comment.toy" } }
+        },
+        {
+          "name": "comment.line.number-sign.toy",
+          "begin": "#",
+          "end": "$",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.toy" } },
+          "patterns": [{ "match": "\\b(?:TODO|FIXME)\\b", "name": "keyword.other.todo.toy" }]
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_-]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.toy" },
+            "2": { "name": "entity.name.function.toy" }
+          }
+        },
+        {
+          "match": "\\b(let)\\s+([A-Za-z_][A-Za-z0-9_-]*)",
+          "captures": {
+            "1": { "name": "storage.type.variable.toy" },
+            "2": { "name": "variable.other.declaration.toy" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "match": "\\b(?:if|else|do|end|return)\\b", "name": "keyword.control.toy" },
+        { "match": "\\b(?:true|false|nil)\\b", "name": "constant.language.toy" },
+        { "match": "\\bprint\\b", "name": "support.function.builtin.toy" }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.toy",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.toy" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.toy" } },
+      "patterns": [{ "match": "\\\\.", "name": "constant.character.escape.toy" }]
+    },
+    "numbers": {
+      "match": "\\b\\d+(?:\\.\\d+)?\\b",
+      "name": "constant.numeric.toy"
+    },
+    "calls": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_-]*)(?=\\()",
+      "captures": { "1": { "name": "entity.name.function.call.toy" } }
+    },
+    "operators": {
+      "match": "[-+*/<>=!]=?",
+      "name": "keyword.operator.toy"
+    }
+  }
+}

@@ -7,6 +7,11 @@ private final class JSONBox: @unchecked Sendable {
     init(_ value: Any?) { self.value = value }
 }
 
+/// An answer to a server's request handled outside the client (JSON, `NSNull` for null).
+struct JSONBoxResult: @unchecked Sendable {
+    let value: Any
+}
+
 struct LanguageServerError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
@@ -35,7 +40,11 @@ final class LanguageClient {
     /// says (while starting), changes go as whole texts, which any server takes.
     @ObservationIgnored private var syncKind = 1
     var incrementalSync: Bool { syncKind == 2 }
-    @ObservationIgnored private(set) var triggerCharacters: Set<String> = []
+    @ObservationIgnored private var staticTriggerCharacters: Set<String> = []
+    /// Characters that open completion: the server's, and those it registered later.
+    var triggerCharacters: Set<String> {
+        staticTriggerCharacters.union(registeredOptions("textDocument/completion").flatMap { $0["triggerCharacters"] as? [String] ?? [] })
+    }
     /// The server's `capabilities` from `initialize`.
     @ObservationIgnored private var capabilities: [String: Any] = [:]
     @ObservationIgnored var onDiagnostics: ((URL, [Diagnostic]) -> Void)?
@@ -51,14 +60,54 @@ final class LanguageClient {
     /// The folder the server was started in (its `rootUri`).
     var rootFolder: URL { rootURL }
 
-    init(name: String, command: [String], rootURL: URL, workspaceFolders: [URL] = [], environment: [String: String]) throws {
+    /// Which server it is (`LanguageServerConfig.id`): what settings and extensions call it.
+    let serverID: String
+    @ObservationIgnored private let initializationOptions: JSONValue?
+    /// What `workspace/configuration` answers from (sections are dotted paths into it).
+    @ObservationIgnored private(set) var settings: JSONValue?
+
+    /// What the server wrote to stderr and sent with `window/logMessage`, newest last.
+    private(set) var log: [String] = []
+    /// Work the server reports (`$/progress`), by token: its title and latest message.
+    private(set) var progress: [String: (title: String, message: String?, percentage: Int?)] = [:]
+    /// Capabilities the server registered later (`client/registerCapability`), by registration id.
+    @ObservationIgnored private(set) var registrations: [String: (method: String, options: [String: Any])] = [:]
+
+    /// `window/showMessage` and `window/showMessageRequest`: (type 1 error … 4 log, message,
+    /// action titles) → the chosen title.
+    @ObservationIgnored var onShowMessage: ((Int, String, [String]) async -> String?)?
+    /// `window/showDocument`: whether it was shown.
+    @ObservationIgnored var onShowDocument: ((URL, LSPRange?) -> Bool)?
+    /// Notifications the client doesn't handle itself (an extension's custom protocol).
+    @ObservationIgnored var onNotification: ((String, Any?) -> Void)?
+    /// Requests the client doesn't answer itself: the result, or nil when nobody handles the
+    /// method (answered with "method not found").
+    @ObservationIgnored var onCustomRequest: ((String, Any?) async throws -> JSONBoxResult?)?
+    /// The server registered or unregistered capabilities (its features may have changed).
+    @ObservationIgnored var onRegistrationsChanged: (() -> Void)?
+
+    init(id: String? = nil, name: String, command: [String], rootURL: URL, workspaceFolders: [URL] = [],
+         environment: [String: String], initializationOptions: JSONValue? = nil, settings: JSONValue? = nil) throws {
         self.name = name
+        serverID = id ?? name
         self.rootURL = rootURL
+        self.initializationOptions = initializationOptions
+        self.settings = settings
         self.workspaceFolders = workspaceFolders.isEmpty ? [rootURL] : workspaceFolders
-        connection = try LanguageServerConnection(command: command, directory: rootURL, environment: environment, parsesMessages: true)
+        connection = try LanguageServerConnection(command: command, directory: rootURL, environment: environment, parsesMessages: true,
+                                                  capturesStandardError: true)
         connection.onParsedMessage = { [weak self] message in self?.handle(message) }
         connection.onExit = { [weak self] status in self?.serverDidExit(status) }
+        connection.onStandardError = { [weak self] text in self?.appendLog(text) }
         Task { await initialize() }
+    }
+
+    /// Adds lines to `log` (the last 1,000 are kept).
+    func appendLog(_ text: String) {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard !lines.isEmpty else { return }
+        log.append(contentsOf: lines)
+        if log.count > 1000 { log.removeFirst(log.count - 1000) }
     }
 
     isolated deinit {
@@ -68,17 +117,20 @@ final class LanguageClient {
     // MARK: Lifecycle
 
     private func initialize() async {
-        let params: [String: Any] = [
+        var params: [String: Any] = [
             "processId": Int(ProcessInfo.processInfo.processIdentifier),
             "clientInfo": ["name": "Oh My Code"],
             "rootUri": rootURL.absoluteString,
             "workspaceFolders": workspaceFolders.map(Self.folderJSON),
             "capabilities": [
                 "general": ["positionEncodings": ["utf-16"]],
-                "window": ["workDoneProgress": true],
+                "window": ["workDoneProgress": true, "showMessage": ["messageActionItem": ["additionalPropertiesSupport": false]],
+                           "showDocument": ["support": true]] as [String: Any],
                 "workspace": [
                     "workspaceFolders": true, "configuration": true, "applyEdit": true,
-                    "symbol": [String: Any](),
+                    "didChangeConfiguration": ["dynamicRegistration": true],
+                    "didChangeWatchedFiles": ["dynamicRegistration": true, "relativePatternSupport": true],
+                    "symbol": ["dynamicRegistration": true],
                     "inlayHint": ["refreshSupport": true],
                     "semanticTokens": ["refreshSupport": true],
                     "codeLens": ["refreshSupport": true],
@@ -88,23 +140,26 @@ final class LanguageClient {
                 "textDocument": [
                     "synchronization": ["didSave": true, "dynamicRegistration": false],
                     "completion": [
-                        "completionItem": ["snippetSupport": true, "documentationFormat": ["plaintext"]],
+                        "dynamicRegistration": true,
+                        "completionItem": ["snippetSupport": true, "documentationFormat": ["markdown", "plaintext"],
+                                           "commitCharactersSupport": true] as [String: Any],
                         "contextSupport": true,
                     ],
-                    "definition": ["linkSupport": true],
-                    "hover": ["contentFormat": ["markdown", "plaintext"]],
-                    "references": [String: Any](),
-                    "rename": ["prepareSupport": true],
-                    "formatting": [String: Any](),
-                    "rangeFormatting": [String: Any](),
+                    "definition": ["linkSupport": true, "dynamicRegistration": true],
+                    "hover": ["contentFormat": ["markdown", "plaintext"], "dynamicRegistration": true] as [String: Any],
+                    "references": ["dynamicRegistration": true],
+                    "rename": ["prepareSupport": true, "dynamicRegistration": true],
+                    "formatting": ["dynamicRegistration": true],
+                    "rangeFormatting": ["dynamicRegistration": true],
+                    "onTypeFormatting": ["dynamicRegistration": true],
                     // Whole lines; a block's end line is the one before its closing bracket.
                     "foldingRange": ["lineFoldingOnly": true, "foldingRange": ["collapsedText": false]] as [String: Any],
-                    "documentSymbol": ["hierarchicalDocumentSymbolSupport": true],
-                    "implementation": ["linkSupport": true],
-                    "typeDefinition": ["linkSupport": true],
+                    "documentSymbol": ["hierarchicalDocumentSymbolSupport": true, "dynamicRegistration": true],
+                    "implementation": ["linkSupport": true, "dynamicRegistration": true],
+                    "typeDefinition": ["linkSupport": true, "dynamicRegistration": true],
                     "callHierarchy": [String: Any](),
                     "inlayHint": [String: Any](),
-                    "documentHighlight": [String: Any](),
+                    "documentHighlight": ["dynamicRegistration": true],
                     "codeLens": [String: Any](),
                     "documentLink": ["tooltipSupport": true],
                     "semanticTokens": [
@@ -113,6 +168,7 @@ final class LanguageClient {
                         "multilineTokenSupport": false, "overlappingTokenSupport": false,
                     ] as [String: Any],
                     "codeAction": [
+                        "dynamicRegistration": true,
                         "codeActionLiteralSupport": ["codeActionKind": ["valueSet": [
                             "", "quickfix", "refactor", "refactor.extract", "refactor.inline", "refactor.rewrite",
                             "source", "source.organizeImports", "source.fixAll",
@@ -121,6 +177,7 @@ final class LanguageClient {
                         "resolveSupport": ["properties": ["edit"]],
                     ],
                     "signatureHelp": [
+                        "dynamicRegistration": true,
                         "signatureInformation": [
                             "documentationFormat": ["markdown", "plaintext"],
                             "parameterInformation": ["labelOffsetSupport": true], "activeParameterSupport": true,
@@ -131,6 +188,7 @@ final class LanguageClient {
                 ],
             ],
         ]
+        if let initializationOptions, let options = initializationOptions.foundation { params["initializationOptions"] = options }
         do {
             let result = try await request("initialize", params: params, beforeReady: true) as? [String: Any]
             let capabilities = result?["capabilities"] as? [String: Any] ?? [:]
@@ -139,7 +197,7 @@ final class LanguageClient {
             let kind = (sync as? Int) ?? ((sync as? [String: Any])?["change"] as? Int) ?? 2
             syncKind = (0...2).contains(kind) ? kind : 2
             let completion = capabilities["completionProvider"] as? [String: Any]
-            triggerCharacters = Set(completion?["triggerCharacters"] as? [String] ?? ["."])
+            staticTriggerCharacters = Set(completion?["triggerCharacters"] as? [String] ?? ["."])
 
             write(["jsonrpc": "2.0", "method": "initialized", "params": [String: Any]()], force: true)
             state = .ready
@@ -149,6 +207,8 @@ final class LanguageClient {
                 pendingFolderChange = nil
                 sendFolderChange(added: change.added, removed: change.removed)
             }
+            // Servers that pull their settings ask (`workspace/configuration`); the others hear them here.
+            if let settings { sendSettings(settings) }
         } catch {
             fail(error.localizedDescription)
         }
@@ -394,6 +454,32 @@ final class LanguageClient {
         case rangeFormatting = "documentRangeFormattingProvider"
         case foldingRange = "foldingRangeProvider"
         case codeLens = "codeLensProvider"
+        case onTypeFormatting = "documentOnTypeFormattingProvider"
+
+        /// The request a dynamic registration names for it.
+        var method: String {
+            switch self {
+            case .hover: "textDocument/hover"
+            case .references: "textDocument/references"
+            case .rename: "textDocument/rename"
+            case .formatting: "textDocument/formatting"
+            case .documentSymbol: "textDocument/documentSymbol"
+            case .implementation: "textDocument/implementation"
+            case .typeDefinition: "textDocument/typeDefinition"
+            case .callHierarchy: "textDocument/prepareCallHierarchy"
+            case .workspaceSymbol: "workspace/symbol"
+            case .codeAction: "textDocument/codeAction"
+            case .signatureHelp: "textDocument/signatureHelp"
+            case .inlayHint: "textDocument/inlayHint"
+            case .documentHighlight: "textDocument/documentHighlight"
+            case .documentLink: "textDocument/documentLink"
+            case .semanticTokens: "textDocument/semanticTokens"
+            case .rangeFormatting: "textDocument/rangeFormatting"
+            case .foldingRange: "textDocument/foldingRange"
+            case .codeLens: "textDocument/codeLens"
+            case .onTypeFormatting: "textDocument/onTypeFormatting"
+            }
+        }
     }
 
     /// The server works on several folders at once (`workspace.workspaceFolders.supported`):
@@ -439,10 +525,87 @@ final class LanguageClient {
     /// Whether the server advertised `feature` (a provider is `true` or an options object).
     func supports(_ feature: Feature) -> Bool {
         switch capabilities[feature.rawValue] {
-        case let flag as Bool: flag
-        case is [String: Any]: true
-        default: false
+        case let flag as Bool where flag: return true
+        case is [String: Any]: return true
+        default: return registrations.values.contains { $0.method == feature.method }
         }
+    }
+
+    /// Options the server registered for `method` later (`client/registerCapability`).
+    private func registeredOptions(_ method: String) -> [[String: Any]] {
+        registrations.values.filter { $0.method == method }.map(\.options)
+    }
+
+    // MARK: Settings
+
+    /// New settings (an extension's configuration changed): sent to the server.
+    func updateSettings(_ new: JSONValue?) {
+        guard new != settings else { return }
+        settings = new
+        if state == .ready { sendSettings(new ?? .object([:])) }
+    }
+
+    private func sendSettings(_ settings: JSONValue) {
+        notify("workspace/didChangeConfiguration", params: ["settings": settings.foundation ?? NSNull()])
+    }
+
+    /// The settings at a dotted `section` ("rust-analyzer.cargo"); all of them without one.
+    func setting(section: String?) -> JSONValue? {
+        guard let settings else { return nil }
+        guard let section, !section.isEmpty else { return settings }
+        if let whole = settings[section] { return whole } // a key with dots in it
+        var value: JSONValue? = settings
+        for part in section.split(separator: ".") { value = value?[String(part)] }
+        return value
+    }
+
+    // MARK: Watched files
+
+    /// A file the server watches (`workspace/didChangeWatchedFiles` registrations) was created
+    /// (1), changed (2) or deleted (3): it hears about the ones its globs match.
+    func filesChanged(_ changes: [(url: URL, type: Int)]) {
+        guard state == .ready else { return }
+        let watchers = registeredOptions("workspace/didChangeWatchedFiles").flatMap { $0["watchers"] as? [[String: Any]] ?? [] }
+        guard !watchers.isEmpty else { return }
+        let matching = changes.filter { change in
+            watchers.contains { watcher in Self.watcher(watcher, matches: change.url, type: change.type) }
+        }
+        guard !matching.isEmpty else { return }
+        notify("workspace/didChangeWatchedFiles", params: [
+            "changes": matching.map { ["uri": $0.url.absoluteString, "type": $0.type] as [String: Any] },
+        ])
+    }
+
+    /// Whether a `FileSystemWatcher` (a glob, or a relative pattern on a folder, and the kinds
+    /// it wants: 1 create, 2 change, 4 delete) covers a change.
+    static func watcher(_ watcher: [String: Any], matches url: URL, type: Int) -> Bool {
+        let kind = watcher["kind"] as? Int ?? 7
+        guard kind & [1: 1, 2: 2, 3: 4][type, default: 0] != 0 else { return false }
+        let path = url.standardizedFileURL.path
+        var base = "/"
+        let glob: String
+        if let pattern = watcher["globPattern"] as? String {
+            glob = pattern
+        } else if let relative = watcher["globPattern"] as? [String: Any], let pattern = relative["pattern"] as? String {
+            let baseURI = (relative["baseUri"] as? String) ?? ((relative["baseUri"] as? [String: Any])?["uri"] as? String)
+            guard let baseURI, let baseURL = URL(string: baseURI) else { return false }
+            base = baseURL.standardizedFileURL.path
+            glob = pattern
+        } else {
+            return false
+        }
+        let prefix = base.hasSuffix("/") ? base : base + "/"
+        guard path.hasPrefix(prefix) else { return false }
+        let relative = String(path.dropFirst(prefix.count))
+        // VS Code's globs: "**/*.rs" also matches at the top; a glob without "/" matches anywhere.
+        return EditorConfig.matches(glob.hasPrefix("/") ? glob : "/" + glob, relative: relative)
+            || (glob.hasPrefix("**/") && EditorConfig.matches("/" + glob.dropFirst(3), relative: relative))
+            || (!glob.contains("/") && EditorConfig.matches(glob, relative: relative))
+    }
+
+    /// Sends a notification (an extension's custom protocol).
+    func sendNotification(_ method: String, params: Any?) {
+        notify(method, params: params)
     }
 
     /// Symbols in the whole workspace matching `query` (SymbolInformation[] or WorkspaceSymbol[]).
@@ -513,7 +676,8 @@ final class LanguageClient {
 
     /// The token types the server's numbers stand for (its legend).
     var semanticTokenTypes: [String] {
-        ((capabilities["semanticTokensProvider"] as? [String: Any])?["legend"] as? [String: Any])?["tokenTypes"] as? [String] ?? []
+        let options = capabilities["semanticTokensProvider"] as? [String: Any] ?? registeredOptions("textDocument/semanticTokens").first
+        return (options?["legend"] as? [String: Any])?["tokenTypes"] as? [String] ?? []
     }
 
     /// Every token in the file, as the server encodes them (5 numbers each, relative).
@@ -571,9 +735,9 @@ final class LanguageClient {
 
     /// Characters that open signature help ("(", ","), and those that update it once open.
     var signatureHelpTriggers: (open: Set<String>, update: Set<String>) {
-        let options = capabilities["signatureHelpProvider"] as? [String: Any]
-        let open = Set(options?["triggerCharacters"] as? [String] ?? [])
-        return (open, open.union(options?["retriggerCharacters"] as? [String] ?? []))
+        let all = [capabilities["signatureHelpProvider"] as? [String: Any] ?? [:]] + registeredOptions("textDocument/signatureHelp")
+        let open = Set(all.flatMap { $0["triggerCharacters"] as? [String] ?? [] })
+        return (open, open.union(all.flatMap { $0["retriggerCharacters"] as? [String] ?? [] }))
     }
 
     // MARK: Call hierarchy
@@ -654,6 +818,21 @@ final class LanguageClient {
                         "insertFinalNewline": insertFinalNewline],
         ])
         return (result as? [Any] ?? []).compactMap(LSPTextEdit.init(json:))
+    }
+
+    /// Edits after typing `character` (a `}` or `;` that settles a line's indentation).
+    func onTypeFormatting(url: URL, position: LSPPosition, character: String, tabSize: Int, insertSpaces: Bool) async throws -> [LSPTextEdit] {
+        let result = try await request("textDocument/onTypeFormatting", params: [
+            "textDocument": ["uri": url.absoluteString], "position": position.json, "ch": character,
+            "options": ["tabSize": tabSize, "insertSpaces": insertSpaces],
+        ])
+        return (result as? [Any] ?? []).compactMap(LSPTextEdit.init(json:))
+    }
+
+    /// The characters that ask for on-type formatting.
+    var onTypeFormattingTriggers: Set<String> {
+        let all = [capabilities[Feature.onTypeFormatting.rawValue] as? [String: Any] ?? [:]] + registeredOptions(Feature.onTypeFormatting.method)
+        return Set(all.flatMap { [$0["firstTriggerCharacter"] as? String].compactMap { $0 } + ($0["moreTriggerCharacter"] as? [String] ?? []) })
     }
 
     /// Formatting edits for part of the file.
@@ -740,7 +919,48 @@ final class LanguageClient {
             respond(to: id, method: method, params: message["params"])
         } else if let diagnostics = incoming.diagnostics {
             onDiagnostics?(diagnostics.url, diagnostics.list)
+        } else {
+            handleNotification(method, params: message["params"])
         }
+    }
+
+    /// Notifications from the server other than diagnostics.
+    private func handleNotification(_ method: String, params: Any?) {
+        let object = params as? [String: Any]
+        switch method {
+        case "window/logMessage":
+            appendLog(object?["message"] as? String ?? "")
+        case "window/showMessage":
+            let type = object?["type"] as? Int ?? 3
+            let message = object?["message"] as? String ?? ""
+            appendLog(message)
+            if let onShowMessage { Task { _ = await onShowMessage(type, message, []) } }
+        case "$/progress":
+            guard let token = object.flatMap({ Self.tokenKey($0["token"]) }), let value = object?["value"] as? [String: Any] else { break }
+            switch value["kind"] as? String {
+            case "begin":
+                progress[token] = (value["title"] as? String ?? name, value["message"] as? String, value["percentage"] as? Int)
+            case "report":
+                if var current = progress[token] {
+                    if let message = value["message"] as? String { current.message = message }
+                    if let percentage = value["percentage"] as? Int { current.percentage = percentage }
+                    progress[token] = current
+                }
+            case "end":
+                progress[token] = nil
+            default:
+                onNotification?(method, params) // a partial result or an extension's own
+            }
+        default:
+            onNotification?(method, params)
+        }
+    }
+
+    /// A progress token (a number or a string) as a key.
+    private static func tokenKey(_ token: Any?) -> String? {
+        if let string = token as? String { return string }
+        if let number = token as? Int { return String(number) }
+        return nil
     }
 
     /// Requests the server sends us. We answer the common ones so servers don't stall.
@@ -748,8 +968,27 @@ final class LanguageClient {
         var response: [String: Any] = ["jsonrpc": "2.0", "id": id]
         switch method {
         case "workspace/configuration":
-            let items = (params as? [String: Any])?["items"] as? [Any] ?? []
-            response["result"] = Array(repeating: NSNull(), count: items.count)
+            // Each item's section of the server's settings (null for what it doesn't have).
+            let items = (params as? [String: Any])?["items"] as? [[String: Any]] ?? []
+            response["result"] = items.map { setting(section: $0["section"] as? String)?.foundation ?? NSNull() }
+        case "client/registerCapability":
+            for registration in (params as? [String: Any])?["registrations"] as? [[String: Any]] ?? [] {
+                guard let id = registration["id"] as? String, let method = registration["method"] as? String else { continue }
+                registrations[id] = (method, registration["registerOptions"] as? [String: Any] ?? [:])
+            }
+            response["result"] = NSNull()
+            onRegistrationsChanged?()
+        case "client/unregisterCapability":
+            // The protocol's own spelling: "unregisterations".
+            let list = (params as? [String: Any]).flatMap { $0["unregisterations"] ?? $0["unregistrations"] } as? [[String: Any]] ?? []
+            for item in list { if let id = item["id"] as? String { registrations[id] = nil } }
+            response["result"] = NSNull()
+            onRegistrationsChanged?()
+        case "window/workDoneProgress/create":
+            response["result"] = NSNull()
+        case "window/showMessageRequest", "window/showDocument":
+            answerLater(id: id, method: method, params: params)
+            return
         case "workspace/inlayHint/refresh":
             response["result"] = NSNull()
             onInlayHintRefresh?()
@@ -770,12 +1009,44 @@ final class LanguageClient {
             }
         case "workspace/workspaceFolders":
             response["result"] = workspaceFolders.map(Self.folderJSON)
-        case "window/workDoneProgress/create", "client/registerCapability", "client/unregisterCapability",
-             "window/showMessageRequest", "window/showDocument":
-            response["result"] = NSNull()
         default:
-            response["error"] = ["code": -32601, "message": "Method not found: \(method)"]
+            answerLater(id: id, method: method, params: params)
+            return
         }
         write(response, force: true)
+    }
+
+    /// Requests answered after asking someone: the user (a message with choices, a file to
+    /// show) or an extension (its own protocol).
+    private func answerLater(id: Any, method: String, params: Any?) {
+        let box = JSONBox(params), idBox = JSONBox(id)
+        Task { [weak self] in
+            guard let self else { return }
+            var response: [String: Any] = ["jsonrpc": "2.0", "id": idBox.value ?? NSNull()]
+            let object = box.value as? [String: Any]
+            switch method {
+            case "window/showMessageRequest":
+                let titles = (object?["actions"] as? [[String: Any]] ?? []).compactMap { $0["title"] as? String }
+                let message = object?["message"] as? String ?? ""
+                appendLog(message)
+                let chosen = await onShowMessage?(object?["type"] as? Int ?? 3, message, titles)
+                response["result"] = chosen.map { ["title": $0] } ?? NSNull()
+            case "window/showDocument":
+                let url = (object?["uri"] as? String).flatMap(URL.init(string:))
+                let shown = url.map { onShowDocument?($0, LSPRange(json: object?["selection"])) ?? false } ?? false
+                response["result"] = ["success": shown]
+            default:
+                do {
+                    if let result = try await onCustomRequest?(method, box.value) {
+                        response["result"] = result.value
+                    } else {
+                        response["error"] = ["code": -32601, "message": "Method not found: \(method)"]
+                    }
+                } catch {
+                    response["error"] = ["code": -32603, "message": error.localizedDescription]
+                }
+            }
+            write(response, force: true)
+        }
     }
 }

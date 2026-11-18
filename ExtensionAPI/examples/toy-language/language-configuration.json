@@ -1,0 +1,46 @@
+{
+  // Toggle Line Comment (⌘/) and Toggle Block Comment.
+  "comments": {
+    "lineComment": "#",
+    "blockComment": ["#[", "]#"]
+  },
+  // Matched and outlined, with indent guides between them.
+  "brackets": [
+    ["(", ")"],
+    ["[", "]"]
+  ],
+  // Typed openers close themselves; a quote doesn't inside a string or comment.
+  "autoClosingPairs": [
+    { "open": "(", "close": ")" },
+    { "open": "[", "close": "]" },
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] }
+  ],
+  // A selection typed over with one of these is wrapped in it.
+  "surroundingPairs": [
+    ["(", ")"],
+    ["[", "]"],
+    ["\"", "\""]
+  ],
+  "autoCloseBefore": ";:.,=)] \n\t",
+  // Folding without a language server: # region … # endregion.
+  "folding": {
+    "markers": {
+      "start": "^\\s*#\\s*region\\b",
+      "end": "^\\s*#\\s*endregion\\b"
+    }
+  },
+  // What a word is (double-click, completion's prefix): names may have dashes.
+  "wordPattern": "[A-Za-z_][A-Za-z0-9_-]*",
+  // Enter after `do` indents; typing `end` moves it back out.
+  "indentationRules": {
+    "increaseIndentPattern": "\\bdo\\s*$",
+    "decreaseIndentPattern": "^\\s*end\\b"
+  },
+  // Enter in a comment continues it.
+  "onEnterRules": [
+    {
+      "beforeText": "^\\s*#(?!\\[).*$",
+      "action": { "indent": "none", "appendText": "# " }
+    }
+  ]
+}

@@ -33,17 +33,26 @@ extension EditorDocument {
                 guard !Task.isCancelled else { return }
             }
             guard let self else { return }
-            guard self.projectSettings.showsCodeLens ?? AppSettings.shared.showsCodeLens, let client = self.languageClient, client.state == .ready,
-                  client.supports(.codeLens) else {
+            let client = self.readyLanguageClient.flatMap { $0.supports(.codeLens) ? $0 : nil }
+            let host = self.extensionHost.flatMap { $0.hasProviders(.codeLens, for: self) ? $0 : nil }
+            guard self.projectSettings.showsCodeLens ?? AppSettings.shared.showsCodeLens, client != nil || host != nil else {
                 self.setCodeLenses([:])
                 return
             }
             let version = self.editVersion
-            guard var lenses = try? await client.codeLenses(url: self.url) else { return }
-            if client.resolvesCodeLenses {
-                for index in lenses.indices.prefix(300) where lenses[index].command == nil {
-                    guard !Task.isCancelled else { return }
-                    if let resolved = try? await client.resolveCodeLens(lenses[index]) { lenses[index] = resolved }
+            var lenses: [CodeLens] = []
+            if let client {
+                guard let fromServer = try? await client.codeLenses(url: self.url) else { return }
+                lenses = fromServer
+            }
+            let serverCount = lenses.count
+            if let host { lenses += await host.codeLenses(for: self) }
+            for index in lenses.indices.prefix(300) where lenses[index].command == nil {
+                guard !Task.isCancelled else { return }
+                if index < serverCount {
+                    if let client, client.resolvesCodeLenses, let resolved = try? await client.resolveCodeLens(lenses[index]) { lenses[index] = resolved }
+                } else if let resolved = await host?.resolve(lenses[index]) {
+                    lenses[index] = resolved
                 }
             }
             guard !Task.isCancelled, version == self.editVersion else { return }
@@ -156,6 +165,14 @@ extension Workspace {
                 : ""
             references = ReferenceList(symbol: symbol, results: referenceResults(locations))
             sidebarMode = .references
+            return
+        }
+        if let command = lens.command, ExtensionHost.extensionID(of: command) != nil {
+            Task {
+                do { try await extensions.runCommand(command) } catch {
+                    errorMessage = "“\(lens.title ?? lens.commandName)” couldn't run: \(error.localizedDescription)"
+                }
+            }
             return
         }
         guard let command = lens.command, !lens.commandName.isEmpty, let client = document.languageClient else { NSSound.beep(); return }

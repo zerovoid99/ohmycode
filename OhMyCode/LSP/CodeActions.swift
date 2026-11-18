@@ -10,10 +10,13 @@ extension Workspace {
 
     /// The server's fixes and refactorings for `range` (quick fixes first, preferred first).
     func codeActions(for document: EditorDocument, range: NSRange, only: [String]? = nil) async -> [CodeAction] {
-        guard let client = document.languageClient, client.state == .ready, client.supports(.codeAction) else { return [] }
+        let client = document.readyLanguageClient.flatMap { $0.supports(.codeAction) ? $0 : nil }
         let lspRange = LSPRange(start: document.lspPosition(at: range.location), end: document.lspPosition(at: NSMaxRange(range)))
         let problems = diagnostics(in: document, range: range)
-        var actions = (try? await client.codeActions(url: document.url, range: lspRange, diagnostics: problems, only: only)) ?? []
+        // The server's, then the extensions'.
+        var actions: [CodeAction] = []
+        if let client { actions = (try? await client.codeActions(url: document.url, range: lspRange, diagnostics: problems, only: only)) ?? [] }
+        actions += await extensions.codeActions(for: document, range: lspRange, diagnostics: problems, only: only)
         // Fixes some servers put in the diagnostics themselves (SourceKit-LSP's fix-its).
         for diagnostic in problems {
             for fix in (diagnostic.json["codeActions"] as? [Any] ?? []).compactMap(CodeAction.init(json:))
@@ -32,6 +35,14 @@ extension Workspace {
     func run(_ action: CodeAction, in document: EditorDocument) async {
         if let reason = action.disabledReason {
             errorMessage = "“\(action.title)” can't be applied: \(reason)"
+            return
+        }
+        // An extension's: its edit, then its command (run by the extension).
+        if ExtensionHost.extensionID(of: action.json) != nil {
+            if let edit = action.edit, !applyServerEdit(edit, actionName: action.title) { return }
+            if let command = action.command ?? (action.json["command"] is String ? action.json : nil) {
+                do { try await extensions.runCommand(command) } catch { errorMessage = error.localizedDescription }
+            }
             return
         }
         guard let client = document.languageClient else { return }
@@ -167,7 +178,8 @@ final class LightbulbController {
         let selection = editor.textView.selectedRange()
         let cursorLine = document.lineIndex.line(containing: selection.location)
         if line != cursorLine { hide() }
-        let asksServer = document.languageClient.map { $0.state == .ready && $0.supports(.codeAction) } ?? false
+        // The server, or an extension with code actions for the file.
+        let asksServer = document.canUse(.codeAction, .codeAction)
         // With AI set up, any problem can be fixed with it (the Problems panel's too).
         let offersAI = editor.inlineEdit.settings.isConfigured
         let hasProblem = asksServer

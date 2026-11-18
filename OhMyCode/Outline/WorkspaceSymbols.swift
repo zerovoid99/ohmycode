@@ -141,12 +141,13 @@ extension Workspace {
         // The servers, each given a moment: a slow one doesn't hold the rest up.
         let clients = languageClientsForSymbols
         async let fromServers = Self.serverSymbols(clients, query: text)
+        async let fromExtensions = extensionWorkspaceSymbols(text)
 
         // The index, brought up to date with the file list first.
         let paths = await searchableFiles()
         await symbolIndex.update(roots: roots, paths: paths)
         // The servers' first: they know containers and kinds best (duplicates are dropped below).
-        var results: [WorkspaceSymbolResult] = await fromServers.map { symbol in
+        var results: [WorkspaceSymbolResult] = await (fromServers + fromExtensions).map { symbol in
             WorkspaceSymbolResult(name: symbol.name, kind: DocumentSymbol.Kind(rawValue: symbol.kind) ?? .variable,
                                   container: symbol.containerName.flatMap { $0.isEmpty ? nil : $0 },
                                   url: workspaceURL(for: symbol.url), line: symbol.range.start.line,

@@ -165,7 +165,7 @@ private struct ActiveStatusBar: View {
                       claudeCodeSessions: workspace.claudeCode.connectedCount,
                       agentActivity: agentActivity,
                       showAgent: { workspace.sidebarMode = .agent; workspace.sidebarVisibility = .all },
-                      goToLine: { workspace.showPalette(.goToLine) },
+                      goToLine: { workspace.showPalette(.goToLine) }, changeLanguage: { workspace.changeLanguageMode() },
                       showSourceControl: { workspace.sidebarMode = .sourceControl; workspace.sidebarVisibility = .all },
                       httpEnvironment: workspace.httpEnvironmentLabel,
                       switchHTTPEnvironment: { Task { await workspace.http.switchEnvironment(for: workspace.activeHTTPDocument?.url) } },

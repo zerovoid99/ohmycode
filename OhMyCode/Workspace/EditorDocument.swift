@@ -32,7 +32,8 @@ enum EditorDocumentError: LocalizedError {
 final class EditorDocument: Identifiable {
     let id = UUID()
     let url: URL
-    let language: SourceLanguage
+    /// Observed: the status bar shows it. Changed by Change Language Mode and `files.associations`.
+    private(set) var language: SourceLanguage
     let textStorage: NSTextStorage
     let undoManager = UndoManager()
 
@@ -96,7 +97,7 @@ final class EditorDocument: Identifiable {
     private(set) var diagnostics: [Diagnostic] = []
     /// Symlink-resolved path, to match URIs the language server reports.
     @ObservationIgnored private(set) lazy var canonicalPath = FileWatcher.canonicalPath(url)
-    var languageId: String { LanguageServerConfig.languageId(for: language) }
+    var languageId: String { language.languageId }
 
     /// Who last changed each line (git blame of the buffer); nil while unknown.
     @ObservationIgnored private(set) var blame: [BlameLine?]?
@@ -211,7 +212,7 @@ final class EditorDocument: Identifiable {
 
     /// `allowingBinary` (Open as Text Anyway): what isn't text is read as UTF-8 with
     /// replacement characters instead of failing.
-    init(url: URL, allowingBinary: Bool = false) throws {
+    init(url: URL, allowingBinary: Bool = false, language: SourceLanguage? = nil) throws {
         let signpost = Signposts.begin("Open Document"); defer { Signposts.end("Open Document", signpost) }
         let data = try Data(contentsOf: url)
         let text: String
@@ -227,11 +228,11 @@ final class EditorDocument: Identifiable {
         }
         hasBOM = data.starts(with: Self.bom)
         self.url = url
-        self.language = SourceLanguage(fileExtension: url.pathExtension)
+        self.language = language ?? LanguageRegistry.shared.language(for: url, firstLine: LanguageRegistry.firstLine(of: text as NSString))
         self.textStorage = NSTextStorage(string: text, attributes: EditorTheme.baseAttributes)
         self.lineIndex = LineIndex(string: textStorage.mutableString)
         self.lineCount = lineIndex.lineCount
-        self.highlighter = SyntaxHighlighter(language: language, textStorage: textStorage)
+        self.highlighter = SyntaxHighlighter(language: self.language, textStorage: textStorage)
         textContentStorage.textStorage = textStorage
         textContentStorage.delegate = foldingDelegate
 
@@ -336,8 +337,20 @@ final class EditorDocument: Identifiable {
         return CharacterSet.alphanumerics.contains(scalar)
     }
 
-    /// The identifier around `index` (or ending right at it).
+    /// The word around `index` as the language's `wordPattern` defines it (nil without one).
+    func configuredWordRange(at index: Int) -> NSRange? {
+        guard let configuration = LanguageRegistry.shared.configuration(for: language), configuration.wordPattern != nil,
+              index >= 0, index <= textStorage.length else { return nil }
+        let line = lineIndex.line(containing: index)
+        let start = lineIndex.lineStarts[line]
+        let text = lineIndex.lineText(line, in: textStorage.mutableString)
+        return configuration.wordRange(in: text, at: index - start).map { NSRange(location: $0.location + start, length: $0.length) }
+    }
+
+    /// The identifier around `index` (or ending right at it); a word as the language's
+    /// `wordPattern` defines it, when it has one.
     func wordRange(at index: Int) -> NSRange? {
+        if let range = configuredWordRange(at: index) { return range }
         let text = textStorage.mutableString
         func isWord(_ at: Int) -> Bool {
             guard at >= 0, at < text.length else { return false }
@@ -901,6 +914,41 @@ extension EditorDocument {
         await symbolsTask?.value
     }
 
+    /// Treats the text as `new` from now on (Change Language Mode, `files.associations`, a
+    /// language an extension added): its syntax colors, symbols and folds follow. The workspace
+    /// moves it to the new language's server.
+    func setLanguage(_ new: SourceLanguage) {
+        guard new != language else { return }
+        language = new
+        semanticTokens = []
+        rebuildHighlighter()
+    }
+
+    /// The language's highlighting changed (a grammar was added or removed, or Settings ▸
+    /// Languages picks another): a new highlighter, if it isn't the one in use.
+    func refreshHighlighting() {
+        let key = SyntaxHighlighter.engineKey(for: language, choice: AppSettings.shared.languageHighlighting[language.languageId])
+        guard key != highlighter?.engineKey else { return }
+        rebuildHighlighter()
+    }
+
+    private func rebuildHighlighter() {
+        highlighter = SyntaxHighlighter(language: language, textStorage: textStorage)
+        highlighter?.pointProvider = { [weak self] offset in self?.point(at: offset) ?? Point(row: 0, column: 0) }
+        for editor in editors where editor.textView != nil {
+            // The old language's colors go; the new one's arrive from its highlighter.
+            editor.applyHighlights([], in: NSRange(location: 0, length: textStorage.length))
+            highlighter?.addClient(editor)
+            if let minimap = editor.minimapView, !minimap.isHidden { highlighter?.addClient(minimap) }
+            editor.refreshHighlights(force: true)
+            editor.stickyView?.update()
+        }
+        foldRegions = [:]
+        refreshFoldRegions()
+        refreshSymbols()
+        redrawGutters()
+    }
+
     private func loadSymbols() async -> [DocumentSymbol] {
         if language == .markdown {
             return DocumentSymbol.markdown(textStorage.mutableString.copy() as! NSString)
@@ -911,6 +959,11 @@ extension EditorDocument {
         if let client = languageClient, client.state == .ready, client.supports(.documentSymbol),
            let result = try? await client.documentSymbols(url: url) {
             let symbols = DocumentSymbol.fromLSP(result) { [weak self] in self?.range(for: $0) ?? NSRange(location: 0, length: 0) }
+            if !symbols.isEmpty { return symbols }
+        }
+        // An extension's (a language without a server, or more than it lists).
+        if let list = await extensionHost?.documentSymbols(for: self) {
+            let symbols = DocumentSymbol.fromLSP(list) { [weak self] in self?.range(for: $0) ?? NSRange(location: 0, length: 0) }
             if !symbols.isEmpty { return symbols }
         }
         return await highlighter?.outline(for: language) ?? []

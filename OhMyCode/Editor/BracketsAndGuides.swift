@@ -5,6 +5,16 @@ import SwiftTreeSitter
 /// line at each indentation level, brighter for the block the cursor is in.
 extension EditorController {
     static let bracketPairs: [UInt16: UInt16] = [0x28: 0x29, 0x5B: 0x5D, 0x7B: 0x7D] // ( [ {
+
+    /// The language configuration's brackets (single characters), else ( [ {.
+    var bracketPairs: [UInt16: UInt16] {
+        guard let brackets = LanguageRegistry.shared.configuration(for: document.language)?.brackets else { return Self.bracketPairs }
+        var pairs: [UInt16: UInt16] = [:]
+        for bracket in brackets where bracket.open.utf16.count == 1 && bracket.close.utf16.count == 1 {
+            pairs[bracket.open.utf16.first!] = bracket.close.utf16.first!
+        }
+        return pairs
+    }
     /// How far to look for a match (a missing bracket in a huge file stays cheap).
     static let bracketSearchLimit = 100_000
 
@@ -15,6 +25,7 @@ extension EditorController {
         nonCodeRanges = highlights.filter { highlight in
             let name = highlight.name
             return name.hasPrefix("string") || name.hasPrefix("comment") || name.hasPrefix("character")
+                || (TextMateScopes.isScopeList(name) && TextMateScopes.isNonCode(name))
         }.map(\.range).sorted { $0.location < $1.location }
         nonCodeVersion = document.editVersion
         bracketCache = nil
@@ -42,11 +53,12 @@ extension EditorController {
     func matchingBracket(at index: Int) -> Int? {
         let text = document.textStorage.mutableString
         guard index >= 0, index < text.length, !isNonCode(index) else { return nil }
+        let bracketPairs = self.bracketPairs
         let unit = text.character(at: index)
-        if let close = Self.bracketPairs[unit] {
+        if let close = bracketPairs[unit] {
             return scan(from: index + 1, step: 1, open: unit, close: close)
         }
-        if let open = Self.bracketPairs.first(where: { $0.value == unit })?.key {
+        if let open = bracketPairs.first(where: { $0.value == unit })?.key {
             return scan(from: index - 1, step: -1, open: unit, close: open)
         }
         return nil
@@ -109,15 +121,16 @@ extension EditorController {
         if target == nil {
             // Inside a pair: its nearest unmatched opener, then that one's match.
             let text = document.textStorage.mutableString
+            let bracketPairs = self.bracketPairs
             var depths: [UInt16: Int] = [:]
             var index = location - 1
             var steps = 0
             while index >= 0, steps < Self.bracketSearchLimit, target == nil {
                 let unit = text.character(at: index)
                 if !isNonCode(index) {
-                    if let open = Self.bracketPairs.first(where: { $0.value == unit })?.key {
+                    if let open = bracketPairs.first(where: { $0.value == unit })?.key {
                         depths[open, default: 0] += 1
-                    } else if Self.bracketPairs[unit] != nil {
+                    } else if bracketPairs[unit] != nil {
                         if depths[unit, default: 0] == 0 { target = matchingBracket(at: index) } else { depths[unit]! -= 1 }
                     }
                 }

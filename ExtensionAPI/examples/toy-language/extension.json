@@ -1,0 +1,26 @@
+{
+  "id": "examples.toy-language",
+  "name": "Toy Language",
+  "version": "1.0.0",
+  "description": "Language support for .toy files: syntax colors, comments, brackets, indentation, snippets, completion, hover, Go to Definition and the Outline.",
+  "main": "dist/extension.js",
+  "activationEvents": ["onLanguage:toy"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "toy",
+        "aliases": ["Toy", "toy"],
+        "extensions": [".toy"],
+        "filenames": ["Toyfile"],
+        "firstLine": "^#!.*\\btoy\\b",
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      { "language": "toy", "scopeName": "source.toy", "path": "./syntaxes/toy.tmLanguage.json" }
+    ],
+    "snippets": [
+      { "language": "toy", "path": "./snippets/toy.json" }
+    ]
+  }
+}

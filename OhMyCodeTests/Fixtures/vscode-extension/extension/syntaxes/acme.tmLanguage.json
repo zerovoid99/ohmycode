@@ -1,0 +1,7 @@
+{
+  "scopeName": "source.acme",
+  "patterns": [
+    { "match": "--.*$", "name": "comment.line.double-dash.acme" },
+    { "match": "\\b(?:when|then)\\b", "name": "keyword.control.acme" }
+  ]
+}

@@ -88,10 +88,31 @@ final class ExtensionRuntime: @unchecked Sendable {
     }
 
     /// Asks one of the extension's language providers; its answer as JSON (nil: none).
+    /// Cancelling the task stops waiting at once and cancels the provider's token.
     func provide(_ id: Int, argumentsJSON: String) async throws -> String? {
+        let asked = TokenBox()
+        return try await withTaskCancellationHandler {
+            try await perform { token in
+                asked.token = token
+                guard let context = self.context else { throw RuntimeError.stopped }
+                context.objectForKeyedSubscript("__omcProvide").call(withArguments: [id, token, argumentsJSON])
+            }
+        } onCancel: {
+            self.queue.async {
+                guard let token = asked.token, let continuation = self.waiting.removeValue(forKey: token) else { return }
+                self.context?.objectForKeyedSubscript("__omcCancel").call(withArguments: [token])
+                self.reportException()
+                continuation.resume(throwing: CancellationError())
+            }
+        }
+    }
+
+    /// Hands a language server's request to the extension's `onRequest` handler: its answer as
+    /// JSON `{"result": …}`, or `{"__omcNoHandler": true}` when it has none.
+    func serverRequest(argumentsJSON: String) async throws -> String? {
         try await perform { token in
             guard let context = self.context else { throw RuntimeError.stopped }
-            context.objectForKeyedSubscript("__omcProvide").call(withArguments: [id, token, argumentsJSON])
+            context.objectForKeyedSubscript("__omcServerRequest").call(withArguments: [token, argumentsJSON])
         }
     }
 
@@ -233,4 +254,9 @@ enum ExecutionLimit {
     static func set(_ seconds: Double, on context: JSContext) {
         setLimit?(JSContextGetGroup(context.jsGlobalContextRef), seconds, nil, nil)
     }
+}
+
+/// The token a call was given on the runtime's queue (only touched there).
+private final class TokenBox: @unchecked Sendable {
+    var token: Int?
 }

@@ -1,0 +1,3 @@
+tree-sitter-json 0.24.8, vendored for tests of extension tree-sitter grammars (Oh My Code loads
+parsers built with ExtensionAPI/tools/build-tree-sitter-grammar.sh). MIT licensed: see LICENSE.
+queries/folds.scm is ours.

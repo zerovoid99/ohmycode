@@ -112,6 +112,16 @@ struct CompletionItem: Identifiable, Sendable {
     var additionalTextEdits: [LSPTextEdit] = []
     /// The item as the server sent it, kept when it fills in details later (`completionItem/resolve`).
     var raw: RawJSON?
+    /// Markdown about it (shown under the list for the selected item).
+    var documentation: String?
+    /// Typing one of these while the item is selected accepts it first.
+    var commitCharacters: [String] = []
+    /// A command run after it's inserted (`{title, command, arguments}`).
+    var command: RawJSON?
+    /// The extension and provider that listed it (nil: the language server or the app).
+    var origin: ExtensionHost.Origin?
+    /// Whether the extension fills in details later (`resolveCompletionItem`).
+    var resolvesFromExtension = false
 
     init(id: Int, label: String, detail: String?, kind: Int?, filterText: String? = nil, sortText: String? = nil,
          insertText: String, isSnippet: Bool) {
@@ -138,6 +148,10 @@ struct CompletionItem: Identifiable, Sendable {
         self.isSnippet = (object["insertTextFormat"] as? Int) == 2
         self.editRange = LSPRange(json: textEdit?["range"] ?? (textEdit?["replace"]))
         self.additionalTextEdits = (object["additionalTextEdits"] as? [Any] ?? []).compactMap(LSPTextEdit.init(json:))
+        let documentation = object["documentation"]
+        self.documentation = (documentation as? String) ?? ((documentation as? NSDictionary)?["value"] as? String)
+        self.commitCharacters = object["commitCharacters"] as? [String] ?? []
+        self.command = (object["command"] as? NSDictionary).map { RawJSON($0) }
         if keepingJSON { raw = RawJSON(object) }
     }
 
@@ -222,6 +236,12 @@ struct WorkspaceEdit: Equatable, Sendable {
 
 /// Hover contents (MarkupContent, MarkedString or MarkedString[]) normalized to Markdown.
 enum HoverContent {
+    /// A `MarkupContent` or string (a signature's or parameter's documentation) as Markdown.
+    static func markup(_ value: Any?) -> String? {
+        guard let value, !(value is NSNull) else { return nil }
+        return markdown(from: ["contents": value])
+    }
+
     static func markdown(from json: Any?) -> String? {
         guard let object = json as? [String: Any] else { return nil }
         let text = markdown(contents: object["contents"]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -423,7 +443,7 @@ struct SignatureHelp: Equatable, Sendable {
             guard let label = entry["label"] as? String else { return nil }
             let text = label as NSString
             let parameters: [(range: NSRange, documentation: String?)] = (entry["parameters"] as? [[String: Any]] ?? []).compactMap { parameter in
-                let documentation = HoverContent.markdown(from: parameter["documentation"])
+                let documentation = HoverContent.markup(parameter["documentation"])
                 if let offsets = parameter["label"] as? [Int], offsets.count == 2 {
                     // Clamped to the label: a server's bad offsets would otherwise crash highlighting it.
                     let start = min(max(0, offsets[0]), text.length), end = min(max(start, offsets[1]), text.length)
@@ -435,7 +455,7 @@ struct SignatureHelp: Equatable, Sendable {
                 }
                 return nil
             }
-            return Signature(label: label, documentation: HoverContent.markdown(from: entry["documentation"]),
+            return Signature(label: label, documentation: HoverContent.markup(entry["documentation"]),
                              parameters: parameters, activeParameter: entry["activeParameter"] as? Int)
         }
         guard !signatures.isEmpty else { return nil }

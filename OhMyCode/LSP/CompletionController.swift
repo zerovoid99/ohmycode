@@ -154,7 +154,12 @@ final class CompletionController {
     /// Where the word being completed starts; returns the cursor.
     private func beginRequest() -> Int {
         let cursor = editor.textView.selectedRange().location
-        wordStart = Self.wordStart(in: editor.document.textStorage.mutableString, before: cursor)
+        // The language's idea of a word (`wordPattern`), else letters, digits, _ and $.
+        if let word = editor.document.configuredWordRange(at: cursor), word.location < cursor {
+            wordStart = word.location
+        } else {
+            wordStart = Self.wordStart(in: editor.document.textStorage.mutableString, before: cursor)
+        }
         return cursor
     }
 
@@ -315,6 +320,21 @@ final class CompletionController {
         }
         isInserting = false
         let inserted = NSRange(location: replacement.location, length: replacement.length + text.length - lengthBefore)
+        runCommand(of: item)
+        if item.origin != nil, item.resolvesFromExtension, additional.isEmpty, let host = document.extensionHost {
+            // An extension's item: its edits elsewhere (imports) may come when it's resolved.
+            let before = text.substring(to: min(replacement.location, text.length))
+            Task { [weak self, weak document] in
+                guard let resolved = await host.resolve(item), !resolved.additionalTextEdits.isEmpty,
+                      let self, let document, document === self.editor.document else { return }
+                let current = document.textStorage.mutableString
+                guard current.length >= before.utf16.count, current.substring(to: before.utf16.count) == before else { return }
+                let edits = resolved.additionalTextEdits.map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) }
+                    .filter { NSMaxRange($0.range) <= replacement.location }
+                if !edits.isEmpty { _ = try? document.apply(edits, actionName: "Completion") }
+            }
+            return
+        }
         if !additional.isEmpty {
             applyAdditionalEdits(additional, around: replacement, inserted: inserted)
         } else if let resolving, resolving.resolvesCompletionItems {
@@ -331,6 +351,24 @@ final class CompletionController {
                 if !edits.isEmpty { _ = try? document.apply(edits, actionName: "Completion") }
             }
         }
+    }
+
+    /// The item's command, after it's inserted: an extension's runs in it, a server's on the server.
+    private func runCommand(of item: CompletionItem) {
+        guard let command = item.command?.value as? [String: Any], command["command"] is String else { return }
+        let document = editor.document
+        if ExtensionHost.extensionID(of: command) != nil, let host = document.extensionHost {
+            Task { try? await host.runCommand(command) }
+        } else if let client {
+            Task { try? await client.executeCommand(command) }
+        }
+    }
+
+    /// Typing one of the selected item's commit characters accepts it (the character is typed after).
+    func commit(on typed: String) {
+        guard isVisible, model.rows.indices.contains(model.selection),
+              model.rows[model.selection].item.commitCharacters.contains(typed) else { return }
+        accept()
     }
 
     /// `edits` (in the text before `replacement` became `inserted`) moved past the insertion;
@@ -387,6 +425,7 @@ private struct CompletionListView: View {
                             .frame(height: CompletionController.rowHeight)
                             .contentShape(Rectangle())
                             .onTapGesture { onSelect(index) }
+                            .help(row.item.documentation ?? "")
                     }
                 }
                 .padding(4)

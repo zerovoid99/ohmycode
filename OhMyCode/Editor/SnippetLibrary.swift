@@ -24,6 +24,8 @@ final class SnippetLibrary: @unchecked Sendable {
     private let lock = NSLock()
     /// Parsed files, kept while their modification date is the same.
     private var cache: [String: (date: Date, snippets: [(SnippetDefinition, scope: Set<String>?)])] = [:]
+    /// Extensions' snippet files (`contributes.snippets`), by extension id: for one language, or all (nil).
+    private var extensionFiles: [(extensionID: String, files: [(language: String?, url: URL)])] = []
 
     init(userDirectory: URL = URL.omcApplicationSupport.appending(path: "OhMyCode/Snippets")) {
         self.userDirectory = userDirectory
@@ -46,6 +48,12 @@ final class SnippetLibrary: @unchecked Sendable {
         if let root {
             add(root.appending(path: ".omc/snippets"), source: nil, languageFiles: true)
             add(root.appending(path: ".vscode"), source: nil, languageFiles: false)
+        }
+        // After the user's and the folder's, which win when a prefix is in both.
+        for (_, list) in lock.withLock({ extensionFiles }) {
+            for file in list where file.language.map({ SourceLanguage(languageId: $0).languageId == languageId }) ?? true {
+                files.append((file.url, file.url.lastPathComponent, file.language))
+            }
         }
         var custom: [SnippetDefinition] = []
         for file in files {
@@ -83,6 +91,14 @@ final class SnippetLibrary: @unchecked Sendable {
             let description = entry["description"]?.string ?? entry["description"]?.array?.compactMap(\.string).joined(separator: "\n")
             let scope = entry["scope"]?.string.map { Set($0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }) }
             return (SnippetDefinition(name: name, prefixes: prefixes, body: body, description: description, source: source), scope)
+        }
+    }
+
+    /// What an extension contributes (nothing: its snippets go).
+    func setExtensionSnippets(_ files: [(language: String?, url: URL)], from extensionID: String) {
+        lock.withLock {
+            extensionFiles.removeAll { $0.extensionID == extensionID }
+            if !files.isEmpty { extensionFiles.append((extensionID, files)) }
         }
     }
 

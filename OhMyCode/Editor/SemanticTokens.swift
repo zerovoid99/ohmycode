@@ -71,16 +71,25 @@ extension EditorDocument {
                 guard !Task.isCancelled else { return }
             }
             guard let self else { return }
-            guard self.projectSettings.semanticHighlighting ?? AppSettings.shared.semanticHighlighting, let client = self.languageClient, client.state == .ready,
-                  client.supports(.semanticTokens), self.lineIndex.lineCount <= Self.semanticTokenLineLimit else {
+            guard self.projectSettings.semanticHighlighting ?? AppSettings.shared.semanticHighlighting, self.canUse(.semanticTokens, .semanticTokens),
+                  self.lineIndex.lineCount <= Self.semanticTokenLineLimit else {
                 self.setSemanticTokens([])
                 return
             }
             let version = self.editVersion
-            guard let data = try? await client.semanticTokens(url: self.url) else { return }
+            var tokens: [SemanticToken] = []
+            if let client = self.readyLanguageClient, client.supports(.semanticTokens) {
+                guard let data = try? await client.semanticTokens(url: self.url) else { return }
+                tokens = SemanticTokens.decode(data, legend: client.semanticTokenTypes, in: self)
+            }
+            // An extension's tokens join the server's (drawn over them where both color a range).
+            if let fromExtension = await self.extensionHost?.semanticTokens(for: self), !fromExtension.isEmpty {
+                // Sorted by position, as `semanticTokens(in:)` relies on (stable: the server's first among equals).
+                tokens = (tokens + fromExtension).enumerated().sorted { ($0.element.range.location, $0.offset) < ($1.element.range.location, $1.offset) }.map(\.element)
+            }
             // An edit since: the tokens it shifted stay until its own refresh.
             guard !Task.isCancelled, version == self.editVersion else { return }
-            self.setSemanticTokens(SemanticTokens.decode(data, legend: client.semanticTokenTypes, in: self))
+            self.setSemanticTokens(tokens)
         }
     }
 

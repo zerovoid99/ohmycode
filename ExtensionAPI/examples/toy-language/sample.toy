@@ -1,0 +1,12 @@
+# A toy program: hover a name, ⌘-click it, or open the Outline.
+
+# region greetings
+fn greet(name) do
+  print("Hello, " + name)
+end
+# endregion
+
+let answer = 42
+if answer > 1 do
+  greet("world")
+end

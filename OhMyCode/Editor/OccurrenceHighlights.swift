@@ -84,9 +84,17 @@ final class OccurrenceHighlighter {
             }) else { return }
             found = ranges.map { ($0, .text) }
         } else if let word = document.wordRange(at: selection.location) {
-            if let client = document.languageClient, client.state == .ready, client.supports(.documentHighlight) {
+            if document.canUse(.documentHighlight, .documentHighlight) {
                 let position = document.lspPosition(at: selection.location)
-                guard let result = try? await client.documentHighlights(url: document.url, position: position) else { return }
+                // The server's and the extensions' together.
+                let client = document.readyLanguageClient.flatMap { $0.supports(.documentHighlight) ? $0 : nil }
+                var fromServer: [DocumentHighlight] = []
+                if let client {
+                    guard let answer = try? await client.documentHighlights(url: document.url, position: position) else { return }
+                    fromServer = answer
+                }
+                let fromExtensions = await document.extensionHost?.documentHighlights(for: document, at: selection.location) ?? []
+                let result = fromServer + fromExtensions
                 // Moved or edited meanwhile: the newer request decides.
                 guard !Task.isCancelled, version == document.editVersion,
                       editor.textView.selectedRange() == selection else { return }

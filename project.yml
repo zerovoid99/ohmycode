@@ -58,6 +58,10 @@ targets:
       # The API's types, copied into new extensions.
       - path: ExtensionAPI/omc.d.ts
         buildPhase: resources
+      # The Language Support template for new extensions (the toy language example).
+      - path: ExtensionAPI/examples/toy-language
+        type: folder
+        buildPhase: resources
     info:
       path: OhMyCode/Info.plist
       properties:

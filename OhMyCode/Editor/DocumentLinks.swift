@@ -23,9 +23,11 @@ extension EditorDocument {
                 try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
             }
-            guard let self, let client = self.languageClient, client.state == .ready, client.supports(.documentLink) else { return }
+            guard let self, self.canUse(.documentLink, .documentLink) else { return }
+            let client = self.readyLanguageClient.flatMap { $0.supports(.documentLink) ? $0 : nil }
             let version = self.editVersion
-            let links = (try? await client.documentLinks(url: self.url)) ?? []
+            var links = (try? await client?.documentLinks(url: self.url)) ?? []
+            links += await self.extensionHost?.documentLinks(for: self) ?? []
             guard !Task.isCancelled, version == self.editVersion else { return }
             self.serverLinks = links
             self.serverLinksVersion = version
@@ -77,8 +79,9 @@ extension EditorDocument {
     /// The link's target, asking the server for it if it didn't say.
     func target(of link: EditorLink) async -> URL? {
         if let target = link.target { return target }
-        guard let index = link.serverIndex, index < serverLinks.count, let client = languageClient,
-              client.resolvesDocumentLinks else { return nil }
+        guard let index = link.serverIndex, index < serverLinks.count else { return nil }
+        if ExtensionHost.extensionID(of: serverLinks[index].json) != nil { return await extensionHost?.resolve(serverLinks[index]) }
+        guard let client = languageClient, client.resolvesDocumentLinks else { return nil }
         return try? await client.resolveDocumentLink(serverLinks[index])?.target
     }
 }

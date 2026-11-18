@@ -26,10 +26,24 @@ final class SignatureHelpController {
         return client
     }
 
+    /// Whether the server or an extension gives signature help for the file.
+    private var isAvailable: Bool {
+        guard let document = editor?.document else { return false }
+        return client != nil || document.extensionHost?.hasProviders(.signatureHelp, for: document) == true
+    }
+
+    /// The server's trigger characters and the extensions'.
+    private var triggers: (open: Set<String>, update: Set<String>) {
+        let server: (open: Set<String>, update: Set<String>) = client?.signatureHelpTriggers ?? ([], [])
+        guard let document = editor?.document, let host = document.extensionHost else { return server }
+        let fromExtensions = host.signatureHelpTriggers(for: document)
+        return (server.open.union(fromExtensions.open), server.update.union(fromExtensions.update))
+    }
+
     /// After each edit, with what was typed (nil for deletions and other edits).
     func textDidChange(typed: String?) {
-        guard let client else { return }
-        let triggers = client.signatureHelpTriggers
+        guard isAvailable else { return }
+        let triggers = triggers
         // Typed text may be more than the key ("(" comes with its ")").
         let characters = typed.map { $0.map(String.init) } ?? []
         if let opening = characters.first(where: triggers.open.contains) {
@@ -47,7 +61,7 @@ final class SignatureHelpController {
 
     /// ⇧⌘Space.
     func trigger() {
-        guard client != nil else { NSSound.beep(); return }
+        guard isAvailable else { NSSound.beep(); return }
         request(trigger: nil, isRetrigger: isShown, delay: .zero)
     }
 
@@ -55,7 +69,8 @@ final class SignatureHelpController {
     func waitUntilIdle() async { await task?.value }
 
     private func request(trigger: String?, isRetrigger: Bool, delay: Duration) {
-        guard let client, let document = editor?.document else { return }
+        guard isAvailable, let document = editor?.document else { return }
+        let client = self.client
         task?.cancel()
         task = Task { [weak self] in
             if delay > .zero {
@@ -64,8 +79,15 @@ final class SignatureHelpController {
             }
             guard let cursor = self?.editor?.textView.selectedRange().location else { return }
             let version = document.editVersion
-            let help = try? await client.signatureHelp(url: document.url, position: document.lspPosition(at: cursor),
+            // The server's, else an extension's.
+            var help: SignatureHelp?
+            if let client {
+                help = try? await client.signatureHelp(url: document.url, position: document.lspPosition(at: cursor),
                                                        trigger: trigger, isRetrigger: isRetrigger)
+            }
+            if help?.signatures.isEmpty ?? true, let host = document.extensionHost {
+                help = await host.signatureHelp(for: document, at: cursor, trigger: trigger, isRetrigger: isRetrigger) ?? help
+            }
             guard !Task.isCancelled, document.editVersion == version, let self else { return }
             if let help { self.show(help, at: cursor) } else { self.dismiss() }
         }

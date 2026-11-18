@@ -1,0 +1,17 @@
+{
+  "Function": {
+    "prefix": ["fn", "function"],
+    "body": ["fn ${1:name}(${2:params}) do", "\t$0", "end"],
+    "description": "A function"
+  },
+  "If": {
+    "prefix": "if",
+    "body": ["if ${1:condition} do", "\t$0", "end"],
+    "description": "Runs a block when a condition holds"
+  },
+  "Region": {
+    "prefix": "region",
+    "body": ["# region ${1:name}", "$0", "# endregion"],
+    "description": "A folding region"
+  }
+}

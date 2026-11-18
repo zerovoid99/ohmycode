@@ -19,6 +19,8 @@ struct StatusBarView: View {
     var showAgent: () -> Void = {}
     /// Go to Line (clicking the cursor's position).
     var goToLine: () -> Void = {}
+    /// Change Language Mode (the language's name is a button).
+    var changeLanguage: () -> Void = {}
     /// The Source Control sidebar (clicking the branch).
     var showSourceControl: () -> Void = {}
     /// A `.http` file's environment ("No Environment" when none is chosen); clicking switches it.
@@ -141,7 +143,9 @@ struct StatusBarView: View {
                 Text("\(document.lineCount) lines")
                 IndentationBadge(document: document)
                 Text("UTF-8")
-                Text(document.language.displayName)
+                Button(action: changeLanguage) { Text(document.language.displayName) }
+                    .buttonStyle(StatusBarButtonStyle())
+                    .help("Select Language Mode")
             }
         }
         .font(.caption)
@@ -220,7 +224,17 @@ private struct LanguageServerBadge: View {
                 Text(client.name)
             }
         case .ready:
-            Label(client.name, systemImage: "bolt.fill")
+            // Work the server reports (`$/progress`): indexing, building…
+            if let work = client.progress.values.sorted(by: { $0.title < $1.title }).first {
+                HStack(spacing: 4) {
+                    ProgressView().controlSize(.mini)
+                    Text([work.title, work.message, work.percentage.map { "\($0)%" }].compactMap { $0 }.joined(separator: " "))
+                        .lineLimit(1)
+                }
+                .help(client.name)
+            } else {
+                Label(client.name, systemImage: "bolt.fill")
+            }
         case .failed(let message):
             Label(client.name, systemImage: "bolt.slash.fill")
                 .foregroundStyle(.orange)

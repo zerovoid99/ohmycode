@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>name</key>
+	<string>INI (test)</string>
+	<key>scopeName</key>
+	<string>source.ini.test</string>
+	<key>patterns</key>
+	<array>
+		<dict>
+			<key>match</key>
+			<string>^\s*([;#]).*$</string>
+			<key>name</key>
+			<string>comment.line.ini</string>
+			<key>captures</key>
+			<dict>
+				<key>1</key>
+				<dict>
+					<key>name</key>
+					<string>punctuation.definition.comment.ini</string>
+				</dict>
+			</dict>
+		</dict>
+		<dict>
+			<key>match</key>
+			<string>^\s*(\[)([^\]]*)(\])</string>
+			<key>captures</key>
+			<dict>
+				<key>1</key>
+				<dict><key>name</key><string>punctuation.definition.entity.ini</string></dict>
+				<key>2</key>
+				<dict><key>name</key><string>entity.name.section.group-title.ini</string></dict>
+				<key>3</key>
+				<dict><key>name</key><string>punctuation.definition.entity.ini</string></dict>
+			</dict>
+		</dict>
+		<dict>
+			<key>match</key>
+			<string>^\s*([\w.\-]+)\s*(=)\s*(.*)$</string>
+			<key>captures</key>
+			<dict>
+				<key>1</key>
+				<dict><key>name</key><string>keyword.other.definition.ini</string></dict>
+				<key>2</key>
+				<dict><key>name</key><string>punctuation.separator.key-value.ini</string></dict>
+				<key>3</key>
+				<dict><key>name</key><string>string.unquoted.value.ini</string></dict>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

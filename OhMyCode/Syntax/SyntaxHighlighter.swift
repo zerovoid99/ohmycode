@@ -49,20 +49,63 @@ final class SyntaxHighlighter {
     /// quickly; without it, lines are counted).
     var pointProvider: ((Int) -> Point)?
 
-    init?(language: SourceLanguage, textStorage: NSTextStorage) {
-        if language == .http {
-            engine = SyntaxEngine(lineHighlighter: HTTPSyntax.highlights(in:range:))
-        } else if language == .sql {
-            engine = SyntaxEngine(lineHighlighter: SQLSyntax.highlights(in:range:))
-        } else {
-            guard let grammar = GrammarRegistry.grammar(for: language),
-                  let engine = SyntaxEngine(grammar: grammar)
-            else { return nil }
-            self.engine = engine
-        }
+    /// What colors the text: "builtin", "tree-sitter:<language>" or "textmate:<scope>", with
+    /// the contributions' generation (a different key: the highlighter is out of date).
+    let engineKey: String
+
+    /// `choice`: Settings ▸ Languages' pick for the language (nil: the app's setting).
+    init?(language: SourceLanguage, textStorage: NSTextStorage, choice: String? = nil) {
+        guard let (engine, key) = Self.makeEngine(for: language, choice: choice ?? AppSettings.shared.languageHighlighting[language.languageId])
+        else { return nil }
+        self.engine = engine
+        engineKey = key
         self.textStorage = textStorage
-        isWindowed = textStorage.length > Self.windowThreshold
+        isWindowed = engine.supportsWindows && textStorage.length > Self.windowThreshold
         schedule() // initial parse, in the background (a window waits for something on screen)
+    }
+
+    /// The engine a language's highlighting would use now (see `ContributedGrammars.preference`).
+    static func engineKey(for language: SourceLanguage, choice: String?) -> String? {
+        let grammars = ContributedGrammars.shared
+        for engine in grammars.preference(for: language, choice: choice) {
+            switch engine {
+            case .builtIn: return "builtin"
+            case .treeSitter:
+                if grammars.treeSitterGrammar(for: language) != nil { return "tree-sitter:\(language.rawValue):\(grammars.generation)" }
+            case .textMate:
+                if let contribution = grammars.textMateContribution(for: language) {
+                    return "textmate:\(contribution.scopeName):\(grammars.generation)"
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func makeEngine(for language: SourceLanguage, choice: String?) -> (engine: SyntaxEngine, key: String)? {
+        let grammars = ContributedGrammars.shared
+        let generation = grammars.generation
+        for engine in grammars.preference(for: language, choice: choice) {
+            switch engine {
+            case .builtIn:
+                let key = "builtin"
+                if language == .http { return (SyntaxEngine(lineHighlighter: HTTPSyntax.highlights(in:range:)), key) }
+                if language == .sql { return (SyntaxEngine(lineHighlighter: SQLSyntax.highlights(in:range:)), key) }
+                if let grammar = GrammarRegistry.builtInGrammar(for: language), let engine = SyntaxEngine(grammar: grammar) {
+                    return (engine, key)
+                }
+            case .treeSitter:
+                // Loading the library and compiling its queries happens here, once per language.
+                if let grammar = grammars.treeSitterGrammar(for: language), let engine = SyntaxEngine(grammar: grammar) {
+                    return (engine, "tree-sitter:\(language.rawValue):\(generation)")
+                }
+            case .textMate:
+                guard let contribution = grammars.textMateContribution(for: language) else { continue }
+                let scope = contribution.scopeName
+                let source = grammars.source
+                return (SyntaxEngine(textMate: { TextMateTokenizer(scopeName: scope, source: source) }), "textmate:\(scope):\(generation)")
+            }
+        }
+        return nil
     }
 
     func addClient(_ client: SyntaxHighlighterClient) {
@@ -112,6 +155,12 @@ final class SyntaxHighlighter {
     func highlights(in range: NSRange) async -> [NamedRange] {
         await waitUntilIdle()
         return await engine.highlights(in: range)
+    }
+
+    /// See `SyntaxEngine.inspect`: after pending edits are parsed.
+    func inspect(at offset: Int) async -> (scopes: [String], captures: [String], nodes: [String]) {
+        await waitUntilIdle()
+        return await engine.inspect(at: offset)
     }
 
     /// See `SyntaxEngine.enclosingScopeLines`. Uses the latest parsed tree (no waiting).

@@ -140,10 +140,13 @@ struct ExtensionsView: View {
                 Spacer()
                 Menu {
                     Button("New Extension…") { Task { await workspace.createExtension() } }
+                    Button("New Language Support Extension…") { Task { await workspace.createExtension(template: .languageSupport) } }
                     Divider()
                     Button("Install from Folder…") { install(development: false) }
                     Button("Install for Development…") { install(development: true) }
                         .help("Link the folder instead of copying it: rebuild, then Reload, to try changes")
+                    Button("Import VS Code Language Extension…") { workspace.importVSCodeExtension() }
+                        .help("Its languages, grammars and snippets, from an unpacked VS Code extension")
                     Divider()
                     Button("Reload Extensions") { host.reload(restart: true) }
                     Button("Open Extensions Folder") { openFolder() }

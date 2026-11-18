@@ -68,14 +68,19 @@ extension EditorDocument {
                 guard !Task.isCancelled else { return }
             }
             guard let self else { return }
-            guard self.projectSettings.showsInlayHints ?? AppSettings.shared.showsInlayHints, let client = self.languageClient, client.state == .ready,
-                  client.supports(.inlayHint), self.lineIndex.lineCount <= Self.inlayHintLineLimit else {
+            guard self.projectSettings.showsInlayHints ?? AppSettings.shared.showsInlayHints, self.canUse(.inlayHint, .inlayHint),
+                  self.lineIndex.lineCount <= Self.inlayHintLineLimit else {
                 self.setInlayHints([])
                 return
             }
+            let client = self.readyLanguageClient.flatMap { $0.supports(.inlayHint) ? $0 : nil }
             let version = self.editVersion
             let end = self.lspPosition(at: self.textStorage.length)
-            let hints = (try? await client.inlayHints(url: self.url, range: LSPRange(start: LSPPosition(line: 0, character: 0), end: end))) ?? []
+            let range = LSPRange(start: LSPPosition(line: 0, character: 0), end: end)
+            // The server's, then the extensions'.
+            var hints: [InlayHint] = []
+            if let client { hints = (try? await client.inlayHints(url: self.url, range: range)) ?? [] }
+            hints += await self.extensionHost?.inlayHints(for: self, range: range) ?? []
             // An edit since: its own refresh brings the hints for the new text.
             guard !Task.isCancelled, version == self.editVersion else { return }
             self.setInlayHints(hints)

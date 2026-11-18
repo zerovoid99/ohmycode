@@ -15,8 +15,15 @@ struct TextSnapshot: @unchecked Sendable {
 actor SyntaxEngine {
     private let parser = Parser()
     private let query: Query?
+    /// A contributed tree-sitter grammar's `folds.scm`.
+    let foldsQuery: Query?
     /// For a language without a grammar (`.http`): highlights straight from the text.
     private let lineHighlighter: (@Sendable (NSString, NSRange) -> [NamedRange])?
+    /// For a TextMate grammar: makes the tokenizer (on first use, in the background).
+    private let textMateFactory: (@Sendable () -> TextMateTokenizer?)?
+    private var textMate: TextMateDocument?
+    /// Whether a long file may be parsed a window at a time (TextMate tokenizes from the top).
+    nonisolated let supportsWindows: Bool
     private var tree: MutableTree?
     private var text: NSString = ""
     /// Where `text` starts in the document.
@@ -27,14 +34,29 @@ actor SyntaxEngine {
     init?(grammar: Grammar) {
         guard (try? parser.setLanguage(grammar.language)) != nil else { return nil }
         query = grammar.highlightsQuery
+        foldsQuery = grammar.foldsQuery
         lineHighlighter = nil
+        textMateFactory = nil
+        supportsWindows = true
     }
 
     /// An engine that keeps the text and highlights it with `highlighter` (no syntax tree:
     /// the outline and folding come from elsewhere).
     init(lineHighlighter highlighter: @escaping @Sendable (NSString, NSRange) -> [NamedRange]) {
         query = nil
+        foldsQuery = nil
         lineHighlighter = highlighter
+        textMateFactory = nil
+        supportsWindows = false
+    }
+
+    /// An engine that tokenizes with a TextMate grammar, line by line (see `TextMateDocument`).
+    init(textMate factory: @escaping @Sendable () -> TextMateTokenizer?) {
+        query = nil
+        foldsQuery = nil
+        lineHighlighter = nil
+        textMateFactory = factory
+        supportsWindows = false
     }
 
     /// Applies `edits` (made since the previous snapshot) and reparses against `snapshot`, if
@@ -43,7 +65,16 @@ actor SyntaxEngine {
     /// `reset` drops the old tree first (a new window, not an edited one).
     func process(snapshot: TextSnapshot?, edits: [InputEdit], highlightRange: NSRange?,
                  window: TSRange? = nil, reset: Bool = false) -> [NamedRange]? {
-        if let snapshot, lineHighlighter != nil {
+        if let snapshot, let textMateFactory {
+            if textMate == nil {
+                textMate = textMateFactory().map(TextMateDocument.init)
+                textMate?.update(text: snapshot.string, edits: [])
+            } else {
+                textMate?.update(text: snapshot.string, edits: edits)
+            }
+            text = snapshot.string
+            offset = 0
+        } else if let snapshot, lineHighlighter != nil {
             text = snapshot.string
             offset = snapshot.offset
             isWindowed = window != nil
@@ -66,8 +97,34 @@ actor SyntaxEngine {
     /// whole document is parsed, so a window doesn't pass for the whole file.
     var currentRoot: Node? { isWindowed ? nil : tree?.rootNode }
     var currentText: NSString { text }
+    var currentTree: MutableTree? { tree }
+
+    /// What highlighting sees at `offset` (Inspect Editor Tokens and Scopes): a TextMate
+    /// grammar's scopes, outermost first; or tree-sitter's captures there and the syntax nodes
+    /// enclosing it, innermost first.
+    func inspect(at offset: Int) -> (scopes: [String], captures: [String], nodes: [String]) {
+        if let textMate {
+            return (offset <= text.length ? textMate.scopes(at: offset) : [], [], [])
+        }
+        let range = NSRange(location: offset, length: 1)
+        let captures = highlights(in: range).filter { NSLocationInRange(offset, $0.range) }.map(\.name)
+        var nodes: [String] = []
+        if let root = tree?.rootNode, offset >= self.offset {
+            let byte = UInt32(offset * 2)
+            var node = root.descendant(in: byte..<(byte + 2))
+            while let current = node, nodes.count < 12 {
+                if let type = current.nodeType { nodes.append(type) }
+                node = current.parent
+            }
+        }
+        return ([], captures, nodes)
+    }
 
     func highlights(in range: NSRange) -> [NamedRange] {
+        if textMateFactory != nil {
+            let clipped = NSIntersectionRange(range, NSRange(location: 0, length: text.length))
+            return textMate?.highlights(in: clipped) ?? []
+        }
         if let lineHighlighter {
             let local = NSIntersectionRange(NSRange(location: range.location - offset, length: range.length),
                                             NSRange(location: 0, length: text.length))
