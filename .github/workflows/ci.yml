@@ -17,10 +17,12 @@ jobs:
         run: |
           xcodegen generate
           git diff --exit-code -- OhMyCode.xcodeproj
+      # Wall-clock tests are skipped here: shared runners are slower; they run locally.
       - name: Build and test
         run: >
           xcodebuild test -project OhMyCode.xcodeproj -scheme OhMyCode
           -destination 'platform=macOS' -only-testing:OhMyCodeTests
           -skip-testing:OhMyCodeTests/PerformanceGuardTests
           -skip-testing:OhMyCodeTests/KeystrokeGuardTests
+          '-skip-testing:OhMyCodeTests/BigEditTests/pastingOverALongFileFromFarDown()'
           CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=

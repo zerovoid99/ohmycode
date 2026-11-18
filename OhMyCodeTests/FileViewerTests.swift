@@ -293,6 +293,8 @@ struct FileViewerTests {
 
     @Test func imagesFitTheWindowUntilZoomed() {
         let view = ImageScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        // Legacy (always-visible) scrollers, as on a Mac without a trackpad, would take width from the fit area.
+        view.scrollerStyle = .overlay
         var reported: CGFloat?
         view.onScaleChange = { reported = $0 }
         view.show(NSImage(size: NSSize(width: 800, height: 600)))
