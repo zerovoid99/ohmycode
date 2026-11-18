@@ -211,3 +211,18 @@ Fix: in `.github/workflows/ci.yml`, change `runs-on: macos-latest` to `runs-on: 
 Verify: `ruby -ryaml -e 'YAML.load_file(".github/workflows/ci.yml")'` → exit 0;
 `grep -n "runs-on: xcode-27" .github/workflows/ci.yml` → one match. The real check is the next CI run after
 the maintainer pushes. Do not change app code to compile under Xcode 26.6.
+
+## Follow-up 2 (2026-11-19, CI run 44403583676 on `xcode-27`, Xcode 27.1)
+
+Build succeeds; 838 of 842 tests pass. Two tests fail for runner-environment reasons:
+
+1. `OhMyCodeTests/BigEditTests.swift:124` `pastingOverALongFileFromFarDown()` — a wall-clock assertion
+   (`pasted < .milliseconds(150)`); the shared VM is slower. Same class as the two guard suites CI
+   already skips. Fix: add `'-skip-testing:OhMyCodeTests/BigEditTests/pastingOverALongFileFromFarDown()'`
+   to the CI test command (keep it running locally).
+2. `OhMyCodeTests/FileViewerTests.swift:294-305` `imagesFitTheWindowUntilZoomed()` — expects an 800×600 image
+   in a 400×300 `ImageScrollView` to fit at exactly 0.5. Likely cause (MED confidence, unverified on the
+   runner): with no trackpad the runner uses legacy (always-visible) scrollers, which take width from the
+   fit area. Fix the test, not the app: set `view.scrollerStyle = .overlay` right after creating the view
+   (or compute the expected fit from `view.contentView.bounds`). If the test still fails on CI after that,
+   STOP and report the actual magnification printed in the failure.

@@ -8,7 +8,7 @@ fully before starting, honor its STOP conditions, and update your row when done.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| [001](001-agent-guide-and-ci.md) | Write down the repo's rules (CLAUDE.md) and run the tests in CI | P1 | S–M | — | DONE (merged 4972743..75b5b7a) — follow-up merged (`ci: run on the Xcode 27 image`): first CI run failed on Xcode 26.6 |
+| [001](001-agent-guide-and-ci.md) | Write down the repo's rules (CLAUDE.md) and run the tests in CI | P1 | S–M | — | DONE (merged 4972743..75b5b7a) — follow-up merged (`ci: run on the Xcode 27 image`); follow-up 2 merged: skip one wall-clock test in CI, pin overlay scrollers in the image fit test: first CI run failed on Xcode 26.6 |
 | [002](002-extension-permission-boundary.md) | Extensions only get approved permissions; no code running or outside edits without them | P1 | M | 001 (soft) | TODO |
 | [003](003-symlinked-file-external-changes.md) | Notice external changes to files opened through a symlink | P1 | S | — | DONE (approved and merged 2026-11-19) |
 | [004](004-language-server-shutdown-safety.md) | Stop language servers without crashing or leaving hung processes | P1 | S | — | DONE (approved and merged 2026-11-19) |
