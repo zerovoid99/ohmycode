@@ -477,8 +477,10 @@ final class EditorDocument: Identifiable {
         for (editor, selection) in selections { editor.documentDidReload(previousSelection: selection) }
     }
 
+    /// The file's modification date, the target's for a symlink (saving writes to the target, so
+    /// that's the file other programs change).
     private static func modificationDate(of url: URL) -> Date? {
-        try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date
+        try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path)[.modificationDate] as? Date
     }
 
     /// Selects and scrolls to `line` (1-based), now or once an editor shows this document.

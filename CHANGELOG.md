@@ -5,6 +5,10 @@ downloads are on the [releases page](https://github.com/zerovoid99/ohmycode/rele
 
 ## [Unreleased]
 
+### Fixed
+- A file opened through a symbolic link that another program changed is now noticed (it was
+  overwritten by the next save without asking).
+
 ## [0.2.5] - 2026-11-19
 
 ### Added

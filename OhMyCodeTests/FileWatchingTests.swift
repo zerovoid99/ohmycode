@@ -129,6 +129,32 @@ struct FileWatchingTests {
         #expect(workspace.save(document))
     }
 
+    /// Regression: a file opened through a symlink read the link's own date, so changes to the target
+    /// were never noticed and the next save overwrote them silently.
+    @Test func changesToASymlinksTargetAreNoticed() throws {
+        let root = try makeFolder(["target.txt": "one\n"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = root.appending(path: "target.txt")
+        let link = root.appending(path: "link.txt")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        func changeTarget(_ text: String, minutesAhead: Double) throws {
+            try text.write(to: target, atomically: false, encoding: .utf8)
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(minutesAhead * 60)],
+                                                  ofItemAtPath: target.path)
+        }
+
+        let dirty = try EditorDocument(url: link)
+        dirty.textStorage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "mine ")
+        try changeTarget("theirs\n", minutesAhead: 1)
+        dirty.reloadFromDiskIfChanged()
+        #expect(dirty.hasExternalChanges)
+
+        let clean = try EditorDocument(url: link)
+        try changeTarget("newer\n", minutesAhead: 2)
+        clean.reloadFromDiskIfChanged()
+        #expect(clean.textStorage.string == "newer\n")
+    }
+
     @Test func ownSaveDoesNotReload() async throws {
         let root = try makeFolder(["note.txt": "one\n"])
         let workspace = Workspace()
