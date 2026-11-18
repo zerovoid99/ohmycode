@@ -131,6 +131,14 @@ final class AppSettings {
     /// `languages.highlighting`: language id → what colors it ("builtin", "tree-sitter",
     /// "textmate"); unlisted languages use the default order (see `ContributedGrammars`).
     var languageHighlighting: [String: String] { didSet { changed() } }
+    /// Words the spell checker doesn't know, underlined in comments, strings and prose.
+    var spellCheck: Bool { didSet { changed() } }
+    /// Names in code are checked too, split into words.
+    var spellCheckIdentifiers: Bool { didSet { changed() } }
+    /// The spell checker's language (one of the system's, e.g. "en").
+    var spellCheckLanguage: String { didSet { changed() } }
+    /// Unknown words are listed in Problems (as information).
+    var spellCheckProblems: Bool { didSet { changed() } }
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var isLoading = false
@@ -171,6 +179,10 @@ final class AppSettings {
         fileAssociations = defaults.dictionary(forKey: Keys.fileAssociations) as? [String: String] ?? [:]
         languageServersEnabled = defaults.dictionary(forKey: Keys.languageServersEnabled) as? [String: Bool] ?? [:]
         languageHighlighting = defaults.dictionary(forKey: Keys.languageHighlighting) as? [String: String] ?? [:]
+        spellCheck = defaults.object(forKey: Keys.spellCheck) as? Bool ?? true
+        spellCheckIdentifiers = defaults.object(forKey: Keys.spellCheckIdentifiers) as? Bool ?? true
+        spellCheckLanguage = defaults.string(forKey: Keys.spellCheckLanguage) ?? "en"
+        spellCheckProblems = defaults.object(forKey: Keys.spellCheckProblems) as? Bool ?? false
         isLoading = false
     }
 
@@ -208,6 +220,10 @@ final class AppSettings {
         static let fileAssociations = "files.associations"
         static let languageServersEnabled = "languageServers.enabled"
         static let languageHighlighting = "languages.highlighting"
+        static let spellCheck = "spellCheck"
+        static let spellCheckIdentifiers = "spellCheck.identifiers"
+        static let spellCheckLanguage = "spellCheck.language"
+        static let spellCheckProblems = "spellCheck.problems"
     }
 
     private static func clampedSize(_ size: Double) -> Double {
@@ -255,6 +271,10 @@ final class AppSettings {
         defaults.set(fileAssociations, forKey: Keys.fileAssociations)
         defaults.set(languageServersEnabled, forKey: Keys.languageServersEnabled)
         defaults.set(languageHighlighting, forKey: Keys.languageHighlighting)
+        defaults.set(spellCheck, forKey: Keys.spellCheck)
+        defaults.set(spellCheckIdentifiers, forKey: Keys.spellCheckIdentifiers)
+        defaults.set(spellCheckLanguage, forKey: Keys.spellCheckLanguage)
+        defaults.set(spellCheckProblems, forKey: Keys.spellCheckProblems)
         guard self === AppSettings.shared else { return } // test instances don't restyle the app
         EditorTheme.invalidate()
         applyAppearance()
@@ -283,6 +303,8 @@ final class AppSettings {
             "files.associations": .object(fileAssociations.mapValues(JSONValue.string)),
             "languageServers.enabled": .object(languageServersEnabled.mapValues(JSONValue.bool)),
             "languages.highlighting": .object(languageHighlighting.mapValues(JSONValue.string)),
+            "spellCheck": .bool(spellCheck), "spellCheck.identifiers": .bool(spellCheckIdentifiers),
+            "spellCheck.language": .string(spellCheckLanguage), "spellCheck.problems": .bool(spellCheckProblems),
         ]
     }
 
@@ -322,6 +344,10 @@ final class AppSettings {
         if let value = values["files.associations"]?.object { fileAssociations = value.compactMapValues(\.string) }
         if let value = values["languageServers.enabled"]?.object { languageServersEnabled = value.compactMapValues(\.bool) }
         if let value = values["languages.highlighting"]?.object { languageHighlighting = value.compactMapValues(\.string) }
+        if let value = values["spellCheck"]?.bool { spellCheck = value }
+        if let value = values["spellCheck.identifiers"]?.bool { spellCheckIdentifiers = value }
+        if let value = values["spellCheck.language"]?.string { spellCheckLanguage = value }
+        if let value = values["spellCheck.problems"]?.bool { spellCheckProblems = value }
         isLoading = false
         changed()
     }

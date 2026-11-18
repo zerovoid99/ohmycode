@@ -80,9 +80,11 @@ extension Workspace {
         return Task {
             let actions = await codeActions(for: document, range: selection)
             let aiFixes = editor.aiFixMenuItems(for: selection)
-            guard !actions.isEmpty || !aiFixes.isEmpty else { NSSound.beep(); return }
+            let spelling = editor.spellingMenuItems(at: selection.location)
+            guard !actions.isEmpty || !aiFixes.isEmpty || !spelling.isEmpty else { NSSound.beep(); return }
             let caret = editor.rect(for: NSRange(location: selection.location, length: 0)) ?? .zero
-            editor.showCodeActionMenu(actions, extra: aiFixes, at: NSPoint(x: caret.minX, y: caret.maxY), in: editor.textView) { action in
+            editor.showCodeActionMenu(actions, extra: aiFixes, spelling: spelling, at: NSPoint(x: caret.minX, y: caret.maxY),
+                                      in: editor.textView) { action in
                 Task { await self.run(action, in: document) }
             }
         }
@@ -105,17 +107,22 @@ extension Workspace {
 }
 
 extension EditorController {
-    /// The actions as a menu (quick fixes, then refactorings, then source actions, then `extra`
-    /// items under "AI"), the preferred one bold; disabled ones say why.
-    func showCodeActionMenu(_ actions: [CodeAction], extra: [NSMenuItem] = [], at point: NSPoint, in view: NSView,
-                            run: @escaping (CodeAction) -> Void) {
-        let menu = Self.codeActionMenu(actions, extra: extra, run: run)
+    /// The actions as a menu (`spelling` fixes, quick fixes, then refactorings, then source
+    /// actions, then `extra` items under "AI"), the preferred one bold; disabled ones say why.
+    func showCodeActionMenu(_ actions: [CodeAction], extra: [NSMenuItem] = [], spelling: [NSMenuItem] = [], at point: NSPoint,
+                            in view: NSView, run: @escaping (CodeAction) -> Void) {
+        let menu = Self.codeActionMenu(actions, extra: extra, spelling: spelling, run: run)
         menu.popUp(positioning: menu.items.first { $0.isEnabled && !$0.isSectionHeader }, at: point, in: view)
     }
 
-    static func codeActionMenu(_ actions: [CodeAction], extra: [NSMenuItem] = [], run: @escaping (CodeAction) -> Void) -> NSMenu {
+    static func codeActionMenu(_ actions: [CodeAction], extra: [NSMenuItem] = [], spelling: [NSMenuItem] = [],
+                               run: @escaping (CodeAction) -> Void) -> NSMenu {
         let menu = NSMenu(title: "Code Actions")
         menu.autoenablesItems = false
+        if !spelling.isEmpty {
+            menu.addItem(NSMenuItem.sectionHeader(title: "Spelling"))
+            spelling.forEach(menu.addItem)
+        }
         let groups: [(String, (CodeAction) -> Bool)] = [
             ("Quick Fix", \.isQuickFix), ("Refactor", \.isRefactor), ("Source", \.isSource),
             ("More Actions", { !$0.isQuickFix && !$0.isRefactor && !$0.isSource }),
@@ -184,7 +191,9 @@ final class LightbulbController {
         let offersAI = editor.inlineEdit.settings.isConfigured
         let hasProblem = asksServer
             && document.diagnostics.contains(where: { $0.range.start.line <= cursorLine && $0.range.end.line >= cursorLine })
-        guard hasProblem || (offersAI && !editor.problems(touching: selection).isEmpty),
+        // An unknown word at the cursor: its spelling fixes.
+        let hasSpelling = editor.spelling.issue(at: selection.location) != nil
+        guard hasProblem || hasSpelling || (offersAI && !editor.problems(touching: selection).isEmpty),
               let workspace = document.workspace else {
             hide()
             return
@@ -197,7 +206,7 @@ final class LightbulbController {
             guard !Task.isCancelled, document.editVersion == version else { return }
             self.actions = actions.filter { $0.disabledReason == nil }
             self.selection = selection
-            if self.actions.isEmpty && !(offersAI && !editor.problems(touching: selection).isEmpty) {
+            if self.actions.isEmpty && !hasSpelling && !(offersAI && !editor.problems(touching: selection).isEmpty) {
                 self.hide()
             } else {
                 self.show(line: cursorLine)
@@ -238,6 +247,7 @@ final class LightbulbController {
         guard let editor, let button, let workspace = editor.document.workspace else { return }
         let document = editor.document
         editor.showCodeActionMenu(actions, extra: editor.aiFixMenuItems(for: selection),
+                                  spelling: editor.spellingMenuItems(at: selection.location),
                                   at: NSPoint(x: 0, y: button.bounds.maxY), in: button) { action in
             Task { await workspace.run(action, in: document) }
         }

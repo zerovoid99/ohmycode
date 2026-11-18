@@ -222,6 +222,7 @@ extension ProjectSettings {
         merged.showsInlayHints = showsInlayHints ?? fallback.showsInlayHints
         merged.semanticHighlighting = semanticHighlighting ?? fallback.semanticHighlighting
         merged.showsCodeLens = showsCodeLens ?? fallback.showsCodeLens
+        merged.spellCheck = spellCheck ?? fallback.spellCheck
         merged.fileAssociations = fileAssociations ?? fallback.fileAssociations
         merged.languageServersEnabled = fallback.languageServersEnabled.merging(languageServersEnabled) { $1 }
         merged.unknownKeys = []

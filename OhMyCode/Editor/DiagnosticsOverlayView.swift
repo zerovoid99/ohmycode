@@ -40,6 +40,8 @@ final class DiagnosticsOverlayView: NSView {
     /// Merge conflicts: tinted sides, and the actions after each `<<<<<<<` line.
     var conflictBands: (() -> [(rect: NSRect, kind: ConflictBand)])?
     var conflictActions: (() -> [(rect: NSRect, conflict: MergeConflict, action: MergeConflict.Action)])?
+    /// Unknown words (spell checking): dotted underlines, apart from the diagnostics' squiggles.
+    var spellingUnderlines: (() -> [NSRect])?
 
     init(textView: NSTextView, document: EditorDocument) {
         self.textView = textView
@@ -399,6 +401,18 @@ final class DiagnosticsOverlayView: NSView {
             NSColor.linkColor.setFill()
             NSRect(x: rect.minX, y: rect.maxY - 1.5, width: rect.width, height: 1).fill()
         }
+        let spelling = spellingUnderlines?() ?? []
+        if !spelling.isEmpty {
+            Self.spellingColor.setFill()
+            for rect in spelling where rect.intersects(dirtyRect.insetBy(dx: 0, dy: -4)) {
+                // Dots 1.5 points square, 1.5 apart, along the bottom of the word.
+                var x = rect.minX + 0.5
+                while x + 1.5 <= rect.maxX + 0.5 {
+                    NSRect(x: x, y: rect.maxY - 2, width: 1.5, height: 1.5).fill()
+                    x += 3
+                }
+            }
+        }
         for (rect, color) in segments() where rect.intersects(dirtyRect.insetBy(dx: 0, dy: -4)) {
             color.setStroke()
             let path = NSBezierPath()
@@ -415,6 +429,9 @@ final class DiagnosticsOverlayView: NSView {
             path.stroke()
         }
     }
+
+    /// Teal, not a problem's color; it follows light and dark (the editor's appearance).
+    static let spellingColor = NSColor.systemTeal.withAlphaComponent(0.85)
 
     static func color(for severity: Diagnostic.Severity) -> NSColor {
         switch severity {

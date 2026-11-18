@@ -82,6 +82,8 @@ final class EditorController: NSObject {
     var hoveredLink: EditorLink?
     /// Where the symbol under the cursor appears.
     private(set) lazy var occurrences = OccurrenceHighlighter(editor: self)
+    /// Unknown words, underlined (see SpellCheckController).
+    private(set) lazy var spelling = SpellCheckController(editor: self)
     /// What the user just typed, captured before the change, for completion triggering.
     private var pendingTypedText: String?
     /// Range that currently has highlight colors applied; scrolling inside it is free.
@@ -173,6 +175,7 @@ final class EditorController: NSObject {
         overlay.conflictActions = { [weak self] in self?.conflictActionRects() ?? [] }
         overlay.cursorMarks = { [weak self] in self?.cursorMarks() ?? [] }
         overlay.blockCaret = { [weak self] in self?.vim?.blockCaretRect() }
+        overlay.spellingUnderlines = { [weak self] in self?.spelling.underlineRects() ?? [] }
         textView.onVimKey = { [weak self] event, isKeyEquivalent in self?.vim?.handle(event, isKeyEquivalent: isKeyEquivalent) ?? false }
         textView.onPaste = { [weak self] in self?.vim?.paste() ?? false }
 
@@ -291,6 +294,7 @@ final class EditorController: NSObject {
             if let minimap = self.minimapView, !minimap.isHidden { self.document.highlighter?.addClient(minimap) }
             self.stickyView?.update()
             self.applyDiagnostics()
+            self.spelling.viewportChanged()
         }
         return containerView
     }
@@ -331,6 +335,7 @@ final class EditorController: NSObject {
         document.refreshSemanticTokens()
         document.refreshCodeLenses()
         occurrences.update()
+        spelling.settingsChanged()
         applySettings()
     }
 
@@ -1023,6 +1028,7 @@ final class EditorController: NSObject {
         minimapView?.refresh()
         stickyView?.update()
         scheduleTextElementTrim()
+        spelling.viewportChanged()
     }
 
     /// How long after the last scroll the text elements left behind are dropped.
@@ -1123,6 +1129,8 @@ extension EditorController: NSTextViewDelegate {
             view.setSelectedRange(NSRange(location: charIndex, length: 0))
         }
         var items = linkMenuItems(at: charIndex) + languageMenuItems() + aiMenuItems()
+        let spellingItems = spellingMenuItems(at: charIndex)
+        if !spellingItems.isEmpty { items = spellingItems + [.separator()] + items }
         // In a git repository, with changes: stage what the selection touches.
         if document.stageHunkAction != nil, !document.diffHunks.isEmpty {
             let stage = NSMenuItem(title: "Stage Selected Lines", action: #selector(contextStageLines), keyEquivalent: "")
@@ -1451,6 +1459,7 @@ extension EditorController: SyntaxHighlighterClient {
         } else {
             appliedColors.reset()
         }
+        spelling.textEdited(start: start, oldEnd: oldEnd, newLength: newLength)
     }
 
     /// Applied as TextKit 2 rendering attributes: they only affect drawing, so the text storage
@@ -1510,6 +1519,7 @@ extension EditorController: SyntaxHighlighterClient {
         appliedColorsVersion = document.editVersion
         highlightedRange = range
         rememberNonCode(highlights)
+        spelling.highlightsArrived(highlights, in: range)
         diagnosticsOverlay?.marksDidChange() // brackets in strings stop matching
     }
 }

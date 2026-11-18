@@ -14,6 +14,8 @@ struct ProjectSettings: Equatable {
     var showsInlayHints: Bool?
     var semanticHighlighting: Bool?
     var showsCodeLens: Bool?
+    /// Spell checking in the folder's files, over the app's setting.
+    var spellCheck: Bool?
     /// `files.associations`: glob → language id, over the app's.
     var fileAssociations: [String: String]?
     /// `languageServers.<id>.enabled`, over the app's.
@@ -21,7 +23,7 @@ struct ProjectSettings: Equatable {
 
     /// The names it understands, for the template and for warnings.
     static let keys = ["formatOnSave", "formatOnSaveScope", "autoSave", "autoSaveDelay", "wordWrap", "renderWhitespace",
-                       "showsInlayHints", "semanticHighlighting", "showsCodeLens", "files.associations"]
+                       "showsInlayHints", "semanticHighlighting", "showsCodeLens", "files.associations", "spellCheck"]
 
     init() {}
 
@@ -41,6 +43,7 @@ struct ProjectSettings: Equatable {
         showsInlayHints = object["showsInlayHints"] as? Bool
         semanticHighlighting = object["semanticHighlighting"] as? Bool
         showsCodeLens = object["showsCodeLens"] as? Bool
+        spellCheck = object["spellCheck"] as? Bool
         fileAssociations = object["files.associations"] as? [String: String]
         for (key, value) in object where key.hasPrefix("languageServers.") && key.hasSuffix(".enabled") {
             if let enabled = value as? Bool { languageServersEnabled[String(key.dropFirst(16).dropLast(8))] = enabled }
@@ -97,6 +100,7 @@ struct ProjectSettings: Equatable {
       // "showsInlayHints": true,
       // "semanticHighlighting": true,
       // "showsCodeLens": true,
+      // "spellCheck": true,                     // words to accept: .omc/dictionary.txt
       // "files.associations": { "*.tpl": "html" },
       // "languageServers.rust-analyzer.enabled": false
     }
