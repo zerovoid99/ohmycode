@@ -94,6 +94,9 @@ struct SettingsView: View {
             Toggle("Sticky scroll (keep enclosing declarations at the top)", isOn: $settings.stickyScroll)
             Toggle("Close brackets and quotes automatically", isOn: $settings.autoClosePairs)
             Toggle("Rename a tag's closing tag as you type its name (linked editing)", isOn: $settings.linkedEditing)
+            Toggle("Emmet abbreviations in HTML, CSS and JSX (ul>li*3, m10)", isOn: $settings.emmetEnabled)
+            Toggle("Expand Emmet abbreviations with Tab", isOn: $settings.emmetExpandOnTab)
+                .disabled(!settings.emmetEnabled)
             Toggle("Vim mode", isOn: $settings.vimMode)
                 .help("Vim's Normal, Insert and Visual modes and keys in the editor. ⌘ shortcuts keep working.")
             Picker("Auto save", selection: $settings.autoSave) {

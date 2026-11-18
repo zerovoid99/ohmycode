@@ -56,6 +56,7 @@ final class CompletionController {
     private var canComplete: Bool {
         client != nil || editor.document.extensionHost?.hasProviders(.completion, for: editor.document) == true
             || !snippets.isEmpty || editor.document.language == .http || editor.document.language == .sql
+            || editor.emmetSyntax != nil
     }
 
     /// The language's snippets (offered while typing a word).
@@ -64,6 +65,10 @@ final class CompletionController {
     }
 
     static let snippetKind = 15
+    /// The "Emmet Abbreviation" item (listed first while there's one before the cursor) and the
+    /// abbreviation it replaces, which reaches past the word being completed (`ul>li`).
+    static let emmetItemID = 4_000_000
+    private var emmetRange: NSRange?
 
     private func snippetItems(firstID: Int) -> [CompletionItem] {
         var items: [CompletionItem] = []
@@ -168,7 +173,7 @@ final class CompletionController {
                                cursor: Int) {
         // Snippets while typing a word (not after "." and other trigger characters).
         let snippets = trigger == nil ? snippetItems(firstID: 2_000_000) : []
-        guard result != nil || fromExtensions?.items.isEmpty == false || !snippets.isEmpty else { return }
+        guard result != nil || fromExtensions?.items.isEmpty == false || !snippets.isEmpty || editor.emmetSyntax != nil else { return }
         items = (result?.items ?? []) + (fromExtensions?.items ?? []) + snippets
         itemsCursor = cursor
         candidates = items.map { FuzzyCandidate($0.filterText) }
@@ -184,6 +189,11 @@ final class CompletionController {
         guard cursor >= wordStart, cursor <= text.length else { return dismiss() }
         let prefix = text.substring(with: NSRange(location: wordStart, length: cursor - wordStart))
         model.rows = Self.rows(items: items, candidates: candidates, prefix: prefix)
+        emmetRange = nil
+        if let emmet = editor.emmetCompletion(id: Self.emmetItemID) {
+            emmetRange = emmet.range
+            model.rows.insert(CompletionModel.Row(item: emmet.item, matches: []), at: 0)
+        }
         model.selection = 0
         // An exact match stays listed: its insert text may add more (e.g. call arguments).
         if model.rows.isEmpty { return dismiss() }
@@ -303,6 +313,7 @@ final class CompletionController {
         if let editRange = item.editRange {
             replacement = Self.replacementRange(document.range(for: editRange), requestedAt: itemsCursor, cursor: cursor, length: text.length)
         }
+        if item.id == Self.emmetItemID, let emmetRange, NSMaxRange(emmetRange) <= text.length { replacement = emmetRange }
         // In the text before the insertion, which moves those after it.
         let additional = item.additionalTextEdits.map { TextReplacement(range: document.range(for: $0.range), text: $0.newText) }
         let resolving = additional.isEmpty && item.raw != nil ? client : nil

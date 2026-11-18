@@ -439,7 +439,7 @@ extension EditorController {
                 return false
             }
         }
-        if selector == #selector(NSResponder.insertTab(_:)), !hasExtraCursors { return expandSnippetPrefix() }
+        if selector == #selector(NSResponder.insertTab(_:)), !hasExtraCursors { return expandSnippetPrefix() || expandEmmetOnTab() }
         return false
     }
 
@@ -461,6 +461,8 @@ extension EditorController {
         let word = text.substring(with: NSRange(location: start, length: selection.location - start))
         guard let snippet = SnippetLibrary.shared.snippets(for: document.languageId, root: document.workspaceRoot)
             .first(where: { $0.prefixes.contains(word) }) else { return false }
+        // Emmet writes HTML itself: the built-in `div` and `a` give way to it (the user's don't).
+        if snippet.source == "Built-in", AppSettings.shared.emmetExpandOnTab, emmetExpansion() != nil { return false }
         insertSnippet(snippet.body, replacing: NSRange(location: start, length: selection.location - start))
         return true
     }

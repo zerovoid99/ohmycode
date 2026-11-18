@@ -120,6 +120,10 @@ final class AppSettings {
     var autoClosePairs: Bool { didSet { changed() } }
     /// Vim's modes and keys in the code editor.
     var vimMode: Bool { didSet { changed() } }
+    /// Emmet abbreviations in HTML, CSS and JSX (completion item and palette commands).
+    var emmetEnabled: Bool { didSet { changed() } }
+    /// Tab after an abbreviation expands it.
+    var emmetExpandOnTab: Bool { didSet { changed() } }
     /// `files.associations`: a glob on the file name (or path) → the language id its files are in.
     var fileAssociations: [String: String] { didSet { changed() } }
     /// `languageServers.<id>.enabled`: servers turned off (false) or on; unlisted ones are on.
@@ -162,6 +166,8 @@ final class AppSettings {
         stagesResolvedConflicts = defaults.object(forKey: Keys.stagesResolvedConflicts) as? Bool ?? true
         autoClosePairs = defaults.object(forKey: Keys.autoClosePairs) as? Bool ?? true
         vimMode = defaults.object(forKey: Keys.vimMode) as? Bool ?? false
+        emmetEnabled = defaults.object(forKey: Keys.emmetEnabled) as? Bool ?? true
+        emmetExpandOnTab = defaults.object(forKey: Keys.emmetExpandOnTab) as? Bool ?? true
         fileAssociations = defaults.dictionary(forKey: Keys.fileAssociations) as? [String: String] ?? [:]
         languageServersEnabled = defaults.dictionary(forKey: Keys.languageServersEnabled) as? [String: Bool] ?? [:]
         languageHighlighting = defaults.dictionary(forKey: Keys.languageHighlighting) as? [String: String] ?? [:]
@@ -197,6 +203,8 @@ final class AppSettings {
         static let stagesResolvedConflicts = "stagesResolvedConflicts"
         static let autoClosePairs = "autoClosePairs"
         static let vimMode = "vimMode"
+        static let emmetEnabled = "emmet.enabled"
+        static let emmetExpandOnTab = "emmet.expandOnTab"
         static let fileAssociations = "files.associations"
         static let languageServersEnabled = "languageServers.enabled"
         static let languageHighlighting = "languages.highlighting"
@@ -242,6 +250,8 @@ final class AppSettings {
         defaults.set(stagesResolvedConflicts, forKey: Keys.stagesResolvedConflicts)
         defaults.set(autoClosePairs, forKey: Keys.autoClosePairs)
         defaults.set(vimMode, forKey: Keys.vimMode)
+        defaults.set(emmetEnabled, forKey: Keys.emmetEnabled)
+        defaults.set(emmetExpandOnTab, forKey: Keys.emmetExpandOnTab)
         defaults.set(fileAssociations, forKey: Keys.fileAssociations)
         defaults.set(languageServersEnabled, forKey: Keys.languageServersEnabled)
         defaults.set(languageHighlighting, forKey: Keys.languageHighlighting)
@@ -269,6 +279,7 @@ final class AppSettings {
             "zenModeFullScreen": .bool(zenModeFullScreen), "showsCodeLens": .bool(showsCodeLens),
             "autoSave": .string(autoSave.rawValue), "autoSaveDelay": .number(autoSaveDelay), "hotExit": .bool(hotExit),
             "linkedEditing": .bool(linkedEditing),
+            "emmet.enabled": .bool(emmetEnabled), "emmet.expandOnTab": .bool(emmetExpandOnTab),
             "files.associations": .object(fileAssociations.mapValues(JSONValue.string)),
             "languageServers.enabled": .object(languageServersEnabled.mapValues(JSONValue.bool)),
             "languages.highlighting": .object(languageHighlighting.mapValues(JSONValue.string)),
@@ -306,6 +317,8 @@ final class AppSettings {
         if let value = values["stagesResolvedConflicts"]?.bool { stagesResolvedConflicts = value }
         if let value = values["autoClosePairs"]?.bool { autoClosePairs = value }
         if let value = values["vimMode"]?.bool { vimMode = value }
+        if let value = values["emmet.enabled"]?.bool { emmetEnabled = value }
+        if let value = values["emmet.expandOnTab"]?.bool { emmetExpandOnTab = value }
         if let value = values["files.associations"]?.object { fileAssociations = value.compactMapValues(\.string) }
         if let value = values["languageServers.enabled"]?.object { languageServersEnabled = value.compactMapValues(\.bool) }
         if let value = values["languages.highlighting"]?.object { languageHighlighting = value.compactMapValues(\.string) }
